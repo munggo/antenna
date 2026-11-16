@@ -20,6 +20,13 @@ if (a1 === "--feed") {
     // 하위 에이전트는 요즘 판 모양(부를 때 run_in_background 없음, 결과에 isAsync·resolvedModel). 시킨 쪽과 같은 모델이라 깊이는 그 탭의 세션 깊이
     { type: "assistant", uuid: "a2", timestamp: at(300), message: { id: "m2", model: "claude-opus-5-5", content: [{ type: "tool_use", id: "ta", name: "Agent", input: { description: "엔진 조사", prompt: "조사", subagent_type: "general-purpose" } }], stop_reason: "tool_use" } },
     { type: "user", uuid: "u2", timestamp: at(300), toolUseResult: { isAsync: true, status: "async_launched", agentId: "aagapp", resolvedModel: "claude-opus-5-5", outputFile: `${dir}/aagapp.output` }, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "ta", content: "Async agent launched successfully.\nagentId: aagapp" }] } },
+    // 도구를 부르기 전의 설명 글은 요즘 판 모양(내용 없는 생각 칸 + 줄인 '업데이트'가 든 생각 칸, 줄의 thinkingDisplay 가 updates).
+    // 앱 대화에 글로 보여야 한다. 글마다 물결표 범위가 두 번: 그 사이가 취소선이 되면 물결표가 사라진다(앱 화면 시험 VV)
+    { type: "assistant", uuid: "a3", timestamp: at(200), thinkingDisplay: "updates", message: { id: "m3", model: "claude-opus-5-5", content: [{ type: "thinking", thinking: "", signature: "s" }], stop_reason: null } },
+    { type: "assistant", uuid: "a4", timestamp: at(200), thinkingDisplay: "updates", message: { id: "m3", model: "claude-opus-5-5", content: [{ type: "thinking", thinking: "기준표(7~12개월)를 보고 주 80~120g 기록과 견줘 보겠습니다.", signature: "s" }], stop_reason: null } },
+    { type: "assistant", uuid: "a5", timestamp: at(200), message: { id: "m3", model: "claude-opus-5-5", content: [{ type: "tool_use", id: "tr", name: "Read", input: { file_path: `${dir}/table.md` } }], stop_reason: "tool_use" } },
+    { type: "user", uuid: "u3", timestamp: at(199), message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tr", content: "표" }] } },
+    { type: "assistant", uuid: "a6", timestamp: at(198), message: { id: "m4", model: "claude-opus-5-5", content: [{ type: "text", text: "권장량은 하루 5~15분씩, 2~3회입니다." }], stop_reason: "end_turn" } },
   ];
   writeFileSync(`${dir}/t.jsonl`, `${L.map((o) => JSON.stringify(o)).join("\n")}\n`);
   const until = Date.now() + 15_000;

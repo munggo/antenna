@@ -104,6 +104,15 @@ run windows "탭 목록: 백그라운드 탭·뒤에서 도는 일·끝난 것 �
 run switch "계정 전환 때 다시 켤 옵션" "$NODE" claude-remote/test/switch-cases.mjs
 run vpn-guard "VPN 지킴이(선택 기능): 설정 읽기·터널 지키기" "$NODE" test/vpn-guard.test.mjs
 run qr "짝짓기 QR: 그리기·짝짓기 명령·다시 읽기" "$NODE" test/qr.test.mjs
+# 앱의 글 꾸밈 해석은 화면 프레임워크를 쓰지 않는 파일이라, 맥에서 바로 컴파일해 돌린다(swift 가 있을 때)
+inline_markdown() {
+  xcrun swiftc -parse-as-library ios/PiRemote/InlineMarkdown.swift ios/test/inline-markdown.swift -o "$OUT/inline-markdown" && "$OUT/inline-markdown"
+}
+if xcrun -f swiftc >/dev/null 2>&1; then
+  run inline-markdown "앱의 글 꾸밈: 물결표 하나짜리(7~12개월)는 취소선이 아님, 코드·링크는 그대로" inline_markdown
+else
+  skip inline-markdown "swift(Xcode 명령줄 도구)가 없음"
+fi
 # 이 저장소에만 있는 내 시험이 있으면 함께 돌린다(test.local.sh 안에서 run 으로 더함)
 if [ -f test.local.sh ]; then
   . ./test.local.sh
@@ -145,12 +154,12 @@ fi
 
 if [ -n "$LIST" ]; then
   echo "앱 화면 시험(--app 을 주면 이어서 돎):"
-  echo "  app                첫 화면 QR 연결 · 맥 주소와 확인 창 · 관리자 권한 창 · 짝짓기 · 백그라운드 서랍 · 맥북 배터리(시뮬레이터)"
+  echo "  app                첫 화면 QR 연결 · 맥 주소와 확인 창 · 관리자 권한 창 · 짝짓기 · 백그라운드 서랍 · 맥북 배터리 · 대화 글(시뮬레이터)"
   exit 0
 fi
 if [ -n "$APP" ]; then
   export NODE
-  run app "앱 화면: 첫 화면 QR 연결·맥 주소와 확인 창·관리자 권한 창·짝짓기·백그라운드 서랍·맥북 배터리" sh test/app.sh
+  run app "앱 화면: 첫 화면 QR 연결·맥 주소와 확인 창·관리자 권한 창·짝짓기·백그라운드 서랍·맥북 배터리·대화 글" sh test/app.sh
 fi
 echo
 if [ -z "$FAILED" ]; then

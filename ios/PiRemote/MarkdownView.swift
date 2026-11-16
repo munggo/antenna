@@ -228,13 +228,9 @@ enum MarkdownParser {
     }
 
     /// 줄 안의 꾸밈(굵게·기울임·코드·링크). 코드는 고정폭 + 강조색.
+    /// 해석은 InlineMarkdown 이 한다(물결표 하나짜리를 취소선으로 읽지 않게 가려서 넘김).
     static func inline(_ s: String) -> AttributedString {
-        let opts = AttributedString.MarkdownParsingOptions(
-            allowsExtendedAttributes: false,
-            interpretedSyntax: .inlineOnlyPreservingWhitespace,
-            failurePolicy: .returnPartiallyParsedIfPossible
-        )
-        var attr = (try? AttributedString(markdown: s, options: opts)) ?? AttributedString(s)
+        var attr = InlineMarkdown.parse(s)
         for run in attr.runs where run.inlinePresentationIntent?.contains(.code) == true {
             attr[run.range].font = .system(size: Typo.inlineCode, design: .monospaced)
             attr[run.range].foregroundColor = Theme.codeInline

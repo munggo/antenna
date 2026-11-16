@@ -566,9 +566,14 @@ export function createConverter() {
       const blocks = [...prev.blocks];
       for (const b of Array.isArray(m.content) ? m.content : []) {
         if (b?.type === "text") blocks.push({ type: "text", text: b.text ?? "" });
-        else if (b?.type === "thinking" || b?.type === "redacted_thinking")
-          blocks.push({ type: "thinking", ref: `${o.uuid}:${blocks.length}`, desc: (lines(b.thinking ?? "")[0] ?? "").replace(/[*#`>_]/g, "").slice(0, 80), _text: b.thinking ?? "" });
-        else if (b?.type === "tool_use") {
+        else if (b?.type === "thinking" || b?.type === "redacted_thinking") {
+          // 요즘 Claude Code 는 도구를 부르기 전에 쓴 설명 글을 한두 문장으로 줄여 '생각' 칸에 담아 남긴다
+          // (그 줄의 thinkingDisplay 가 "updates". 진짜 생각은 내용 없이 서명만 옴). 맥 화면이 '… · summary'로 보여 주는 글이라,
+          // 폰에서도 단계 속에 접지 않고 대화 글로 보인다(update 표시: 답변 복사·끝남 알림에는 넣지 않음)
+          const said = o.thinkingDisplay === "updates" ? String(b.thinking ?? "").trim() : "";
+          if (said) blocks.push({ type: "text", text: said, update: true });
+          else blocks.push({ type: "thinking", ref: `${o.uuid}:${blocks.length}`, desc: (lines(b.thinking ?? "")[0] ?? "").replace(/[*#`>_]/g, "").slice(0, 80), _text: b.thinking ?? "" });
+        } else if (b?.type === "tool_use") {
           calls.set(b.id, { name: b.name, input: b.input ?? {} });
           if (b.name === "TodoWrite" && Array.isArray(b.input?.todos)) {
             todoList = b.input.todos.map((t) => ({ content: String(t?.content ?? ""), status: STATUS.has(t?.status) ? t.status : "pending", ...(t?.activeForm ? { activeForm: String(t.activeForm) } : {}) }));
@@ -600,6 +605,14 @@ export function createConverter() {
   };
   /** 폰에 보낼 모양(생각 본문은 상세 요청 때만) */
   const publicMsg = (m) => (m.role === "assistant" ? { ...m, blocks: m.blocks.map(({ _text, ...b }) => b) } : m);
+  const lastAssistant = () => {
+    for (let i = order.length - 1; i >= 0; i--) {
+      const m = byId.get(order[i]);
+      if (m.role === "assistant") return m;
+      if (m.role === "user") return null;
+    }
+    return null;
+  };
   return {
     add: (o) => add(o).map(publicMsg),
     messages: () => order.map((id) => publicMsg(byId.get(id))),
@@ -611,14 +624,9 @@ export function createConverter() {
     /** 할 일 목록(새 방식이 있으면 그것, 없으면 예전 방식) */
     todos: () => (tasks.size ? [...tasks.entries()].sort((a, b) => Number(a[0]) - Number(b[0])).map(([, t]) => ({ ...t })) : (todoList ?? [])),
     image: (id) => images.get(id),
-    lastAssistant: () => {
-      for (let i = order.length - 1; i >= 0; i--) {
-        const m = byId.get(order[i]);
-        if (m.role === "assistant") return m;
-        if (m.role === "user") return null;
-      }
-      return null;
-    },
+    lastAssistant,
+    /** 마지막 답의 글(도구를 부르기 전의 진행 설명은 빼고): 작업이 끝났을 때 알림·백그라운드 보고에 씀 */
+    lastAnswerText: () => (lastAssistant()?.blocks ?? []).filter((b) => b.type === "text" && !b.update).map((b) => b.text).join("\n"),
     /** 단계 상세(pi 피드와 같은 모양) */
     detail: (o) => {
       if (o.kind === "thinking") {
@@ -1302,8 +1310,7 @@ export function runFeed(pane) {
       conv.clearQueue();
       pushQueue();
       broadcast({ t: "working", value: false });
-      const last = conv.lastAssistant();
-      const text = (last?.blocks ?? []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+      const text = conv.lastAnswerText();
       const ls = lines(text);
       const tail = ls[ls.length - 1] ?? "";
       const durationSec = workSince ? (Date.now() - workSince) / 1000 : 0;

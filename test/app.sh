@@ -3,7 +3,8 @@
 #   LL 첫 화면에서 QR 링크로 연결 · PP 맥 주소와 확인 창 · QQ 관리자 권한 창(버튼 카드·가려진 입력란) ·
 #   RR 한 번 쓰는 코드로 짝짓고 암호화 연결로 붙기 · SS 서랍의 백그라운드 칸(끝난 것 모두 닫기, 뒤에서 도는 작업 목록·종료) ·
 #   TT 사진 보관함에서 두 장 고르기(입력창 칸·그림·맥에 올리기, 걸린 시간은 기록에 '[TT]') · B 붙인 사진을 x 로 빼기 ·
-#   UU 맥북 배터리('연결됨' 옆 잔량, 충전기·낮음, 배터리 없는 맥)
+#   UU 맥북 배터리('연결됨' 옆 잔량, 충전기·낮음, 배터리 없는 맥) ·
+#   VV Claude Code 탭의 대화 글(도구 앞의 진행 설명이 보이는지, 물결표 범위가 취소선이 되지 않는지, 답변 복사에는 답만)
 # 쓰기: sh test/app.sh [시험 이름 일부…]   예) sh test/app.sh QQ     (sh test.sh --app 으로도 부름)
 # 하는 일: 시험용 tmux 세션과 시험 브리지(이 맥 안에서만 닿는 127.0.0.1)를 띄우고, 시뮬레이터를 켜서 시험한 뒤 모두 치운다.
 #          쓰는 tmux 세션(antenna)·쓰는 브리지·켜져 있는 다른 시뮬레이터는 건드리지 않는다.
@@ -119,7 +120,7 @@ xcrun simctl bootstatus "$SIM" -b >/dev/null 2>&1
 xcrun simctl keychain "$SIM" reset
 
 ONLY=""
-for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testB_RemoveAttachment; do
+for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testB_RemoveAttachment; do
   if [ $# -eq 0 ]; then ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t"; continue; fi
   for want in "$@"; do case "$t" in *"$want"*) ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t" ;; esac; done
 done
@@ -163,6 +164,14 @@ case "$ONLY" in *testSS_BackgroundDrawer*)
     else echo "통과  맥 쪽: 앱에서 종료한 뒤에서 도는 셸이 실제로 종료됨"; fi
     if grep -q "TaskStop" "$FK/typed.txt" 2>/dev/null && grep -q "aagapp" "$FK/typed.txt"; then echo "통과  맥 쪽: 에이전트는 Claude 에게 TaskStop 으로 종료해 달라는 글이 감"
     else echo "실패  맥 쪽: 에이전트를 종료해 달라는 글이 가지 않음"; RC=1; fi
+  fi ;;
+esac
+# VV 가 돌았으면 맥 쪽도 확인: '답변 복사'로 복사한 글에는 답의 글만 있고, 도구 앞의 진행 설명은 없는지(시뮬레이터의 복사한 글을 읽음)
+case "$ONLY" in *testVV_UpdatesAndTildes*)
+  if [ $RC -eq 0 ]; then
+    COPIED=$(xcrun simctl pbpaste "$SIM" 2>/dev/null)
+    if [ "$COPIED" = "권장량은 하루 5~15분씩, 2~3회입니다." ]; then echo "통과  맥 쪽: 답변 복사에는 답의 글만(도구 앞의 진행 설명은 빠짐)"
+    else echo "실패  맥 쪽: 답변 복사한 글이 다름: $COPIED"; RC=1; fi
   fi ;;
 esac
 if [ $RC -eq 0 ]; then echo "앱 화면 시험 통과"; else echo "앱 화면 시험 실패(끝 코드 $RC). 기록: /tmp/antenna-app-test.log"; fi

@@ -320,8 +320,11 @@ enum ChatItemBuilder {
                         if !t.isEmpty {
                             flush()
                             items.append(.text(id: "\(m.id)-\(i)", text: t))
-                            turnTexts.append(t)
-                            turnId = m.id
+                            // 도구 사이의 진행 설명은 화면에만 보이고, 답변 복사에는 답의 글만 넣는다
+                            if b.update != true {
+                                turnTexts.append(t)
+                                turnId = m.id
+                            }
                         }
                     case "tool":
                         let callId = b.id ?? "\(m.id)-\(i)"

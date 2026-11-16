@@ -2154,6 +2154,32 @@ final class PiRemoteUITests: XCTestCase {
         power("Battery Power", 94, "discharging")   // 뒤 시험을 위해 되돌림
     }
 
+    /// VV. Claude Code 탭의 대화 글(가짜 Claude Code 의 대화 기록으로 봄, 11-17 사용자 보고 둘):
+    ///     ① 도구를 부르기 전의 진행 설명(맥 화면이 '… · summary'로 보여 주는 글)이 단계 속에 접히지 않고 대화에 보인다
+    ///     ② 물결표 범위가 두 번 나와도 그 사이가 취소선으로 지워지지 않는다(지워지면 물결표가 사라져 글이 달라짐)
+    ///     ③ 답변 복사에는 답의 글만(진행 설명은 빼고): 여기서는 누르기만 하고, 복사된 글은 test/app.sh 가 맥에서 읽어 확인
+    func testVV_UpdatesAndTildes() throws {
+        guard let text = try? String(contentsOfFile: "/tmp/ptest/bg-wins", encoding: .utf8) else { throw XCTSkip("가짜 Claude Code 탭 준비 안 됨") }
+        let n = text.split(separator: " ").compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        guard n.count == 4 else { throw XCTSkip("가짜 Claude Code 탭 준비가 이상함: \(text)") }
+        relaunch(test: "")
+        openTab(n[3])   // 가짜 Claude Code 가 도는 탭
+        let says = { (part: String) in self.app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", part)).firstMatch }
+        let seen = { self.app.staticTexts.allElementsBoundByIndex.map(\.label).filter { $0.count > 6 }.prefix(12).joined(separator: " | ") }
+        let update = says("기준표(7~12개월)를 보고 주 80~120g 기록과 견줘 보겠습니다.")
+        XCTAssertTrue(update.waitForExistence(timeout: 20), "도구 앞의 진행 설명이 대화 글로 보이고 물결표도 그대로여야 함(지금 보이는 글: \(seen()))")
+        let answer = says("권장량은 하루 5~15분씩, 2~3회입니다.")
+        XCTAssertTrue(answer.exists, "답의 물결표 범위도 그대로여야 함(지금 보이는 글: \(seen()))")
+        XCTAssertLessThan(update.frame.minY, answer.frame.minY, "진행 설명은 쓴 순서대로 답보다 위에")
+        XCTAssertTrue(el("toolGroup").exists, "도구 단계 줄은 그대로 있음")
+        shot("vv-updates")
+        let copy = el("copyAnswer")
+        XCTAssertTrue(copy.waitForExistence(timeout: 5), "끝난 답 아래에 복사 버튼")
+        copy.tap()
+        let done = expectation(for: NSPredicate(format: "label == '복사됨'"), evaluatedWith: copy)
+        XCTAssertEqual(XCTWaiter().wait(for: [done], timeout: 3), .completed, "누르면 '복사됨'으로 바뀌어야 함")
+    }
+
     /// TT. 사진 보관함에서 두 장을 고르면 입력창에 두 칸이 뜨고, 그림이 채워진 뒤 맥에 올라가야 한다
     ///     (사용자 보고 11-15 '사진을 고른 뒤 썸네일이 뜨기까지 시간이 걸림'). 걸린 시간은 시험 기록에 '[TT]' 로 남김
     func testTT_PhotoPicker() {

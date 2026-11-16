@@ -52,6 +52,31 @@ const d = c.detail({ id: "t1" });
 ok(d.kind === "bash" && d.command === "echo hi" && d.output === "hi" && d.done === true, "명령 상세: 명령·출력·끝남");
 ok(c.detail({ id: "없음" }).error, "없는 도구 상세는 안내");
 
+// 3-0. 도구를 부르기 전의 설명 글: 요즘 Claude Code 는 글이 아니라 줄인 '업데이트'를 생각 칸에 담아 남긴다(그 줄의 thinkingDisplay 가 "updates").
+//      폰에서 단계 속에 접히지 않게 대화 글로 바꾸고(update 표시), 내용 없는 진짜 생각 칸은 그대로 단계로 둔다(11-17 사용자 보고: 맥 화면에는 보이는데 앱에는 없음)
+const cu = createConverter();
+[
+  { type: "user", uuid: "uu1", message: { role: "user", content: "고쳐 줘" } },
+  { type: "assistant", uuid: "ua1", thinkingDisplay: "updates", thinkingDurationMs: 8554, message: { id: "um1", content: [{ type: "thinking", thinking: "", signature: "s" }], stop_reason: null } },
+  { type: "assistant", uuid: "ua2", thinkingDisplay: "updates", thinkingDurationMs: 1, message: { id: "um1", content: [{ type: "thinking", thinking: "원인을 찾았고 이제 고치겠습니다.\n", signature: "s" }], stop_reason: null } },
+  { type: "assistant", uuid: "ua3", message: { id: "um1", content: [{ type: "tool_use", id: "ut1", name: "Bash", input: { command: "ls", description: "목록" } }], stop_reason: "tool_use" } },
+  { type: "user", uuid: "uu2", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "ut1", content: "a" }] } },
+  // 표시 방식이 다른 줄(생각을 줄여서 주는 방식)의 생각 칸은 진행 설명이 아니다
+  { type: "assistant", uuid: "ua4", thinkingDisplay: "summarized", message: { id: "um2", content: [{ type: "thinking", thinking: "줄인 생각", signature: "s" }], stop_reason: null } },
+  { type: "assistant", uuid: "ua5", thinkingDisplay: "updates", message: { id: "um2", content: [{ type: "thinking", thinking: "  \n", signature: "s" }], stop_reason: null } },
+  { type: "assistant", uuid: "ua6", thinkingDisplay: "updates", message: { id: "um2", content: [{ type: "thinking", thinking: "마무리 확인 중입니다.", signature: "s" }], stop_reason: null } },
+  { type: "assistant", uuid: "ua7", message: { id: "um2", content: [{ type: "text", text: "다 고쳤습니다.\n시험도 통과했습니다." }], stop_reason: "end_turn" } },
+].forEach((l) => cu.add(l));
+const um = cu.messages();
+const u1 = um[1].blocks, u2 = um[3].blocks;
+ok(u1.length === 3 && u1[0].type === "thinking" && u1[0].desc === "" && u1[1].type === "text" && u1[1].text === "원인을 찾았고 이제 고치겠습니다." && u1[1].update === true && u1[2].type === "tool",
+  "도구 앞의 진행 설명(업데이트)은 대화 글로, 내용 없는 생각 칸은 단계 그대로");
+ok(u2.length === 4 && u2[0].type === "thinking" && u2[0].desc === "줄인 생각" && u2[1].type === "thinking", "다른 표시 방식의 생각·빈 업데이트는 생각 그대로");
+ok(u2[2].type === "text" && u2[2].update === true && u2[3].type === "text" && !("update" in u2[3]), "마지막 답의 글에는 update 표시가 없음");
+ok(cu.lastAnswerText() === "다 고쳤습니다.\n시험도 통과했습니다.", "끝남 알림에 쓰는 마지막 답의 글에는 진행 설명을 넣지 않음");
+ok(cu.detail({ kind: "thinking", ref: u1[0].ref }).text.includes("남기지 않았어요"), "내용 없는 생각 칸의 상세는 안내 글");
+ok(c.lastAnswerText() === "끝났어요", "진행 설명이 없던 대화의 마지막 답 글은 전과 같음");
+
 // 3-1. 질문 창 키 순서·답 요약
 const K = (seq) => seq.map((k) => (k.text !== undefined ? `"${k.text}"` : k.key)).join(" ");
 const Q = (question, labels, multiSelect = false) => ({ question, options: labels.map((label) => ({ label, description: "" })), multiSelect });

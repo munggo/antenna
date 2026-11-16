@@ -39,6 +39,7 @@ struct ChatBlock: Codable, Equatable {
     let stats: ChangeStats? // 파일 도구가 바꾼 줄 수
     let ref: String?        // 생각 블록 위치("메시지시각:블록번호", 상세 요청용)
     let image: Bool?        // 사진 파일을 읽은 단계(대화에 그 사진을 보여줌)
+    let update: Bool?       // 도구를 부르기 전의 짧은 진행 설명(Claude Code 가 줄여서 준 글). 대화에는 보이고 '답변 복사'에는 넣지 않음
 }
 
 struct ChatMessage: Codable, Identifiable, Equatable {
