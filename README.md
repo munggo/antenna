@@ -58,7 +58,9 @@ sh install.sh
 
 **2. Put the app on your phone**
 
-For now you build it yourself:
+If you were invited to TestFlight, follow the invitation email and get Antenna in the TestFlight app. An app installed this way gets no notifications (see [Status](#status)).
+
+Without an invitation, build it yourself:
 
 ```sh
 cp ios/Local.xcconfig.example ios/Local.xcconfig   # put your Apple team ID and your own identifier prefix in it
@@ -131,8 +133,8 @@ If the bridge ever dies, the reason is kept in `~/.cache/pi-remote/crash.log` an
 A personal tool that grew up; expect rough edges.
 
 - macOS and iOS only.
-- No prebuilt app yet: you build and sign it yourself.
-- Notifications need your own Apple developer push key.
+- The prebuilt app is shared only by TestFlight invitation for now. Without an invitation you build and sign it yourself.
+- Notifications need your own Apple developer push key. So they come only to an app you built yourself, not to one installed from TestFlight.
 
 ## License
 

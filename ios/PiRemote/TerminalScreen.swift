@@ -80,7 +80,7 @@ struct TerminalScreen: View {
             }
             Button("취소", role: .cancel) { closeTarget = nil }
         } message: {
-            Text(session.windows.count <= 1 ? "마지막 창은 닫을 수 없어요." : "이 창에서 실행 중인 pi 도 함께 종료돼요.")
+            Text(session.windows.count <= 1 ? "마지막 창은 닫을 수 없어요." : "이 창에서 실행 중인 작업도 함께 종료돼요.")
         }
         .confirmationDialog("끝난 백그라운드 탭 \(session.windows.filter(\.finishedBackground).count)개를 닫을까요?",
                             isPresented: $confirmCloseFinished, titleVisibility: .visible) {
@@ -99,7 +99,9 @@ struct TerminalScreen: View {
             Button("새 대화 시작") { session.newConversation() }
             Button("취소", role: .cancel) {}
         } message: {
-            Text("지금 대화는 pi 기록에 남아요. 맥 pi 에서 /resume 으로 다시 열 수 있어요.")
+            // 이 탭에서 도는 것의 이름으로(Claude Code 탭에서는 /clear 로 바뀌어 들어가고, 둘 다 /resume 으로 다시 엶)
+            let agent = session.chat.meta.agentName == "Claude" ? "Claude Code" : "pi"
+            Text("지금 대화는 \(agent) 기록에 남아요. 맥 \(agent) 에서 /resume 으로 다시 열 수 있어요.")
         }
         .sheet(isPresented: $showMemory) { MemorySheet(session: session, meta: session.chat.meta) }
         // 아티팩트: 목록(📎)과 전체 화면 보기. 내용은 맥 피드에 요청

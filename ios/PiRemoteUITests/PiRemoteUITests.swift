@@ -1742,6 +1742,27 @@ final class PiRemoteUITests: XCTestCase {
         el("tab-jobs-\(doneJobs)").tap()
         XCTAssertTrue(app.staticTexts["이 탭의 Claude Code 에 연결되지 않았어요"].waitForExistence(timeout: 20), "연결부가 없는 탭은 안내")
         el("jobsClose").tap()
+        // 7) 확인 창의 글(11-16 사용자 보고: Claude Code 탭을 닫는데 'pi 도 함께 종료돼요'라고 나옴).
+        //    창 닫기는 탭에서 무엇이 돌든 맞는 말로, 새 대화는 그 탭에서 도는 것의 이름으로. 창은 닫지 않고 글만 본 뒤 물린다
+        let dismiss = { (text: XCUIElement) in
+            if self.app.buttons["취소"].exists { self.app.buttons["취소"].tap() }
+            else { self.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap() }
+            _ = self.waitGone(text, 5)
+        }
+        el("moreMenu").tap()
+        app.buttons["창 닫기"].tap()
+        let closeNote = app.staticTexts["이 창에서 실행 중인 작업도 함께 종료돼요."]
+        XCTAssertTrue(closeNote.waitForExistence(timeout: 5), "창 닫기 확인 창의 글")
+        shot("ss-close-confirm")
+        dismiss(closeNote)
+        XCTAssertTrue(el("tab-\(doneJobs)").exists || !el("drawer").exists, "물리면 창은 그대로")
+        openTab(jobsTab)   // 가짜 Claude Code 가 도는 탭
+        el("moreMenu").tap()
+        app.buttons["새 대화"].tap()
+        let newNote = app.staticTexts["지금 대화는 Claude Code 기록에 남아요. 맥 Claude Code 에서 /resume 으로 다시 열 수 있어요."]
+        XCTAssertTrue(newNote.waitForExistence(timeout: 5), "Claude Code 탭의 새 대화 확인 창은 Claude Code 라고 적음")
+        shot("ss-new-confirm")
+        dismiss(newNote)
     }
 
     /// QQ. 관리자 권한 확인 창(🔐 탭): 확인 단계에는 버튼(실행·명령 보기·취소)만 있고 글을 넣을 칸이 없다. 실행하면 가려진 칸이 나오고,
