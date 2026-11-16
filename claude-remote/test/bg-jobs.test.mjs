@@ -166,6 +166,11 @@ try {
   ok(!alive(shellPid) && !alive(sleeper), "2) 셸과 그 안에서 돌던 명령이 종료됨");
   ok(alive(outsider.pid), "2) 칸 밖에서 같은 출력 파일을 연 프로세스는 그대로");
   ok(notices.some((t) => /'긴 시험 돌리기' 작업을 종료했어요/.test(t)), `2) 종료했다는 안내(${notices.join(" / ")})`);
+  // 종료 답에 실린 목록은 강제로 끈 직후에 만든 것이라 그 셸이 아직 남아 보일 때가 있다(11-16 전체 시험에서 한 번). 남았으면 다시 물어 봄
+  for (let i = 0; i < 3 && Array.isArray(jobs) && jobs.some((j) => j.id === "bsh1"); i++) {
+    await sleep(700);
+    await ask();
+  }
   ok(Array.isArray(jobs) && !jobs.some((j) => j.id === "bsh1"), "2) 새 목록에서 빠짐");
 
   // 3) 에이전트 종료: Claude 에게 종료해 달라고 보냄

@@ -91,6 +91,7 @@ sudo_tab() {
 run usage "사용량 기록·공유 값" "$NODE" server/test/usage-history.test.mjs
 run status-line "맥 화면 상태 줄에서 모델·생각 깊이 읽기, 입력창이 비었는지" "$NODE" server/test/status-line.test.mjs
 run live-activity "작업 표시(잠금 화면)" "$NODE" server/test/live-activity.test.mjs
+run battery "맥북 배터리 읽기(잔량·충전기·낮음)" "$NODE" server/test/battery.test.mjs
 run advertise "브리지가 죽지 않는지(자동 발견 오류·죽음 기록)" "$NODE" server/test/advertise.test.mjs
 run devices "기기별 토큰·짝짓기 코드(만들기·한 번 쓰기·끊기)" "$NODE" server/test/devices.test.mjs
 run tls "연결 암호화(인증서·지문, 포트 하나에서 가려 받기)" "$NODE" server/test/tls.test.mjs
@@ -125,6 +126,7 @@ if command -v tmux >/dev/null 2>&1; then
   run pairing "짝짓기·기기 토큰으로 붙기·바꾸기·끊기, 예전 토큰에서 옮기기" "$NODE" server/test/pairing.test.mjs
   run accounts-alert "개인·회사 계정이 섞이면 어느 쪽인지 가려 폰에 알림" "$NODE" server/test/accounts-alert.test.mjs
   run bg-drawer "서랍의 백그라운드 칸: 실행기·탭 목록·끝난 것 모두 닫기" "$NODE" server/test/bg-drawer.test.mjs
+  run battery-bridge "맥북 배터리를 앱에 보내고, 낮으면 폰에 한 번 알림" "$NODE" server/test/battery-bridge.test.mjs
   run install "설치 명령: 새 맥(가짜 홈)에서 설치·브리지·점검·짝짓기" "$NODE" test/install.test.mjs
 else
   skip sudo-tab "tmux 가 없음"
@@ -137,17 +139,18 @@ else
   skip pairing "tmux 가 없음"
   skip accounts-alert "tmux 가 없음"
   skip bg-drawer "tmux 가 없음"
+  skip battery-bridge "tmux 가 없음"
   skip install "tmux 가 없음"
 fi
 
 if [ -n "$LIST" ]; then
   echo "앱 화면 시험(--app 을 주면 이어서 돎):"
-  echo "  app                첫 화면 QR 연결 · 맥 주소와 확인 창 · 관리자 권한 창 · 짝짓기 · 백그라운드 서랍(시뮬레이터)"
+  echo "  app                첫 화면 QR 연결 · 맥 주소와 확인 창 · 관리자 권한 창 · 짝짓기 · 백그라운드 서랍 · 맥북 배터리(시뮬레이터)"
   exit 0
 fi
 if [ -n "$APP" ]; then
   export NODE
-  run app "앱 화면: 첫 화면 QR 연결·맥 주소와 확인 창·관리자 권한 창·짝짓기·백그라운드 서랍" sh test/app.sh
+  run app "앱 화면: 첫 화면 QR 연결·맥 주소와 확인 창·관리자 권한 창·짝짓기·백그라운드 서랍·맥북 배터리" sh test/app.sh
 fi
 echo
 if [ -z "$FAILED" ]; then

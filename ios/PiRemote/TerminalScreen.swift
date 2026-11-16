@@ -215,6 +215,13 @@ struct TerminalScreen: View {
                         .font(.system(size: Typo.subtitle))
                         .foregroundColor(Theme.muted)
                         .lineLimit(1)
+                    // 맥북 배터리: 연결돼 있을 때만(끊긴 동안의 값은 낡았을 수 있음). 충전기를 꽂았으면 번개, 낮으면 빨갛게
+                    if session.status == .connected, let b = session.macBattery {
+                        Text("·")
+                            .font(.system(size: Typo.subtitle))
+                            .foregroundColor(Theme.muted)
+                        MacBatteryLabel(battery: b)
+                    }
                 }
             }
 
@@ -413,6 +420,43 @@ enum TestImages {
         }
     }
     #endif
+}
+
+/// 화면 위 '연결됨' 옆의 맥북 배터리: 그림 + 잔량(사용자 요청 11-16).
+/// 충전기를 꽂았으면 번개, 충전기 없이 낮으면(기준은 맥이 정함) 빨갛게. 배터리가 없는 맥에서는 값이 오지 않아 보이지 않는다
+struct MacBatteryLabel: View {
+    let battery: MacBattery
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: Self.icon(battery))
+                .font(.system(size: Typo.subtitle - 2))
+            Text("\(battery.percent)%")
+                .font(.system(size: Typo.subtitle))
+                .lineLimit(1)
+        }
+        .foregroundColor(battery.low ? Theme.red : Theme.muted)
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("macBattery")
+        .accessibilityLabel(Self.spoken(battery))
+    }
+
+    /// 충전기를 꽂았으면 번개, 아니면 잔량에 가까운 배터리 그림
+    static func icon(_ b: MacBattery) -> String {
+        if b.plugged { return "bolt.fill" }
+        switch b.percent {
+        case ..<13: return "battery.0"
+        case ..<38: return "battery.25"
+        case ..<63: return "battery.50"
+        case ..<88: return "battery.75"
+        default: return "battery.100"
+        }
+    }
+
+    /// "맥 배터리 94%" · "맥 배터리 94%, 충전기 연결됨" · "맥 배터리 18%, 낮음"(VoiceOver·시험용)
+    static func spoken(_ b: MacBattery) -> String {
+        "맥 배터리 \(b.percent)%" + (b.plugged ? ", 충전기 연결됨" : b.low ? ", 낮음" : "")
+    }
 }
 
 /// 위쪽 📎 버튼: 이 대화에 아티팩트가 있으면 개수와 함께

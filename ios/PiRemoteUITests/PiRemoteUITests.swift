@@ -2120,6 +2120,40 @@ final class PiRemoteUITests: XCTestCase {
         if el("stopButton").exists { el("stopButton").tap() }
     }
 
+    /// UU. 맥북 배터리(사용자 요청 11-16): 화면 위 '연결됨' 옆에 잔량이 보이고, 충전기를 꽂으면 번개·충전기 없이 20% 아래면 낮음(빨강),
+    ///     배터리가 없는 맥이면 보이지 않는다.
+    ///     맥 쪽: 시험 브리지가 /tmp/ptest/battery 의 글을 pmset 출력으로 1초마다 읽는다(test/app.sh). 이 시험이 그 글을 바꿔 가며 본다
+    func testUU_MacBattery() throws {
+        let path = "/tmp/ptest/battery"
+        guard FileManager.default.fileExists(atPath: path) else { throw XCTSkip("배터리 시험 준비 안 됨") }
+        let power = { (source: String, pct: Int, state: String) in
+            try? "Now drawing from '\(source)'\n -InternalBattery-0 (id=1234567)\t\(pct)%; \(state); 1:00 remaining present: true\n"
+                .write(toFile: path, atomically: true, encoding: .utf8)
+        }
+        let label = el("macBattery")
+        let shows = { (want: String) -> Bool in
+            for _ in 0..<50 {
+                if label.exists && label.label == want { return true }
+                usleep(300_000)
+            }
+            return false
+        }
+        let now = { label.exists ? label.label : "없음" }
+        power("Battery Power", 94, "discharging")
+        relaunch(test: "")
+        XCTAssertTrue(shows("맥 배터리 94%"), "연결되면 '연결됨' 옆에 잔량(현재: \(now()))")
+        shot("uu-battery")
+        power("AC Power", 45, "charging")
+        XCTAssertTrue(shows("맥 배터리 45%, 충전기 연결됨"), "충전기를 꽂으면 바뀜(현재: \(now()))")
+        shot("uu-plugged")
+        power("Battery Power", 18, "discharging")
+        XCTAssertTrue(shows("맥 배터리 18%, 낮음"), "충전기 없이 20% 아래면 낮음(현재: \(now()))")
+        shot("uu-low")
+        try? "Now drawing from 'AC Power'\n".write(toFile: path, atomically: true, encoding: .utf8)
+        XCTAssertTrue(waitGone(label, 15), "배터리가 없는 맥이면 보이지 않음")
+        power("Battery Power", 94, "discharging")   // 뒤 시험을 위해 되돌림
+    }
+
     /// TT. 사진 보관함에서 두 장을 고르면 입력창에 두 칸이 뜨고, 그림이 채워진 뒤 맥에 올라가야 한다
     ///     (사용자 보고 11-15 '사진을 고른 뒤 썸네일이 뜨기까지 시간이 걸림'). 걸린 시간은 시험 기록에 '[TT]' 로 남김
     func testTT_PhotoPicker() {

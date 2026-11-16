@@ -138,7 +138,11 @@ try {
   const t3 = Date.now();
   mode("still");
   ok(Boolean(await waitFor(() => working === false, 15_000)), `3) 끝난 화면으로 멈추면 쉬는 중으로 되돌림(${Math.round((Date.now() - t3) / 1000)}초, 상태 줄 사용량은 바뀌는 중)`);
-  ok(/바로잡음: .*\| .*Cooked for 2s.* ⏎ ⏵⏵ auto mode on/.test(log()), "3) 바로잡을 때 화면의 진행 줄 자리와 모드 줄을 기록에 적음");
+  // 연결부는 '쉬는 중'을 먼저 알리고 tmux 를 두세 번 부른 뒤에 기록을 적는다. 알림을 받자마자 읽으면 기록이 아직 없을 때가 있어 기다림
+  // (11-16 전체 시험 5번 가운데 2번 여기서만 실패)
+  const fixed = () => (log().match(/바로잡음: [^\n]*/g) ?? []).pop() ?? "기록 없음";
+  ok(Boolean(await waitFor(() => /바로잡음: .*\| .*Cooked for 2s.* ⏎ ⏵⏵ auto mode on/.test(log()), 3000)),
+    `3) 바로잡을 때 화면의 진행 줄 자리와 모드 줄을 기록에 적음(${fixed().slice(0, 160)})`);
   // 4) 잘못 꺼진 뒤 도구 끝 훅 → 다시 작업 중
   hook({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_use_id: "s-1", tool_input: { command: "sleep 600" }, tool_response: {} });
   ok(Boolean(await waitFor(() => working === true, 3000)), "4) 꺼진 뒤 도구 끝 훅이 오면 다시 작업 중");
@@ -170,7 +174,7 @@ try {
   // 사람 글(시작 훅 없이)
   user("새 질문");
   ok(Boolean(await waitFor(() => working === true, 3000)), "8) 시작 훅 없이 사람 글이 기록되면 작업 중");
-  ok(/대화 기록이 이어져 작업 중으로/.test(log()), "8) 기록에 까닭을 적음");
+  ok(Boolean(await waitFor(() => /대화 기록이 이어져 작업 중으로/.test(log()), 3000)), "8) 기록에 까닭을 적음");
   hook({ hook_event_name: "Stop" });
   await waitFor(() => working === false, 3000);
   // 뒤에서 돌던 작업이 끝났다는 알림(대화에는 안 보임)으로 새 차례

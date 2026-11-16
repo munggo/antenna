@@ -2,7 +2,8 @@
 # 앱 화면 시험(시뮬레이터): 모델이 필요 없는 것들을 환경 준비부터 정리까지 한 번에 돌린다(빌드 포함 7~8분).
 #   LL 첫 화면에서 QR 링크로 연결 · PP 맥 주소와 확인 창 · QQ 관리자 권한 창(버튼 카드·가려진 입력란) ·
 #   RR 한 번 쓰는 코드로 짝짓고 암호화 연결로 붙기 · SS 서랍의 백그라운드 칸(끝난 것 모두 닫기, 뒤에서 도는 작업 목록·종료) ·
-#   TT 사진 보관함에서 두 장 고르기(입력창 칸·그림·맥에 올리기, 걸린 시간은 기록에 '[TT]') · B 붙인 사진을 x 로 빼기
+#   TT 사진 보관함에서 두 장 고르기(입력창 칸·그림·맥에 올리기, 걸린 시간은 기록에 '[TT]') · B 붙인 사진을 x 로 빼기 ·
+#   UU 맥북 배터리('연결됨' 옆 잔량, 충전기·낮음, 배터리 없는 맥)
 # 쓰기: sh test/app.sh [시험 이름 일부…]   예) sh test/app.sh QQ     (sh test.sh --app 으로도 부름)
 # 하는 일: 시험용 tmux 세션과 시험 브리지(이 맥 안에서만 닿는 127.0.0.1)를 띄우고, 시뮬레이터를 켜서 시험한 뒤 모두 치운다.
 #          쓰는 tmux 세션(antenna)·쓰는 브리지·켜져 있는 다른 시뮬레이터는 건드리지 않는다.
@@ -41,7 +42,7 @@ cleanup() {
   xcrun simctl terminate "$SIM" "$ID" >/dev/null 2>&1
   xcrun simctl uninstall "$SIM" "$ID" >/dev/null 2>&1   # 시험이 깐 앱은 남기지 않는다
   [ "$WAS_BOOTED" = 0 ] && xcrun simctl shutdown "$SIM" 2>/dev/null
-  rm -rf "$D" "$W/secret-win" "$W/secret-win2" "$W/secret-cancel-flag" "$W/secret-got" "$W/pair-hosts-ok" "$W/pair-code-link" "$W/bg-wins"
+  rm -rf "$D" "$W/secret-win" "$W/secret-win2" "$W/secret-cancel-flag" "$W/secret-got" "$W/pair-hosts-ok" "$W/pair-code-link" "$W/bg-wins" "$W/battery"
   rm -f "$HOME/.cache/pi-remote/notify-$S.sock"
 }
 trap cleanup EXIT
@@ -59,7 +60,9 @@ touch "$D/locked"
 # 설정 폴더도 임시로(PI_REMOTE_ENV): 짝지은 기기·인증서가 쓰는 설정(~/.config/pi-remote)과 섞이지 않게
 mkdir -p "$D/conf"
 : > "$D/conf/env"
-tmux new-session -d -s "$B" -c "$REPO/server" "env PI_REMOTE_ENV=$D/conf/env PI_REMOTE_TOKEN=$TOKEN HOST=127.0.0.1 PORT=$PORT PI_TMUX_SESSION=$S PI_REMOTE_SESSION_DIR=$D/sessions PI_REMOTE_PUSH_FILE=$D/push.json PI_REMOTE_PUSH_DRYRUN=1 PI_REMOTE_FAKE_LOCKED_FILE=$D/locked PI_REMOTE_TABS_FILE=$D/tabs.json PI_REMOTE_USAGE_DIR=$D/usage PI_REMOTE_CRASH_LOG=$D/crash.log $NODE bridge.mjs > $D/bridge.log 2>&1"
+# UU: 맥북 배터리는 이 파일의 글을 pmset 출력으로 읽게 한다(1초마다). 화면 시험이 글을 바꿔 가며 '연결됨' 옆 표시를 본다
+printf "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1234567)\t94%%; discharging; 1:00 remaining present: true\n" > "$W/battery"
+tmux new-session -d -s "$B" -c "$REPO/server" "env PI_REMOTE_ENV=$D/conf/env PI_REMOTE_TOKEN=$TOKEN HOST=127.0.0.1 PORT=$PORT PI_TMUX_SESSION=$S PI_REMOTE_SESSION_DIR=$D/sessions PI_REMOTE_PUSH_FILE=$D/push.json PI_REMOTE_PUSH_DRYRUN=1 PI_REMOTE_FAKE_LOCKED_FILE=$D/locked PI_REMOTE_FAKE_BATTERY_FILE=$W/battery PI_REMOTE_BATTERY_SEC=1 PI_REMOTE_TABS_FILE=$D/tabs.json PI_REMOTE_USAGE_DIR=$D/usage PI_REMOTE_CRASH_LOG=$D/crash.log $NODE bridge.mjs > $D/bridge.log 2>&1"
 i=0
 while [ $i -lt 40 ] && ! nc -z 127.0.0.1 "$PORT" >/dev/null 2>&1; do sleep 0.5; i=$((i + 1)); done
 nc -z 127.0.0.1 "$PORT" >/dev/null 2>&1 || { echo "시험 브리지가 뜨지 않았어요:"; tail -5 "$D/bridge.log"; exit 1; }
@@ -116,7 +119,7 @@ xcrun simctl bootstatus "$SIM" -b >/dev/null 2>&1
 xcrun simctl keychain "$SIM" reset
 
 ONLY=""
-for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testB_RemoveAttachment; do
+for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testB_RemoveAttachment; do
   if [ $# -eq 0 ]; then ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t"; continue; fi
   for want in "$@"; do case "$t" in *"$want"*) ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t" ;; esac; done
 done

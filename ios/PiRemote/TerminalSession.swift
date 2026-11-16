@@ -28,6 +28,15 @@ struct TmuxWindow: Identifiable, Equatable {
     }
 }
 
+/// 맥북의 배터리·충전 상태(맥 브리지가 1분마다 읽어 탭 목록 메시지에 얹어 보냄, server/battery.mjs). 배터리가 없는 맥이면 오지 않는다
+struct MacBattery: Equatable {
+    let percent: Int
+    /// 충전기를 꽂았는지
+    let plugged: Bool
+    /// 충전기 없이 기준(맥이 정함, 20%) 아래
+    let low: Bool
+}
+
 /// 백그라운드 탭 정보(맥 브리지가 탭 옵션에서 읽어 탭 목록과 함께 보냄)
 struct BackgroundInfo: Equatable {
     /// 시킨 쪽: user(맥에서 /bgtab) | ai(AI 가 맡김) | phone(폰에서 '백그라운드로 보내기')
@@ -99,6 +108,7 @@ final class TerminalSession: NSObject, ObservableObject {
     @Published var status: Status = .idle
     @Published var activeHost: String?
     @Published var windows: [TmuxWindow] = []   // 상단 탭바용 tmux 창 목록
+    @Published var macBattery: MacBattery?      // 맥북 배터리(화면 위 '연결됨' 옆). 배터리 없는 맥·예전 브리지면 nil
     @Published var inputFocused: Bool = false    // 입력바 키보드 포커스(터미널 탭으로 내림)
     @Published var scrolledUp: Bool = false      // 위로 스크롤 중(→ 맨아래로 버튼 표시)
     @Published var attachments: [Attachment] = [] // 입력창에 붙인 사진(미리 올리는 중/완료/실패)
@@ -571,8 +581,13 @@ final class TerminalSession: NSObject, ObservableObject {
                                   model: d["model"] as? String ?? "",
                                   thinking: d["thinking"] as? String ?? "")
             }
+            let battery = (obj["battery"] as? [String: Any]).flatMap { b -> MacBattery? in
+                guard let percent = b["percent"] as? Int else { return nil }
+                return MacBattery(percent: percent, plugged: b["plugged"] as? Bool ?? false, low: b["low"] as? Bool ?? false)
+            }
             DispatchQueue.main.async {
                 self.windows = wins
+                if self.macBattery != battery { self.macBattery = battery }
                 PushManager.shared.currentWindow = wins.first(where: \.active)?.index
                 self.chat.setWindow(wins.first(where: \.active)?.index)
                 self.openPendingWindow()

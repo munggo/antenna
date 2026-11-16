@@ -22,6 +22,7 @@ import { createDeviceStore, sameHex } from "./devices.mjs";
 import { createDualServer, ensureCert } from "./tls.mjs";
 import { outsideReach, parseHosts, reachText } from "./reach.mjs";
 import { getPrefs, notify, pushEnabled, registerActivity, registerLiveStart, registerToken, setNotifyGate, setPrefs, startNotifySocket } from "./push.mjs";
+import { readBattery } from "./battery.mjs";
 import { launchBackground } from "../claude-remote/bg-launch.mjs";
 import { createSession, loadSnapshot, saveSnapshot, snapshotTabs } from "./tabs-restore.mjs";
 import { editorEmpty, LEVELS, parseStatusLine } from "./status-line.mjs";
@@ -577,6 +578,22 @@ function gateNotify(m) {
   return false;
 }
 
+// --- 맥북 배터리(사용자 요청 11-16): 1분마다 읽어 앱의 '연결됨' 옆에 보이고, 충전기 없이 20% 아래로 내려가면 폰에 한 번 알림 ---
+// 배터리가 없는 맥이면 null 이라 아무것도 하지 않는다. 알림은 맥을 쓰는 중이면 미룬다(맥 화면이 스스로 경고함): 쓰지 않게 되면
+// 다음 확인 때 보낸다. 충전기를 꽂거나 기준 위로 올라가면 풀려서, 다시 내려가면 또 한 번 알린다
+let battery = null;
+let batteryLowSent = false;
+function batteryTick() {
+  battery = readBattery();
+  if (!battery?.low) batteryLowSent = false;
+  else if (!batteryLowSent && !macInUse()) {
+    batteryLowSent = true;
+    notify({ kind: "battery", title: `맥 배터리 ${battery.percent}%`, body: "충전기를 연결해 주세요" }).catch(() => {});
+  }
+}
+batteryTick();
+setInterval(batteryTick, Number(process.env.PI_REMOTE_BATTERY_SEC ?? 60) * 1000).unref();
+
 // --- tmux 탭 저장·되살리기(재부팅 뒤, 사용자 결정 11-12) ---
 // 1분마다 탭 목록(번호·이름·폴더·pi/Claude 대화)을 저장하고, 브리지가 켜질 때 세션이 없으면 그대로 되살린 뒤 폰에 한 번 알림
 const TABS_FILE = process.env.PI_REMOTE_TABS_FILE || `${process.env.HOME}/.cache/pi-remote/tabs-${SESSION}.json`;
@@ -861,7 +878,8 @@ wss.on("connection", (ws, req) => {
   let modelsSent = false;
   const pushWindows = () => {
     if (ws.readyState !== ws.OPEN) return;
-    const json = JSON.stringify({ type: "windows", windows: forApp(listWindows()) });
+    // 맥북 배터리는 이 메시지에 얹는다(새 종류의 메시지를 만들면 예전 앱이 그 글자를 터미널 화면에 그림). 값이 바뀌어도 다시 보냄
+    const json = JSON.stringify({ type: "windows", windows: forApp(listWindows()), ...(battery ? { battery } : {}) });
     if (json !== lastWindowsJson) {
       lastWindowsJson = json;
       ws.send(json);
