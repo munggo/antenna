@@ -256,6 +256,7 @@ enum ChatItem: Identifiable, Equatable {
     case truncated(Int)
     case user(ChatMessage)
     case text(id: String, text: String)
+    case progress(id: String, text: String)   // 도구 사이의 짧은 진행 설명(Claude Code 가 줄여서 준 글)
     case tools(id: String, calls: [ToolCallInfo])
     case bash(ChatMessage)
     case summary(ChatMessage)
@@ -266,7 +267,7 @@ enum ChatItem: Identifiable, Equatable {
         switch self {
         case .truncated: return "truncated"
         case .user(let m), .bash(let m), .summary(let m): return m.id
-        case .text(let id, _), .tools(let id, _), .notice(let id, _, _), .copy(let id, _): return id
+        case .text(let id, _), .progress(let id, _), .tools(let id, _), .notice(let id, _, _), .copy(let id, _): return id
         }
     }
 }
@@ -319,9 +320,11 @@ enum ChatItemBuilder {
                         let t = (b.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                         if !t.isEmpty {
                             flush()
-                            items.append(.text(id: "\(m.id)-\(i)", text: t))
-                            // 도구 사이의 진행 설명은 화면에만 보이고, 답변 복사에는 답의 글만 넣는다
-                            if b.update != true {
+                            if b.update == true {
+                                // 도구 사이의 진행 설명: 화면에는 조금 흐리게 보이고, 답변 복사에는 넣지 않는다(답의 글만)
+                                items.append(.progress(id: "\(m.id)-\(i)", text: t))
+                            } else {
+                                items.append(.text(id: "\(m.id)-\(i)", text: t))
                                 turnTexts.append(t)
                                 turnId = m.id
                             }
@@ -401,6 +404,11 @@ struct ChatItemView: View, Equatable {
             UserBubble(message: m)
         case .text(_, let text):
             MarkdownView(text: text)
+        case .progress(_, let text):
+            // 마지막 답과 구분되게 조금 흐리게(사용자 결정 11-17). 답 글과 도구 단계 줄(회색)의 사이쯤
+            MarkdownView(text: text)
+                .opacity(0.68)
+                .accessibilityIdentifier("progressNote")
         case .tools(let id, let calls):
             ToolGroupRow(id: id, calls: calls)
         case .bash(let m):

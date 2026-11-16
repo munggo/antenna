@@ -2154,8 +2154,26 @@ final class PiRemoteUITests: XCTestCase {
         power("Battery Power", 94, "discharging")   // 뒤 시험을 위해 되돌림
     }
 
+    /// 요소를 찍은 그림에서 가장 밝은 점과 가장 어두운 점의 밝기 차(0~255). 글자가 흐릴수록 작다(밝은 화면·어두운 화면 모두)
+    private func contrast(_ e: XCUIElement) -> Int {
+        guard let cg = e.screenshot().image.cgImage else { return -1 }
+        let w = cg.width, h = cg.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return -1 }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var lo = 255, hi = 0
+        for i in stride(from: 0, to: px.count, by: 4) {
+            let v = (Int(px[i]) + Int(px[i + 1]) + Int(px[i + 2])) / 3
+            lo = min(lo, v)
+            hi = max(hi, v)
+        }
+        return hi - lo
+    }
+
     /// VV. Claude Code 탭의 대화 글(가짜 Claude Code 의 대화 기록으로 봄, 11-17 사용자 보고 둘):
-    ///     ① 도구를 부르기 전의 진행 설명(맥 화면이 '… · summary'로 보여 주는 글)이 단계 속에 접히지 않고 대화에 보인다
+    ///     ① 도구를 부르기 전의 진행 설명(맥 화면이 '… · summary'로 보여 주는 글)이 단계 속에 접히지 않고 대화에 보인다.
+    ///        마지막 답과 구분되게 조금 흐리게(사용자 결정)
     ///     ② 물결표 범위가 두 번 나와도 그 사이가 취소선으로 지워지지 않는다(지워지면 물결표가 사라져 글이 달라짐)
     ///     ③ 답변 복사에는 답의 글만(진행 설명은 빼고): 여기서는 누르기만 하고, 복사된 글은 test/app.sh 가 맥에서 읽어 확인
     func testVV_UpdatesAndTildes() throws {
@@ -2172,6 +2190,11 @@ final class PiRemoteUITests: XCTestCase {
         XCTAssertTrue(answer.exists, "답의 물결표 범위도 그대로여야 함(지금 보이는 글: \(seen()))")
         XCTAssertLessThan(update.frame.minY, answer.frame.minY, "진행 설명은 쓴 순서대로 답보다 위에")
         XCTAssertTrue(el("toolGroup").exists, "도구 단계 줄은 그대로 있음")
+        // 진행 설명은 답보다 조금 흐리게: 글자와 바탕의 밝기 차가 답 글보다 뚜렷이 작되, 읽을 수 있을 만큼은 남아야 한다
+        XCTAssertTrue(el("progressNote").exists, "진행 설명은 답 글과 다른 항목으로 그려야 함")
+        XCTAssertNotEqual(answer.identifier, "progressNote", "답 글은 진행 설명이 아님")
+        let (cu, ca) = (contrast(update), contrast(answer))
+        XCTAssertTrue(cu > 90 && cu < ca - 40, "진행 설명은 읽을 수 있되 답보다 흐려야 함(글자와 바탕의 밝기 차: 설명 \(cu), 답 \(ca))")
         shot("vv-updates")
         let copy = el("copyAnswer")
         XCTAssertTrue(copy.waitForExistence(timeout: 5), "끝난 답 아래에 복사 버튼")
