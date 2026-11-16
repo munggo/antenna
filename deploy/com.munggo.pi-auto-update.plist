@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 매일 새벽 5시 pi 업데이트(pi 본체 + 확장 패키지). 사용자 LaunchAgent(sudo 불필요).
+     설치: sh deploy/install-agents.sh pi-auto-update (__ANTENNA_DIR__·__HOME__ 을 이 맥의 경로로 채워 ~/Library/LaunchAgents/ 에 두고 등록) -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.munggo.pi-auto-update</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>__ANTENNA_DIR__/deploy/pi-auto-update.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>5</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>/tmp/pi-auto-update.out</string>
+  <key>StandardErrorPath</key><string>/tmp/pi-auto-update.out</string>
+</dict>
+</plist>

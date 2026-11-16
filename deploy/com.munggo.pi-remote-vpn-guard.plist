@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- VPN 지킴이(선택 기능): 30초마다 터널을 확인해 끊겼으면 다시 붙인다. root 로 돈다.
+     설치: sudo sh deploy/install-vpn-guard.sh (지킴이 스크립트의 자리를 설정 값으로 채워 /usr/local/bin 에 두고 이 파일을 등록) -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.munggo.pi-remote-vpn-guard</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>/usr/local/bin/pi-remote-vpn-guard.sh</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>/tmp/pi-remote-vpn-guard.log</string>
+  <key>StandardErrorPath</key><string>/tmp/pi-remote-vpn-guard.log</string>
+</dict>
+</plist>

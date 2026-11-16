@@ -1,0 +1,27 @@
+# Node
+node_modules/
+npm-debug.log*
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Xcode / Swift
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+ios/**/DerivedData/
+ios/.build/
+*.xcworkspace/xcuserdata/
+
+# Secrets
+*.pem
+secrets/
+
+# 개인 값(서명 팀 번호). ios/Local.xcconfig.example 을 복사해 만든다
+ios/Local.xcconfig
+
+# XcodeGen 생성물 (project.yml 로 재생성)
+ios/PiRemote.xcodeproj/
+ios/**/.swiftpm/
+design/out/

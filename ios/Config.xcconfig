@@ -1,0 +1,13 @@
+// 모든 대상(앱·위젯·화면 시험)에 함께 적용되는 빌드 설정.
+// 자신의 값(서명 팀 번호, 앱 식별자)은 git 에 올리지 않는 Local.xcconfig 에 둔다. 없어도 시뮬레이터 빌드는 된다(폰에 넣으려면 필요).
+// 만들기: cp Local.xcconfig.example Local.xcconfig 하고 값을 채움
+
+// 앱 식별자(번들 ID)의 앞부분: 앱은 <앞부분>.piremote, 위젯은 <앞부분>.piremote.widgets.
+// 식별자는 Apple 개발 팀마다 따로 가져야 하므로, 직접 빌드해 폰에 넣으려면 Local.xcconfig 에서 자신의 것으로 바꾼다
+BUNDLE_ID_PREFIX = com.munggo
+
+// 맥 주소가 짝짓기 QR 에 없던 때의 설치판에서 올라온 폰에 한 번 넘겨줄 주소(앱의 LegacyHost).
+// 새로 빌드해 쓰는 사람은 비워 둔다(맥 주소는 QR 로 받음)
+LEGACY_HOST =
+
+#include? "Local.xcconfig"

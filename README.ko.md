@@ -1,0 +1,141 @@
+# Antenna
+
+[English](./README.md)
+
+맥에서 돌고 있는 [Claude Code](https://claude.com/claude-code)와 [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) 세션을 아이폰에서 그대로 쓴다.
+
+에이전트는 맥의 tmux 안에서 계속 돈다. 아이폰 앱은 tmux 탭마다 채팅 화면(대화, 승인·질문 카드, 할 일 목록)이나 진짜 터미널 화면을 보여 주고, 어느 쪽에서 치든 다른 쪽에 그대로 나타난다. 폰에서는 아무것도 실행되지 않고, 내 네트워크 밖으로 나가는 것도 없다. 앱은 맥에 띄운 작은 브리지와 바로 이야기한다.
+
+> 옛 이름은 pi-remote 다. 식별자는 예전 이름 그대로다: 설정 폴더 `~/.config/pi-remote`, 설정 값 `PI_REMOTE_*`, 링크 `piremote://`.
+
+## 되는 일
+
+- **채팅 화면**(Claude Code·pi 탭): 대화, 도구 실행 단계, 그리고 폰에서 바로 답할 수 있는 승인 카드와 고르는 질문 카드. Claude Code 가 훅 없이 키를 기다리는 창(`/exit` 때 보내지 않은 피드백 초안 안내 등)도 맥 화면에서 읽어 카드로 보여 준다.
+- **터미널 화면**(모든 탭): 맥에서 보는 것과 같은 tmux 창.
+- **탭**: 바꾸기·열기·이름 바꾸기·닫기, 오래 걸리는 일을 백그라운드 탭으로 보내기(서랍 아래 칸에 상태·걸린 시간·시킨 탭·모델·생각 깊이와 함께 따로 보이고, 끝난 것은 한 번에 닫기), 지난 pi 대화 다시 열기. Claude Code 가 뒤에서 돌리는 셸·에이전트는 탭 아래 '백그라운드 작업 N'으로 보이고, 누르면 이름·걸린 시간(에이전트는 종류·모델, 알 수 있으면 생각 깊이도)·셸의 최근 출력을 보며 종료할 수 있다(셸은 바로 종료하고, 에이전트는 Claude 에게 종료해 달라고 보냄). 맥에서도 일을 맡긴 탭에 '백그라운드: …' 한 줄로 같은 것이 보인다(pi 는 위젯, Claude Code 는 상태 줄 스크립트가 탭 옵션 `@ai_bg_line` 을 읽어 붙임).
+- **관리자 권한(sudo) 명령**은 따로 열리는 탭에서 직접 확인하고 비밀번호를 넣는다. 에이전트는 비밀번호를 보지 못한다.
+- **사용량**: Claude 구독 한도([사용량 참고](./docs/setup.ko.md#사용량)).
+- **알림**: 에이전트가 나를 기다리거나 일을 마쳤을 때. 내 Apple 푸시 키가 필요하다([알림](./docs/setup.ko.md#알림)).
+- 맥을 재부팅하면 브리지가 탭을 되살리고, 열려 있던 대화를 이어서 켠다.
+
+앱 화면, 명령줄 안내 글, 코드 주석은 한국어다. 설명서는 영어와 한국어로 있다.
+
+## 구조
+
+```
+ 아이폰 앱  ── WebSocket(토큰) ──▶  맥의 브리지  ──▶  tmux 세션
+ (SwiftUI + SwiftTerm)              (Node, 포트 8787)   ├─ Claude Code 탭 ⇄ 훅 + 연결부 (claude-remote/)
+                                                        ├─ pi 탭          ⇄ 확장        (pi-extension/)
+                                                        └─ 셸 탭
+```
+
+- `server/` — 브리지. tmux 세션에 붙어 터미널 화면, 탭 목록, 대화, 카드를 WebSocket 하나로 주고받는다.
+- `claude-remote/` — Claude Code 탭 잇기: `~/.claude/settings.json` 에 거는 훅과, 탭마다 도는 작은 연결부.
+- `pi-extension/` — pi 탭 잇기: 대화 피드, 승인·질문 카드, 할 일 목록, 계획 모드 확장.
+- `ios/` — 앱(SwiftUI, [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)). Xcode 프로젝트는 XcodeGen 으로 만든다.
+- `deploy/` — 설치 도우미, 짝짓기 QR, 점검 명령, 선택해서 쓰는 자동 실행.
+
+같은 Wi-Fi 에서는 폰이 맥을 스스로 찾는다(Bonjour). 밖에서는 알려 준 주소(맥의 Tailscale·VPN 주소 등)로 붙는다.
+
+## 필요한 것
+
+- [tmux](https://github.com/tmux/tmux)와 [Node.js](https://nodejs.org) 20 이상이 있는 맥(`brew install tmux node`)
+- 그 맥의 Claude Code 나 pi
+- iOS 16 이상의 아이폰·아이패드
+- 앱을 빌드하려면: Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen)(`brew install xcodegen`), 기기에 넣을 Apple 개발자 계정
+
+## 빠른 시작
+
+**1. 맥 쪽 설치**
+
+```sh
+git clone <이 저장소> antenna
+cd antenna
+sh install.sh
+```
+
+`install.sh` 는 tmux 와 Node 를 확인하고, 브리지 모듈을 깔고, 설정 파일 `~/.config/pi-remote/env` 를 만들고, Claude Code 와 pi 가 있으면 잇고, 로그인할 때 브리지가 켜지게 한 뒤 점검한다. 여러 번 돌려도 된다. tmux 나 Node 를 대신 깔지 않고, 선택 기능은 건드리지 않는다.
+
+**2. 폰에 앱 넣기**
+
+지금은 직접 빌드한다.
+
+```sh
+cp ios/Local.xcconfig.example ios/Local.xcconfig   # Apple 팀 번호와 내 식별자 앞부분을 적는다
+cd ios && xcodegen generate && open PiRemote.xcodeproj
+```
+
+폰을 고르고 실행한다. 자세한 것과 명령줄 설치는 [설정 안내](./docs/setup.ko.md#앱-빌드).
+
+**3. 짝짓기**
+
+```sh
+sh deploy/pair.sh
+```
+
+터미널에 QR 이 뜬다. 폰 카메라로 찍는다(또는 앱 첫 화면의 'QR 코드 찍기'). 한 번 쓰는 짝짓기 코드, 맥 인증서의 지문, 포트·맥 주소가 들어 있어 손으로 칠 것이 없다. 폰은 그 코드를 내고 자기만의 토큰을 받는다.
+
+**4. 쓰기**
+
+```sh
+tmux attach -t antenna
+```
+
+그 세션 안에서 `claude` 나 `pi` 를 켜면 앱에 탭이 나타난다.
+
+## 밖에서 쓰기
+
+기본으로는 폰이 같은 Wi-Fi 에서만 맥을 찾는다. 어디서나 붙으려면 두 기기를 같은 사설망에 올리고, 그 망에서의 맥 주소를 Antenna 에 알려 준다.
+
+```sh
+sh install.sh --host 100.64.0.1    # 맥의 Tailscale·VPN IP 주소. 여러 개는 쉼표로
+sh deploy/pair.sh                  # 폰이 주소를 알도록 다시 찍기
+```
+
+폰이 닿을 수 있는 주소를 맥에 주는 망이면 된다(Tailscale, WireGuard, OpenVPN). Antenna 는 OpenVPN 위에서 만들어졌고 날마다 그렇게 쓰고 있다.
+
+어떤 망을 고를지와 방식별 순서(기기끼리 잇는 VPN 서비스, 집 공유기의 VPN 서버, 회사 VPN)는 [설정 안내](./docs/setup.ko.md#밖에서-맥에-붙기)에 있다.
+
+## 보안
+
+- 폰은 짝지을 때 자기만의 토큰을 받는다. 폰은 그것을 키체인에 두고, 맥에는 그 해시만 남는다.
+- QR 에는 한 번 쓰는 코드가 들어 있고 5분 뒤에는 못 쓴다. QR 사진이 새어도 나중에는 쓸모가 없다.
+- `sh deploy/pair.sh --list` 로 짝지은 기기를 보고, `sh deploy/pair.sh --revoke <번호>` 로 하나를 끊는다(열려 있던 연결도 닫힌다).
+- 연결은 암호화된다(TLS). 맥마다 자기 인증서를 만들고, QR 에 그 지문이 들어 있어 앱은 그 지문의 맥과만 이야기한다. 같은 망의 다른 기기가 엿듣거나 내 맥인 척할 수 없다.
+- 기기의 토큰을 가진 사람은 내 터미널에 글자를 칠 수 있다. 폰을 잃어버렸으면 그 기기를 끊는다.
+- 그래도 브리지 포트를 인터넷에 열지는 않는다. 내 Wi-Fi 나 사설망으로 붙는다.
+
+## 선택 기능
+
+켜지 않으면 모두 꺼져 있다. [설정 안내](./docs/setup.ko.md#선택-기능) 참고.
+
+- 내 Apple 푸시 키로 받는 알림
+- Claude 계정 둘을 폴더별로 나눠 쓰고, 한쪽 한도가 차면 다른 쪽으로
+- 맥을 OpenVPN 서버에 늘 붙여 두기
+- Claude Code·pi 를 날마다 업데이트하고, 쉬는 세션을 새 버전으로 다시 켜기
+- 로그인하면 세션에 붙은 터미널 열기
+- 그 밖의 pi 확장(도구 실행 한 줄 표시, 웹 검색, 하위 에이전트)
+
+## 점검과 시험
+
+```sh
+node deploy/doctor.mjs         # 맥 쪽이 제대로 깔려 돌고 있는지(설정·브리지·훅·설치본)
+node deploy/doctor.mjs --fix   # 안전하게 고칠 수 있는 것은 고침
+sh test.sh                     # 시험 묶음: 모델을 부르지 않고, 쓰는 세션·브리지를 건드리지 않음
+```
+
+브리지가 죽으면 까닭이 `~/.cache/pi-remote/crash.log` 에 남고, 점검 명령이 보여 준다.
+
+## 지금 상태
+
+혼자 쓰려고 만든 도구가 자란 것이라 거친 데가 있다.
+
+- macOS 와 iOS 만 된다.
+- 미리 빌드된 앱이 아직 없다: 직접 빌드하고 서명해야 한다.
+- 알림은 내 Apple 개발자 푸시 키가 있어야 한다.
+
+## 라이선스
+
+[Apache License 2.0](./LICENSE). [NOTICE](./NOTICE) 참고.
+
+작성자: 서문교

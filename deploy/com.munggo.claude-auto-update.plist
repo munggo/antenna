@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 매일 새벽 5시 Claude Code 업데이트와 쉬는 세션 다시 켜기(pi 의 com.munggo.pi-auto-update 와 같은 시각).
+     사용자 LaunchAgent(sudo 불필요). 기록: ~/.cache/claude-auto-update/update.log
+     설치: sh deploy/install-agents.sh claude-auto-update (__ANTENNA_DIR__·__HOME__ 을 이 맥의 경로로 채워 ~/Library/LaunchAgents/ 에 두고 등록) -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.munggo.claude-auto-update</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>__ANTENNA_DIR__/deploy/claude-auto-update.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>5</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>/tmp/claude-auto-update.out</string>
+  <key>StandardErrorPath</key><string>/tmp/claude-auto-update.out</string>
+</dict>
+</plist>

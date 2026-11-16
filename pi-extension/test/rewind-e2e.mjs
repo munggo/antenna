@@ -1,0 +1,28 @@
+import { createRequire } from "node:module"; import { execFileSync } from "node:child_process";
+const require = createRequire(new URL("../../server/package.json", import.meta.url)); const WebSocket = require("ws");
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms)); const tm = (...a) => execFileSync("tmux", a, { encoding: "utf8" });
+const ws = new WebSocket(`ws://127.0.0.1:8799/?token=${process.env.PI_REMOTE_TOKEN}&cols=120&rows=40`); const ev = [];
+ws.on("message", (d, bin) => { if (bin) return; const s = d.toString(); if (s.startsWith('{"type":"chat"')) try { ev.push(JSON.parse(s).d); } catch {} });
+await new Promise((r) => ws.on("open", r)); ws.send(JSON.stringify({ type: "select-window", index: 1 }));
+const waitFor = async (fn, ms) => { for (let t = 0; t < ms; t += 250) { const v = fn(); if (v) return v; await sleep(250); } return null; };
+let fail = 0; const ok = (c, n) => { console.log(`${c ? "통과" : "실패"}: ${n}`); if (!c) fail++; };
+const snap = await waitFor(() => ev.find((e) => e.t === "snapshot"), 8000);
+const users = (snap?.messages ?? []).filter((m) => m.role === "user");
+console.log("  되감기 전 내 메시지:", users.map((u) => u.text.slice(0, 26)).join(" / "));
+const second = users.find((u) => u.text === "Reply with exactly: two");
+const n = ev.length; ws.send(JSON.stringify({ type: "rewind", id: second?.id, text: second?.text }));
+const rw = await waitFor(() => ev.slice(n).find((e) => e.t === "rewound" || (e.t === "notice")), 8000);
+ok(rw?.t === "rewound" && rw.text === "Reply with exactly: two", `되감기: 그 메시지 글이 폰 입력창으로 (${rw?.t}: ${rw?.text})`);
+const snap2 = await waitFor(() => ev.slice(n).find((e) => e.t === "snapshot"), 10000);
+const u2 = (snap2?.messages ?? []).filter((m) => m.role === "user").map((u) => u.text.slice(0, 26));
+ok(u2.length === 1 && u2[0] === "Reply with exactly: one", `되감기: 대화가 그 메시지 직전으로 (${u2.join(" / ")})`);
+await sleep(800);
+const tail = tm("capture-pane", "-p", "-t", "pitest:1").split("\n").filter((l) => l.trim()).slice(-4).join(" | ");
+ok(!/Reply with exactly: two/.test(tail), "맥 입력창은 비어 있음");
+// 임시 id(live-…)로 와도 글로 찾음
+const n2 = ev.length; ws.send(JSON.stringify({ type: "rewind", id: "live-99", text: "Reply with exactly: one" }));
+const rw2 = await waitFor(() => ev.slice(n2).find((e) => e.t === "rewound" || e.t === "notice"), 8000);
+ok(rw2?.t === "rewound" && rw2.text === "Reply with exactly: one", "임시 id 로 와도 같은 글의 메시지를 찾아 되감음");
+const snap3 = await waitFor(() => ev.slice(n2).find((e) => e.t === "snapshot"), 10000);
+ok((snap3?.messages ?? []).filter((m) => m.role === "user").length === 0, "첫 메시지로 되감으면 대화가 비어 있음");
+ws.close(); console.log(fail ? `실패 ${fail}개` : "모두 통과"); process.exit(fail ? 1 : 0);

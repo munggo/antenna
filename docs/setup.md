@@ -1,0 +1,290 @@
+# Setup guide
+
+[한국어](./setup.ko.md) · Back to the [README](../README.md)
+
+`sh install.sh` covers the usual case. This guide explains what it sets up, how to change it, and the optional parts.
+
+- [Settings](#settings)
+- [Reaching the Mac from outside](#reaching-the-mac-from-outside)
+- [Building the app](#building-the-app)
+- [Notifications](#notifications)
+- [Usage](#usage)
+- [Optional features](#optional-features)
+- [Troubleshooting](#troubleshooting)
+- [Uninstalling](#uninstalling)
+
+## Settings
+
+Everything lives in one file, `~/.config/pi-remote/env` (mode 600), read by the bridge when it starts.
+
+| Name | Default | Meaning |
+|---|---|---|
+| `PI_TMUX_SESSION` | `antenna` | The tmux session the bridge attaches to. The bridge creates it if it does not exist. |
+| `HOST` | `0.0.0.0` | Address the bridge listens on. |
+| `PORT` | `8787` | Port the bridge listens on. |
+| `PI_REMOTE_TLS_ONLY` | `1` | Accept encrypted connections only. Remove the line only if you still use an old build of the app that connects without encryption. |
+| `PI_REMOTE_NODE` | found by `install.sh` | The Node binary that runs the bridge. Background jobs do not have your shell's `PATH`, so the path is written down. |
+| `PI_REMOTE_HOSTS` | empty | IP addresses the phone uses outside your Wi-Fi, comma-separated, no spaces. Goes into the pairing QR. |
+
+After editing the file, restart the bridge. If the port or addresses changed, pair the phone again.
+
+```sh
+launchctl kickstart -k gui/$(id -u)/com.munggo.pi-remote   # restart the bridge
+sh deploy/pair.sh                                          # show the pairing QR
+```
+
+`sh install.sh --no-agent` skips the login item. Then you start the bridge yourself with `server/run.sh`.
+
+### Paired devices
+
+The phone's token is not in the settings file. `sh deploy/pair.sh` shows a QR with a one-time code that is valid for five minutes; the phone trades it for a token of its own, and the Mac keeps only a hash of that token in `~/.config/pi-remote/devices.json`.
+
+The QR also carries the fingerprint of the Mac's certificate. The bridge creates that certificate the first time it starts (`~/.config/pi-remote/tls/`), and the app accepts an encrypted connection only from the Mac with that fingerprint. If you ever delete the certificate, pair the phone again.
+
+```sh
+sh deploy/pair.sh                  # pair a phone
+sh deploy/pair.sh --list           # paired devices
+sh deploy/pair.sh --revoke <id>    # cut one off (an open connection closes within a minute)
+```
+
+"연결 토큰 새로 바꾸기" in the app's menu replaces that phone's token only.
+
+Installs from before per-device tokens have a shared `PI_REMOTE_TOKEN` line in the settings file and no `PI_REMOTE_TLS_ONLY` line, and phones paired then keep working, without encryption. Once every phone runs the current app and has been paired again, delete the `PI_REMOTE_TOKEN` line, add `PI_REMOTE_TLS_ONLY=1` and restart the bridge. Choosing "연결 토큰 새로 바꾸기" on such a phone does the same: the phone gets its own token and the shared one is removed. `sh deploy/pair.sh --legacy` shows the old kind of QR for an app that does not know pairing codes.
+
+## Reaching the Mac from outside
+
+On the same Wi-Fi the phone finds the Mac by itself, so there is nothing to do. To use it elsewhere, the phone and the Mac need one private network (a VPN) on which they can reach each other. Do not open the bridge's port to the internet on your router (port forwarding).
+
+The phone tries the address it finds on the local network (Bonjour) and the addresses from the pairing QR at the same time, and uses whichever answers first. So nothing changes in the app between home and outside.
+
+### Choosing a network
+
+| Way | When | What you need |
+|---|---|---|
+| [A VPN service that links your devices](#a-vpn-service-that-links-your-devices) (Tailscale and the like) | The easiest. You cannot touch the router, or you carry the Mac around | Install the app on the Mac and the phone and sign in to the same account |
+| [The VPN server on your home router](#the-vpn-server-on-your-home-router) (OpenVPN, WireGuard) | Your router has a VPN server and you would rather not depend on another service | Turn the VPN server on and put a profile on the phone; on the Mac too if you carry it around |
+| [A company VPN](#a-company-vpn) | A company Mac that must stay on the company network | Help from the VPN administrator |
+
+A paid VPN that hides your internet address (the kind where you pick a country) does not connect your own devices to each other, so it cannot be used.
+
+### The steps in common
+
+Whichever way you choose, the job is the same: tell Antenna the IP address the Mac has on that network, then scan the QR again.
+
+1. First pair on the same Wi-Fi and check that the app works ([Quick start](../README.md#quick-start)).
+2. Put the phone and the Mac on the network you chose (see the sections below).
+3. Give the Mac's IP address on that network with `sh install.sh --host <address>`. Several addresses can be given with commas. Use the IP address; host names have not been tested.
+4. Run `sh deploy/pair.sh` and scan again. The address travels to the phone inside the QR.
+5. Turn Wi-Fi off on the phone, turn the VPN on, and open the app to see that it connects.
+
+The health check (`node deploy/doctor.mjs`) tells you if an address in `PI_REMOTE_HOSTS` is not currently up on the Mac. After a reboot the bridge waits up to 90 seconds for that address and then, if notifications are set up, tells the phone whether the outside path is ready.
+
+The connection is encrypted and the app trusts only your Mac's certificate. Even so, keep the port off the public internet and reach the Mac over a private network.
+
+### A VPN service that links your devices
+
+Tailscale is the example here; similar services work the same way.
+
+1. Install the Tailscale app on the Mac and the phone and sign in to the same account.
+2. Look up the Mac's Tailscale address (it is under the Tailscale icon in the menu bar). It starts with `100.`.
+3. Run `sh install.sh --host <that address>` and scan the QR again.
+
+The app reconnects by itself, so nothing more is needed when you carry the Mac around. On a company Mac, check first that you are allowed to install such an app.
+
+### The VPN server on your home router
+
+This is what the author uses every day (the router's OpenVPN server).
+
+**On the router**
+
+1. Turn on the VPN server (OpenVPN or WireGuard) in the admin page. The menu's name and place differ by router; follow the maker's guide.
+2. Your home's internet address can change. Turn on the router's DDNS (a name that follows the changing address) and make the profile connect to that name.
+3. Make a separate profile (an `.ovpn` file for OpenVPN) for each device. A phone and a Mac sharing one profile can knock each other off.
+4. Let devices that come in over the VPN reach the devices at home (usually a setting named like "local network access").
+
+If your home internet has an address that cannot be reached from outside (one your provider shares among many homes), this way does not work. Use a VPN service from the section above.
+
+**On the phone**, install OpenVPN Connect (or WireGuard) and import the profile.
+
+**If the Mac always stays at home**, the Mac does not need the VPN. Give its home network address.
+
+```sh
+ipconfig getifaddr en0             # the Mac's home network address (may not be en0 on a wired connection)
+sh install.sh --host <that address>
+```
+
+Give the Mac a fixed address on the router (a DHCP reservation) so it does not change.
+
+**If you carry the Mac around**, keep the Mac on the same VPN too and give the address it has on the VPN. Then the phone uses that one address wherever the Mac is.
+
+- Make the Mac's profile send only home-side addresses through the VPN; otherwise all of the Mac's internet traffic goes through your home. For OpenVPN, add `route-nopull` and list only the ranges you need with `route` lines.
+- On the VPN server, allow devices on the VPN to talk to each other (`client-to-client` in OpenVPN). If this is blocked, the phone cannot reach the Mac.
+- Have the server give that device a fixed VPN address. If it changes, do `--host` and the QR again.
+- The Mac's VPN address is the `inet` value of the entry that starts with `utun` in `ifconfig`.
+- With OpenVPN, use [Keeping the Mac on an OpenVPN server](#keeping-the-mac-on-an-openvpn-server) so it reconnects by itself. The WireGuard app reconnects by itself.
+
+### A company VPN
+
+It works when the phone and the Mac can reach each other on the company VPN. The four things below can only be done by the VPN administrator, so ask before you start.
+
+- Whether a phone may join the company VPN, and the profile to put on the phone
+- A path from the phone to the bridge's port on the Mac (TCP 8787, or the port you changed it to). Many VPNs block traffic between connected devices
+- Whether the Mac always gets the same address on that network. If it changes, `--host` and the QR have to be done again
+- Whether this tool may be used on a company Mac. It lets a phone type into the Mac's terminal ([Security](../README.md#security))
+
+Once the path is open, the rest is [the steps in common](#the-steps-in-common). If the company VPN is OpenVPN and the Mac has to reconnect by itself, use [Keeping the Mac on an OpenVPN server](#keeping-the-mac-on-an-openvpn-server).
+
+## Building the app
+
+You need Xcode, XcodeGen and a membership in the Apple Developer Program (the app declares the push notification capability, which free accounts cannot sign).
+
+```sh
+cp ios/Local.xcconfig.example ios/Local.xcconfig
+```
+
+Fill in two values in `ios/Local.xcconfig`. The file is ignored by git.
+
+- `DEVELOPMENT_TEAM` — your team ID (10 characters, shown under Membership details at developer.apple.com)
+- `BUNDLE_ID_PREFIX` — a prefix of your own, for example your domain reversed. The app becomes `<prefix>.piremote`.
+
+**With Xcode**
+
+```sh
+cd ios && xcodegen generate && open PiRemote.xcodeproj
+```
+
+Select your phone and run. Run `xcodegen generate` again whenever `project.yml` or the xcconfig files change.
+
+**From the command line** (phone on the same Wi-Fi as the Mac)
+
+`sh deploy/install-ios.sh` builds and installs using an App Store Connect API key instead of an Xcode account. It reads:
+
+- `~/.appstoreconnect/config` — `ASC_KEY_ID` and `ASC_ISSUER_ID`; the key file goes in `~/.appstoreconnect/private_keys/AuthKey_<key id>.p8`
+- `~/.config/pi-remote/env` — `PI_REMOTE_DEVICE`, the identifier of your phone from `xcrun devicectl list devices`
+
+`deploy/testflight.sh` and `deploy/testflight-setup.mjs` upload a build to TestFlight, which also works when the phone is not on the same network. They are written for the author's app identifier and profile names, so adapt them before using them with your own account.
+
+## Notifications
+
+Notifications go from the bridge straight to Apple's push service with your own key, so they work only with an app you built and signed yourself.
+
+1. At developer.apple.com create a key with Apple Push Notifications service enabled and download the `.p8` file.
+2. Add four lines to `~/.config/pi-remote/env`:
+
+   ```sh
+   PI_REMOTE_APNS_KEY=~/.config/pi-remote/AuthKey_XXXXXXXXXX.p8
+   PI_REMOTE_APNS_KEY_ID=XXXXXXXXXX
+   PI_REMOTE_APNS_TEAM=YYYYYYYYYY
+   PI_REMOTE_APNS_TOPIC=<prefix>.piremote
+   ```
+
+   `PI_REMOTE_APNS_TOPIC` is the app's bundle identifier.
+3. Restart the bridge and allow notifications in the app.
+
+You are notified when an agent asks a question or needs an approval, and when a task finishes after running longer than a threshold you set in the app (one hour by default). While you are using the Mac, notifications are held back: a question still waiting is sent once the Mac is locked or left idle for a while, and a finished-task notice is dropped.
+
+## Usage
+
+The usage screen shows your Claude subscription limits. The bridge reads them with pi's login (`~/.pi/agent/auth.json`). If that is not available it falls back to the values recorded in `~/.cache/pi-remote/claude-accounts.json`, which the pi extension `claude-accounts` writes.
+
+If you use only Claude Code, nothing records those values yet, so the screen says there is no data. A small status line helper for this is not included in this repository yet.
+
+## Optional features
+
+Nothing here is installed by `install.sh`.
+
+### Background jobs
+
+```sh
+sh deploy/install-agents.sh <name> [<name> …]   # install the ones you name
+sh deploy/install-agents.sh --all               # everything
+```
+
+| Name | What it does |
+|---|---|
+| `claude-auto-update` | Updates Claude Code every day at 05:00, then restarts idle sessions that still run the old version, resuming the same conversation. |
+| `claude-reload` | Every 30 minutes does the same restart for sessions left on an old version after Claude Code updated itself. Only sessions idle for 30 minutes with an empty input box and no background work are touched. |
+| `pi-auto-update` | Updates pi and its extensions every day at 05:00. |
+| `antenna-attach` | At login opens iTerm2 attached to the tmux session. |
+
+To remove one: `launchctl bootout gui/$(id -u)/com.munggo.<name>` and delete `~/Library/LaunchAgents/com.munggo.<name>.plist`.
+
+### Two Claude accounts
+
+If you have two Claude subscriptions (say personal and work), Antenna can pick one by folder and switch to the other when the first is close to its limit.
+
+- List the folders that should default to the second account in `~/.config/pi-remote/work-dirs`, one per line. `~` is allowed and `#` starts a comment. Without this file the first account is used everywhere.
+- The second account's token is read from the macOS keychain item `pi-anthropic-work`. Create it with `claude setup-token` while signed in to that account, then:
+
+  ```sh
+  security add-generic-password -s pi-anthropic-work -a "$USER" -T /usr/bin/security -w
+  ```
+
+- For Claude Code, `~/.claude/pi-remote/claude-account <folder>` prints `work` or `personal`. Use it from a shell function that sets `CLAUDE_CODE_OAUTH_TOKEN` for `work`.
+  When a limit makes it switch accounts, the feed quits Claude Code and resumes the same conversation with `~/.claude/pi-remote/claude-as.sh <account>`, so the right account is used even in a shell opened before you changed the shell function. If the account is still unchanged after the restart, it stops switching for 6 hours and notifies your phone.
+- For pi, install the extension: `sh pi-extension/install.sh --with claude-accounts`.
+
+### Keeping the Mac on an OpenVPN server
+
+Needed only if your private network is an OpenVPN server and the Mac must reconnect by itself. Tailscale and the WireGuard app already do that.
+
+```sh
+brew install openvpn
+```
+
+Add to `~/.config/pi-remote/env`:
+
+```sh
+PI_REMOTE_VPN_CONFIG=~/.config/pi-remote/client.ovpn   # your client profile
+PI_REMOTE_VPN_GATEWAY=10.8.0.1                         # optional: an address across the tunnel, pinged every 30 seconds
+```
+
+Then:
+
+```sh
+sh deploy/install-vpn-guard.sh --print   # show the script that would be installed
+sudo sh deploy/install-vpn-guard.sh      # install it as a root background job
+```
+
+The guard runs OpenVPN as root with your profile. Keep that file writable only by you; the installer refuses a profile other users can modify. To remove: `sudo launchctl bootout system/com.munggo.pi-remote-vpn-guard`, then delete `/usr/local/bin/pi-remote-vpn-guard.sh` and `/Library/LaunchDaemons/com.munggo.pi-remote-vpn-guard.plist`.
+
+### More pi extensions
+
+```sh
+sh pi-extension/install.sh --list
+sh pi-extension/install.sh --with compact-tools,web,subagent
+```
+
+- `compact-tools` — folds tool calls into one line each in pi's own terminal view
+- `web` — web search and fetch tools
+- `subagent` — sub-agents with roles, plus `/review` and `/security-review` prompts
+
+Files that differ from what you already have are kept in `~/.cache/pi-remote/backup/` before being replaced. Run `/reload` in pi afterwards.
+
+## Troubleshooting
+
+Start with the health check. It reads the settings, checks the bridge, the hooks and the installed copies, and tells you what to run.
+
+```sh
+node deploy/doctor.mjs
+node deploy/doctor.mjs --fix
+```
+
+- **The app cannot connect on the same Wi-Fi.** Allow local network access for the app in iOS Settings. Check that the bridge is running and the port is open (the health check shows both).
+- **It connects at home but not outside.** Check in order: the VPN is on on the phone; the Mac is on that network (the health check tells you when an address in `PI_REMOTE_HOSTS` is not up on the Mac); you scanned the QR again after changing the address; and the network does not block traffic between your devices ([Reaching the Mac from outside](#reaching-the-mac-from-outside)).
+- **A Claude Code tab shows only the terminal.** The hooks are missing or the session started before they were installed. Run `sh claude-remote/install.sh` and start a new Claude Code session.
+- **A pi tab shows only the terminal.** Run `sh pi-extension/install.sh`, then `/reload` in pi.
+- **The bridge keeps restarting.** See `/tmp/pi-remote.err` and `~/.cache/pi-remote/crash.log`.
+- **The QR will not scan.** Enlarge the terminal window so the code is not wrapped, and raise the screen brightness.
+
+## Uninstalling
+
+```sh
+launchctl bootout gui/$(id -u)/com.munggo.pi-remote
+rm ~/Library/LaunchAgents/com.munggo.pi-remote.plist
+sh claude-remote/install.sh --remove      # take the hooks out of ~/.claude/settings.json
+rm -r ~/.claude/pi-remote                 # the Claude Code feed files
+rm -r ~/.config/pi-remote ~/.cache/pi-remote
+```
+
+The pi extensions are plain files in `~/.pi/agent/extensions/`; `sh pi-extension/install.sh --list` shows their names.

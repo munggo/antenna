@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 낮에도 30분마다: 옛 버전으로 도는 Claude Code 세션 가운데 30분 넘게 쉬고(입력창 빔, 뒤에서 도는 작업 없음) 있는 것만 같은 대화로 다시 켠다.
+     Claude Code 가 낮에 스스로 받은 업데이트는 'Update installed · /restart to apply' 만 띄우고 그대로 돌기 때문(새벽 5시 것은 com.munggo.claude-auto-update).
+     사용자 LaunchAgent(sudo 불필요). 기록: ~/.cache/claude-auto-update/update.log
+     설치: sh deploy/install-agents.sh claude-reload (__ANTENNA_DIR__·__HOME__ 을 이 맥의 경로로 채워 ~/Library/LaunchAgents/ 에 두고 등록) -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.munggo.claude-reload</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>mkdir -p "$HOME/.cache/claude-auto-update" &amp;&amp; /usr/bin/python3 "__ANTENNA_DIR__/deploy/claude-reload.py" --once --idle 1800 --quiet &gt;&gt; "$HOME/.cache/claude-auto-update/update.log" 2&gt;&amp;1</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
+  <key>StartInterval</key><integer>1800</integer>
+</dict>
+</plist>

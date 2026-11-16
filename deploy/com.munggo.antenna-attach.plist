@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 로그인하면 iTerm2 를 열고 tmux 세션 antenna 에 붙는다(한 번만 실행).
+     설치: sh deploy/install-agents.sh antenna-attach (__ANTENNA_DIR__·__HOME__ 을 이 맥의 경로로 채워 ~/Library/LaunchAgents/ 에 두고 등록) -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.munggo.antenna-attach</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/sh</string>
+		<string>__ANTENNA_DIR__/deploy/antenna-attach.sh</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/tmp/antenna-attach.log</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/antenna-attach.log</string>
+</dict>
+</plist>
