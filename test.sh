@@ -96,6 +96,7 @@ run advertise "브리지가 죽지 않는지(자동 발견 오류·죽음 기록
 run devices "기기별 토큰·짝짓기 코드(만들기·한 번 쓰기·끊기)" "$NODE" server/test/devices.test.mjs
 run tls "연결 암호화(인증서·지문, 포트 하나에서 가려 받기)" "$NODE" server/test/tls.test.mjs
 run convert "Claude Code 대화 기록 → 폰 메시지" "$NODE" claude-remote/test/convert-cases.mjs
+run context "Claude Code 탭의 컨텍스트 사용량: 기억 용량·자동 압축 지점·대화 기록에서 따라가기" "$NODE" claude-remote/test/context-cases.mjs
 run account "개인·회사 계정 고르기" "$NODE" claude-remote/test/account-cases.mjs
 run screen-busy "Claude Code 화면이 일하는 중인지·뒤에서 도는 일" "$NODE" claude-remote/test/screen-busy-cases.mjs
 run screen-dialog "훅 없이 묻는 Claude Code 창(피드백 초안·명령 창) → 폰 카드" "$NODE" claude-remote/test/screen-dialog-cases.mjs
@@ -135,6 +136,7 @@ if command -v tmux >/dev/null 2>&1; then
   run rev-handover "연결부가 새 판으로 스스로 바뀌는지" "$NODE" claude-remote/test/rev-handover-e2e.mjs
   run stuck-screen "'작업 중' 바로잡기·훅 유실 막기·대화 기록으로 켜기·질문 카드" "$NODE" claude-remote/test/stuck-screen.test.mjs
   run bg-jobs "뒤에서 도는 작업 목록·종료(셸은 바로, 에이전트는 Claude 에게 부탁)" "$NODE" claude-remote/test/bg-jobs.test.mjs
+  run context-feed "Claude Code 탭의 컨텍스트 사용량이 앱까지 가는지(새 응답·압축·설정·새 대화)" "$NODE" claude-remote/test/context-feed.test.mjs
   run notify-hold "맥을 쓰는 중이면 폰 알림을 미루는지" "$NODE" server/test/notify-hold-e2e.mjs
   run no-pi "pi 가 없는 맥에서도 브리지가 되는지" "$NODE" server/test/no-pi.test.mjs
   run reach "재부팅 알림: 밖에서 붙을 주소가 올라와 있는지" "$NODE" server/test/reach.test.mjs
@@ -149,6 +151,7 @@ else
   skip rev-handover "tmux 가 없음"
   skip stuck-screen "tmux 가 없음"
   skip bg-jobs "tmux 가 없음"
+  skip context-feed "tmux 가 없음"
   skip notify-hold "tmux 가 없음"
   skip no-pi "tmux 가 없음"
   run reach "재부팅 알림: 밖에서 붙을 주소가 올라와 있는지(판정만)" "$NODE" server/test/reach.test.mjs
@@ -162,12 +165,12 @@ fi
 
 if [ -n "$LIST" ]; then
   echo "앱 화면 시험(--app 을 주면 이어서 돎):"
-  echo "  app                첫 화면 QR 연결 · 맥 주소와 확인 창 · 관리자 권한 창 · 짝짓기 · 백그라운드 서랍 · 맥북 배터리 · 대화 글(시뮬레이터)"
+  echo "  app                첫 화면 QR 연결 · 맥 주소와 확인 창 · 관리자 권한 창 · 짝짓기 · 백그라운드 서랍 · 맥북 배터리 · 대화 글 · 단축어 · 컨텍스트 고리(시뮬레이터)"
   exit 0
 fi
 if [ -n "$APP" ]; then
   export NODE
-  run app "앱 화면: 첫 화면 QR 연결·맥 주소와 확인 창·관리자 권한 창·짝짓기·백그라운드 서랍·맥북 배터리·대화 글" sh test/app.sh
+  run app "앱 화면: 첫 화면 QR 연결·맥 주소와 확인 창·관리자 권한 창·짝짓기·백그라운드 서랍·맥북 배터리·대화 글·단축어·컨텍스트 고리" sh test/app.sh
 fi
 echo
 if [ -z "$FAILED" ]; then

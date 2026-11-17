@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 컨텍스트 사용량(맥 pi 확장이 보내줌). 자동 압축은 "사용량 > 기억 용량 - reserve"일 때 시작.
+/// 컨텍스트 사용량(맥의 pi 확장·Claude Code 연결부가 보내줌). 자동 압축은 "사용량 > 기억 용량 - reserve"일 때 시작.
 struct ContextInfo: Codable, Equatable {
     let tokens: Int?        // 모르면 nil(압축 직후, 다음 답변 전)
     let window: Int         // 모델 기억 용량(토큰)
@@ -117,7 +117,7 @@ struct ContextSheet: View {
                             : "꺼져 있음")
                     }
 
-                    Text("대화가 길어져 자동 압축 지점에 닿으면 pi가 앞부분을 요약해 공간을 비워요. 요약된 앞부분의 자세한 내용은 잊을 수 있어요.")
+                    Text("대화가 길어져 자동 압축 지점에 닿으면 \(meta.agentName == "Claude" ? "Claude Code" : "pi")가 앞부분을 요약해 공간을 비워요. 요약된 앞부분의 자세한 내용은 잊을 수 있어요.")
                         .font(.system(size: Typo.caption + 1))
                         .foregroundColor(Theme.muted)
                         .multilineTextAlignment(.center)

@@ -2203,6 +2203,46 @@ final class PiRemoteUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [done], timeout: 3), .completed, "누르면 '복사됨'으로 바뀌어야 함")
     }
 
+    /// XX. Claude Code 탭의 컨텍스트 사용량(11-17 사용자 보고 '앱에서 현재 컨텍스트 확인이 안 보인다': 고리가 pi 탭에서만 보였음).
+    ///     가짜 Claude Code 의 대화 기록으로 본다(마지막 응답의 입력 토큰 152,000, Opus 5.5 의 기억 용량 1M):
+    ///     ① 위쪽 고리에 15%  ② 누르면 사용 중 152K / 1M 토큰, 자동 압축은 97%(967K)에서, 설명 글은 pi 가 아니라 Claude Code
+    ///     ③ 셸만 있는 탭으로 가면 고리가 사라짐  ④ '지금 압축하기'를 누르면 창이 닫힘(맥에 /compact 가 갔는지는 test/app.sh 가 확인)
+    func testXX_ClaudeContext() throws {
+        guard let text = try? String(contentsOfFile: "/tmp/ptest/bg-wins", encoding: .utf8) else { throw XCTSkip("가짜 Claude Code 탭 준비 안 됨") }
+        let n = text.split(separator: " ").compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        guard n.count == 4 else { throw XCTSkip("가짜 Claude Code 탭 준비가 이상함: \(text)") }
+        relaunch(test: "")
+        openTab(n[3])   // 가짜 Claude Code 가 도는 탭
+        let says = { (part: String) in self.app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", part)).firstMatch }
+        let gauge = el("contextGauge")
+        XCTAssertTrue(gauge.waitForExistence(timeout: 20), "Claude Code 탭에서도 위쪽에 컨텍스트 고리가 보여야 함")
+        XCTAssertEqual(gauge.label, "컨텍스트 15%", "사용률 = 사용 중 152K / 기억 용량 1M")
+        shot("xx-claude-gauge")
+        gauge.tap()
+        XCTAssertTrue(el("contextSheet").waitForExistence(timeout: 5), "고리를 누르면 컨텍스트 창이 떠야 함")
+        XCTAssertTrue(says("152K / 1M 토큰").waitForExistence(timeout: 5), "사용 중 토큰과 기억 용량이 보여야 함")
+        XCTAssertTrue(says("97%(967K)에서 시작").exists, "자동 압축 지점이 보여야 함")
+        XCTAssertTrue(says("Claude Code가 앞부분을 요약해").exists, "설명은 이 탭의 도구 이름으로")
+        XCTAssertFalse(says("pi가 앞부분을 요약해").exists, "Claude Code 탭인데 pi 라고 하면 안 됨")
+        shot("xx-claude-context")
+        el("contextClose").tap()
+        XCTAssertTrue(waitGone(el("contextSheet"), 5), "닫기를 누르면 창이 닫혀야 함")
+
+        // 셸만 있는 탭(창 0)에는 고리가 없고, 돌아오면 다시 보인다
+        openTab(0)
+        XCTAssertTrue(waitGone(el("contextGauge"), 10), "Claude Code·pi 가 없는 탭에서는 고리가 사라져야 함")
+        openTab(n[3])
+        XCTAssertTrue(gauge.waitForExistence(timeout: 20), "Claude Code 탭으로 돌아오면 고리가 다시 보여야 함")
+        XCTAssertEqual(gauge.label, "컨텍스트 15%")
+
+        // 쉬는 중이면 '지금 압축하기'가 켜져 있고, 누르면 창이 닫힌다
+        gauge.tap()
+        let compact = el("compactNow")
+        XCTAssertTrue(compact.waitForExistence(timeout: 5) && compact.isEnabled, "쉬는 중엔 '지금 압축하기'가 켜져 있어야 함")
+        compact.tap()
+        XCTAssertTrue(waitGone(el("contextSheet"), 5), "'지금 압축하기'를 누르면 창이 닫혀야 함")
+    }
+
     /// WW. 단축어 동작 '맥의 AI 에게 일 시키기'(사용자 요청 11-17: 폰의 사건으로 AI 에게 일 시키기).
     ///     동작을 실행하면 맥이 그 폴더에서 새 백그라운드 탭을 열고, 서랍의 '백그라운드' 칸에 '단축어로 시킴'으로 보인다.
     ///     단축어 앱을 거치지 않고, 앱이 뜨면서 그 동작을 그대로 한 번 실행한다(PI_REMOTE_TEST_TASK. 매개변수·맥에 보내기·답 받기).

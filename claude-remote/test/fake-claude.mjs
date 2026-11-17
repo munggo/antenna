@@ -26,7 +26,8 @@ if (a1 === "--feed") {
     { type: "assistant", uuid: "a4", timestamp: at(200), thinkingDisplay: "updates", message: { id: "m3", model: "claude-opus-5-5", content: [{ type: "thinking", thinking: "기준표(7~12개월)를 보고 주 80~120g 기록과 견줘 보겠습니다.", signature: "s" }], stop_reason: null } },
     { type: "assistant", uuid: "a5", timestamp: at(200), message: { id: "m3", model: "claude-opus-5-5", content: [{ type: "tool_use", id: "tr", name: "Read", input: { file_path: `${dir}/table.md` } }], stop_reason: "tool_use" } },
     { type: "user", uuid: "u3", timestamp: at(199), message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tr", content: "표" }] } },
-    { type: "assistant", uuid: "a6", timestamp: at(198), message: { id: "m4", model: "claude-opus-5-5", content: [{ type: "text", text: "권장량은 하루 5~15분씩, 2~3회입니다." }], stop_reason: "end_turn" } },
+    // 마지막 응답의 사용량(입력 토큰 152,000, Opus 5.5 의 기억 용량 1M): 앱 위쪽의 컨텍스트 고리가 15%로 보인다(앱 화면 시험 XX)
+    { type: "assistant", uuid: "a6", timestamp: at(198), message: { id: "m4", model: "claude-opus-5-5", content: [{ type: "text", text: "권장량은 하루 5~15분씩, 2~3회입니다." }], stop_reason: "end_turn", usage: { input_tokens: 4, cache_creation_input_tokens: 1_996, cache_read_input_tokens: 150_000, output_tokens: 20 } } },
   ];
   writeFileSync(`${dir}/t.jsonl`, `${L.map((o) => JSON.stringify(o)).join("\n")}\n`);
   const until = Date.now() + 15_000;

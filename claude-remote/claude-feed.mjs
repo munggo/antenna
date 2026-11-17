@@ -545,6 +545,38 @@ export function questionAnswer(t) {
   return pairs.length ? pairs.join(" / ") : (lines(t).slice(-1)[0] ?? "");
 }
 
+// ── 컨텍스트 사용량(앱 위쪽의 고리) ──
+// pi 는 확장이 사용량을 직접 받지만, Claude Code 는 그 값을 상태 줄 스크립트에만 넘긴다. 그래서 여기서 정한다:
+// 사용 중 토큰은 대화 기록의 마지막 응답이 쓴 입력 토큰(Claude Code 가 상태 줄에 주는 사용률과 같은 식),
+// 기억 용량과 자동 압축 지점은 Claude Code 문서(model-config 의 extended context·auto-compact window)의 규칙.
+// 실제로 압축된 지점과도 맞춰 봄(11-17, 이 맥의 기록 263번): 1M 모델은 96만 7천 언저리, 자동 압축 창이 200K 일 때는 20만 언저리
+const WINDOW_1M = 1_000_000, WINDOW_200K = 200_000, AUTO_COMPACT_1M = 967_000;
+
+/** 모델의 기억 용량(토큰). Fable·Sonnet 5 이상·Haiku 5.5·Opus 4.7 이상은 1M, 그 앞 모델은 200K, 1M 을 끈 환경이면 모두 200K.
+ *  모르는 이름이면 null(틀린 숫자를 보이느니 고리를 숨김). 4.6 계열을 [1m] 으로 쓰는 것은 기록의 모델 이름에 표시가 없어 200K 로 본다 */
+export function contextWindowOf(model, env = {}) {
+  const m = String(model ?? "").toLowerCase().match(/(fable|opus|sonnet|haiku)-(\d{1,2})(?!\d)(?:-(\d{1,2})(?!\d))?/);
+  if (!m) return null;
+  if (env.CLAUDE_CODE_DISABLE_1M_CONTEXT === "1") return WINDOW_200K;
+  const [family, major, minor] = [m[1], Number(m[2]), Number(m[3] ?? 0)];
+  const from = (a, b) => major > a || (major === a && minor >= b);
+  return family === "fable" || (family === "opus" && from(4, 7)) || (family === "sonnet" && from(5, 0)) || (family === "haiku" && from(5, 5)) ? WINDOW_1M : WINDOW_200K;
+}
+
+/** 앱 고리에 보낼 값(pi 확장이 보내는 것과 같은 모양). tokens 가 null 이면 아직 모름(압축 직후: 다음 응답 뒤에 다시 앎).
+ *  자동 압축은 사용량이 '자동 압축 창'에 닿으면 시작한다: 설정(/autocompact 가 모델마다 저장한 값, 없으면 모든 모델용 autoCompactWindow)이 없으면
+ *  1M 모델은 약 967K, 그 밖은 기억 용량 끝. 실행 옵션(--autocompact)·환경 변수(CLAUDE_CODE_AUTO_COMPACT_WINDOW)로 정한 창은 알지 못한다 */
+export function contextInfo(model, tokens, settings = {}, env = {}) {
+  const window = contextWindowOf(model, env);
+  if (!window) return null;
+  const saved = settings.modelSettings?.[String(model).replace(/-\d{8}$/, "")]?.autoCompactWindow ?? settings.autoCompactWindow;
+  const at = Math.min(window, Number.isInteger(saved) && saved >= 100_000 ? saved : window === WINDOW_1M ? AUTO_COMPACT_1M : window);
+  return {
+    tokens: tokens ?? null, window, percent: tokens == null ? null : (tokens / window) * 100,
+    auto: settings.autoCompactEnabled !== false && env.DISABLE_AUTO_COMPACT !== "1", reserve: window - at,
+  };
+}
+
 /** 대화 기록 줄 → 폰 메시지(같은 응답의 조각은 하나로 모음) */
 export function createConverter() {
   const order = [];
@@ -555,6 +587,7 @@ export function createConverter() {
   const tasks = new Map();    // 할 일(새 방식 TaskCreate·TaskUpdate): 번호 → {content, status, activeForm}
   let todoList = null;        // 할 일(예전 방식 TodoWrite) 마지막 목록
   let model = null;
+  let usage = null;           // 마지막 응답이 쓴 입력 토큰(= 지금 컨텍스트에 든 양). 모르면 null(첫 응답 전, 압축 직후)
   const queue = [];           // Claude Code 가 받아 둔 글(작업 중에 들어온 것): 넣은 순서대로 {id, text}
   let queueSeq = 0;
   const STATUS = new Set(["pending", "in_progress", "completed"]);
@@ -565,6 +598,11 @@ export function createConverter() {
   };
   const add = (o) => {
     if (!o || o.isSidechain) return [];
+    // 압축이 끝남: 앞부분이 요약으로 바뀌어 사용량이 달라졌다. 다음 응답이 올 때까지는 모름
+    if (o.type === "system" && o.subtype === "compact_boundary") {
+      usage = null;
+      return [];
+    }
     // 받아 둔 글: 넣기(enqueue)·차례가 돼 꺼내기(dequeue)·작업 중에 전달돼 빼기(remove)·모두 꺼내기(popAll)를 따라감
     if (o.type === "queue-operation") {
       const text = String(o.content ?? "");
@@ -624,7 +662,13 @@ export function createConverter() {
     }
     if (o.type === "assistant") {
       const m = o.message ?? {};
-      if (m.model && m.model !== "<synthetic>") model = m.model;
+      // 모델이 답한 줄(오류 안내처럼 Claude Code 가 지어 넣은 줄은 뺌)에서 모델과 사용량을 따라간다.
+      // 사용량은 이 응답에 들어간 입력 토큰: 새 입력 + 캐시에 쓴 것 + 캐시에서 읽은 것(출력은 빼고)
+      if (m.model && m.model !== "<synthetic>") {
+        model = m.model;
+        const u = m.usage;
+        if (u) usage = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+      }
       const id = m.id || o.uuid;
       const prev = byId.get(id) ?? { id, role: "assistant", blocks: [], stop: null, error: null };
       const blocks = [...prev.blocks];
@@ -681,6 +725,7 @@ export function createConverter() {
     add: (o) => add(o).map(publicMsg),
     messages: () => order.map((id) => publicMsg(byId.get(id))),
     model: () => model,
+    usage: () => usage,
     /** 받아 둔 글 가운데 사람이 보낸 것(작업 알림은 빼고): 앱의 대기 말풍선으로 보임. 작업 중에 들어온 글은 다음 단계에서 전달됨 */
     queue: () => queue.map((q) => ({ id: q.id, text: cleanUserText(q.text), kind: "steer" })).filter((q) => q.text),
     /** 작업이 끝나면 남은 것은 버림(꺼낸 기록이 빠져도 대기 표시가 남지 않게) */
@@ -847,13 +892,24 @@ export function runFeed(pane) {
     queueSent = j;
     broadcast({ t: "queue", items: q });
   };
+  // 컨텍스트 사용량(앱 위쪽의 고리): 응답이 적히거나 압축되면 바뀐다. 모델·사용량이 달라졌을 때만 다시 계산해 보낸다
+  // (설정에서 자동 압축 창을 바꾼 것은 다음 응답 때 반영). 환경 변수는 Claude Code 에서 물려받은 것과 설정 파일의 env 를 함께 본다
+  let contextKey = "";
+  const contextNow = () => {
+    contextKey = `${conv.model()}:${conv.usage()}`;
+    const s = readSettings();
+    return contextInfo(conv.model(), conv.usage(), s, { ...s.env, ...process.env });
+  };
+  const pushContext = () => {
+    if (`${conv.model()}:${conv.usage()}` !== contextKey) broadcast({ t: "context", context: contextNow() });
+  };
   const snapshot = () => {
     const msgs = conv.messages();
     const q = queueNow();
     queueSent = JSON.stringify(q);
     return {
       t: "snapshot", v: FEED_VERSION, agent: "claude", messages: msgs.slice(-MAX_MESSAGES), truncated: Math.max(0, msgs.length - MAX_MESSAGES),
-      working, queue: q, canSend: true, notice: null, context: null, compacting: false, since: working ? workSince : null,
+      working, queue: q, canSend: true, notice: null, context: contextNow(), compacting: false, since: working ? workSince : null,
       approvals: [...approvals.values()], questions: [...[...questions.values()].map((q) => q.item), ...(screenAsk ? [screenAsk.item] : [])], todos: visibleTodos(), planMode: permMode === "plan", compactSince: null,
       permMode, modelChoices: MODEL_CHOICES, rev: CODE_REV,
     };
@@ -1032,6 +1088,7 @@ export function runFeed(pane) {
     }
     if (changed.some((m) => m.role === "assistant")) updateChips();
     if (changed.length) pushTodos();
+    pushContext();
     // Esc 로 멈춤(승인 거부·질문 취소 포함): 작업 끝 훅이 안 올 수 있어 기록의 '[Request interrupted by user' 로 끝냄
     if (interrupted) {
       if (working) broadcast({ t: "working", value: false });
