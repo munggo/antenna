@@ -9,7 +9,9 @@
 - [Building the app](#building-the-app)
 - [Notifications](#notifications)
 - [Usage](#usage)
+- [Shortcuts](#shortcuts)
 - [Optional features](#optional-features)
+- [Updating](#updating)
 - [Troubleshooting](#troubleshooting)
 - [Uninstalling](#uninstalling)
 
@@ -33,7 +35,7 @@ launchctl kickstart -k gui/$(id -u)/com.munggo.pi-remote   # restart the bridge
 sh deploy/pair.sh                                          # show the pairing QR
 ```
 
-`sh install.sh --no-agent` skips the login item. Then you start the bridge yourself with `server/run.sh`.
+`sh install.sh --no-agent` skips the login item. Then you start the bridge yourself with `server/run.sh`. Until you do, the health check at the end of the install marks the bridge with ✗; it goes away once the bridge runs.
 
 ### Paired devices
 
@@ -47,9 +49,9 @@ sh deploy/pair.sh --list           # paired devices
 sh deploy/pair.sh --revoke <id>    # cut one off (an open connection closes within a minute)
 ```
 
-"연결 토큰 새로 바꾸기" in the app's menu replaces that phone's token only.
+"연결 토큰 바꾸기" (replace the connection token) in the app's menu replaces that phone's token only.
 
-Installs from before per-device tokens have a shared `PI_REMOTE_TOKEN` line in the settings file and no `PI_REMOTE_TLS_ONLY` line, and phones paired then keep working, without encryption. Once every phone runs the current app and has been paired again, delete the `PI_REMOTE_TOKEN` line, add `PI_REMOTE_TLS_ONLY=1` and restart the bridge. Choosing "연결 토큰 새로 바꾸기" on such a phone does the same: the phone gets its own token and the shared one is removed. `sh deploy/pair.sh --legacy` shows the old kind of QR for an app that does not know pairing codes.
+(Only for a Mac that was set up with an earlier version.) Installs from before per-device tokens have a shared `PI_REMOTE_TOKEN` line in the settings file and no `PI_REMOTE_TLS_ONLY` line, and phones paired then keep working, without encryption. Once every phone runs the current app and has been paired again, delete the `PI_REMOTE_TOKEN` line, add `PI_REMOTE_TLS_ONLY=1` and restart the bridge. Choosing "연결 토큰 바꾸기" on such a phone does the same: the phone gets its own token and the shared one is removed. `sh deploy/pair.sh --legacy` shows the old kind of QR for an app that does not know pairing codes.
 
 ## Reaching the Mac from outside
 
@@ -136,7 +138,13 @@ Once the path is open, the rest is [the steps in common](#the-steps-in-common). 
 
 ## Building the app
 
-You need Xcode, XcodeGen and a membership in the Apple Developer Program (the app declares the push notification capability, which free accounts cannot sign).
+Skip this section if you got the app through a TestFlight invitation.
+
+You need Xcode, XcodeGen and a paid membership in the Apple Developer Program (the app declares the push notification capability, which free accounts cannot sign).
+
+- The author builds with Xcode 27.2. Older versions have not been tested.
+- The terminal view (SwiftTerm) uses Metal shaders, so Xcode's Metal toolchain has to be installed. If it is missing, get it with `xcodebuild -downloadComponent MetalToolchain`.
+- Turn on Developer Mode on the phone (Settings › Privacy & Security › Developer Mode; it appears after the phone has been connected to Xcode once).
 
 ```sh
 cp ios/Local.xcconfig.example ios/Local.xcconfig
@@ -150,10 +158,10 @@ Fill in two values in `ios/Local.xcconfig`. The file is ignored by git.
 **With Xcode**
 
 ```sh
-cd ios && xcodegen generate && open PiRemote.xcodeproj
+(cd ios && xcodegen generate && open PiRemote.xcodeproj)
 ```
 
-Select your phone and run. Run `xcodegen generate` again whenever `project.yml` or the xcconfig files change.
+Connect the phone to the Mac and trust it, then select the phone in Xcode and run. Run `xcodegen generate` again whenever `project.yml` or the xcconfig files change.
 
 **From the command line** (phone on the same Wi-Fi as the Mac)
 
@@ -201,14 +209,16 @@ Installing the app adds one action to the Shortcuts app: **맥의 AI 에게 일 
 
 To use it, create a shortcut in the Shortcuts app, tap Add Action, and pick the action under Antenna. To run it on an event, open the Automation tab of the Shortcuts app, choose a trigger (a time of day, arriving somewhere, connecting the charger, an NFC tag and so on) and add this action. You can also say "Antenna에 일 시키기" to Siri, or find the action in Spotlight.
 
-The task shows up in the background section of the app's drawer, marked '단축어로 시킴' (started by a shortcut). If [notifications](#notifications) are set up, you are notified when it finishes, however long it ran.
+The task shows up in the background section of the app's drawer, marked '단축어로 시킴' (started by a shortcut). If [notifications](#notifications) are set up, you are notified when it finishes, however long it ran. In an app that gets no notifications (one installed from TestFlight), check that section to see whether it has finished.
 
 Things to know:
 
 - The phone has to reach the Mac at that moment: the same Wi-Fi, or the VPN from [Reaching the Mac from outside](#reaching-the-mac-from-outside) turned on. If it cannot, the shortcut shows why.
+- The shortcut does not look for the Mac again. It uses the address the app last connected to and the addresses from the QR. If the Mac's address on your home Wi-Fi has changed, open the app once so it connects again.
+- In an automation, choose to run it without asking ("Run Immediately"). Otherwise you have to confirm on the phone every time the trigger fires.
 - After restarting the phone, unlock it once so the app can read its connection token.
 - The agent starts with the same settings it normally has in that folder. If it asks for an approval, the card and the notification reach the phone as usual.
-- If the Antenna on the Mac is an older version that does not know this action, the shortcut says so. Pull the new version on the Mac and run `sh install.sh` again.
+- If the Antenna on the Mac is an older version that does not know this action, the shortcut says so. [Update](#updating) the Mac.
 
 ## Optional features
 
@@ -228,6 +238,12 @@ sh deploy/install-agents.sh --all               # everything
 | `pi-auto-update` | Updates pi and its extensions every day at 05:00. |
 | `antenna-attach` | At login opens iTerm2 attached to the tmux session. |
 
+These were written for the author's Mac and assume a few things. On a Mac that does not match, the job can be registered but does nothing.
+
+- `claude-auto-update`, `claude-reload` — Claude Code has to be at `~/.local/bin/claude` (where Anthropic's install script puts it). A copy installed with Homebrew or npm is not found
+- `pi-auto-update` — finds pi only under a Node installed with nvm
+- `antenna-attach` — needs iTerm2, and tmux installed with Homebrew
+
 To remove one: `launchctl bootout gui/$(id -u)/com.munggo.<name>` and delete `~/Library/LaunchAgents/com.munggo.<name>.plist`.
 
 ### Two Claude accounts
@@ -241,9 +257,17 @@ If you have two Claude subscriptions (say personal and work), Antenna can pick o
   security add-generic-password -s pi-anthropic-work -a "$USER" -T /usr/bin/security -w
   ```
 
-- For Claude Code, `~/.claude/pi-remote/claude-account <folder>` prints `work` or `personal`. Use it from a shell function that sets `CLAUDE_CODE_OAUTH_TOKEN` for `work`.
-  When a limit makes it switch accounts, the feed quits Claude Code and resumes the same conversation with `~/.claude/pi-remote/claude-as.sh <account>`, so the right account is used even in a shell opened before you changed the shell function. If the account is still unchanged after the restart, it stops switching for 6 hours and notifies your phone.
+- For Claude Code, `~/.claude/pi-remote/claude-account <folder>` prints the account to use in that folder (`work` or `personal`), and `~/.claude/pi-remote/claude-as.sh <account>` starts Claude Code with that account (for `work` it passes the keychain token as `CLAUDE_CODE_OAUTH_TOKEN`). Put a function in your shell settings (`~/.zshrc`) so every start uses the right account:
+
+  ```sh
+  claude() {
+    ~/.claude/pi-remote/claude-as.sh "$(~/.claude/pi-remote/claude-account "$PWD")" "$@"
+  }
+  ```
+
+  When a limit makes it switch accounts, the feed quits Claude Code and resumes the same conversation with `claude-as.sh`, so the right account is used even in a shell opened before you changed the shell function. If the account is still unchanged after the restart, it stops switching for 6 hours and notifies your phone.
 - For pi, install the extension: `sh pi-extension/install.sh --with claude-accounts`.
+- Switching by limit needs each account's usage, and for now only the pi extension `claude-accounts` records it (`~/.cache/pi-remote/claude-accounts.json`). On a Mac with Claude Code only, choosing by folder is all that works.
 
 ### Keeping the Mac on an OpenVPN server
 
@@ -282,6 +306,24 @@ sh pi-extension/install.sh --with compact-tools,web,subagent
 
 Files that differ from what you already have are kept in `~/.cache/pi-remote/backup/` before being replaced. Run `/reload` in pi afterwards.
 
+## Updating
+
+Update the Mac and the phone separately. If only one side is new, the features you already use keep working; a newly added feature needs both sides to be new.
+
+On the Mac:
+
+```sh
+cd antenna        # the folder you cloned into
+git pull
+sh install.sh
+```
+
+`install.sh` is safe to run again. It keeps your settings, replaces the Claude Code feed and the pi extensions with the new version, and restarts the bridge if the bridge code changed (the phone disconnects for a moment and reconnects). The feed of a Claude Code tab that is already running switches to the new version by itself when that tab is idle. A pi that is already running needs `/reload` to pick up the new extensions.
+
+On the phone: if you got the app from TestFlight, get the new build in the TestFlight app (it arrives by itself if automatic updates are on). If you built it yourself, build and install it again.
+
+Afterwards run `node deploy/doctor.mjs` to check.
+
 ## Troubleshooting
 
 Start with the health check. It reads the settings, checks the bridge, the hooks and the installed copies, and tells you what to run.
@@ -291,7 +333,9 @@ node deploy/doctor.mjs
 node deploy/doctor.mjs --fix
 ```
 
+- **After scanning the QR the app says "맥에 닿지 못했어요" (could not reach the Mac).** Check that the phone and the Mac are on the same Wi-Fi. If the app has just been opened for the first time, allow local network access and scan again while the QR is still up (a code that never reached the Mac has not been used, so it still works). If it says "QR 이 만료됐어요" (the QR has expired) or "이미 쓴 QR 이에요" (the QR was already used), run `sh deploy/pair.sh` again.
 - **The app cannot connect on the same Wi-Fi.** Allow local network access for the app in iOS Settings. Check that the bridge is running and the port is open (the health check shows both).
+- **It worked, and some time later it cannot connect.** When the Mac sleeps, the bridge stops too. The Mac has to stay awake while you use it from the phone. Keep it plugged in and prevent sleep (leave `caffeinate -s` running in a terminal, or change System Settings so it does not sleep while plugged in). A MacBook sleeps when you close the lid.
 - **It connects at home but not outside.** Check in order: the VPN is on on the phone; the Mac is on that network (the health check tells you when an address in `PI_REMOTE_HOSTS` is not up on the Mac); you scanned the QR again after changing the address; and the network does not block traffic between your devices ([Reaching the Mac from outside](#reaching-the-mac-from-outside)).
 - **A Claude Code tab shows only the terminal.** The hooks are missing or the session started before they were installed. Run `sh claude-remote/install.sh` and start a new Claude Code session.
 - **A pi tab shows only the terminal.** Run `sh pi-extension/install.sh`, then `/reload` in pi.
@@ -303,9 +347,24 @@ node deploy/doctor.mjs --fix
 ```sh
 launchctl bootout gui/$(id -u)/com.munggo.pi-remote
 rm ~/Library/LaunchAgents/com.munggo.pi-remote.plist
-sh claude-remote/install.sh --remove      # take the hooks out of ~/.claude/settings.json
-rm -r ~/.claude/pi-remote                 # the Claude Code feed files
 rm -r ~/.config/pi-remote ~/.cache/pi-remote
 ```
 
-The pi extensions are plain files in `~/.pi/agent/extensions/`; `sh pi-extension/install.sh --list` shows their names.
+`~/.cache/pi-remote/backup/` holds your own files (pi extensions) that the install replaced. Take out anything you want back before deleting it.
+
+On a Mac where Claude Code was hooked up, there is more. Quit the Claude Code sessions that are running first (the feed that runs for each tab ends with it).
+
+```sh
+sh claude-remote/install.sh --remove      # take the hooks out of ~/.claude/settings.json and delete the /bgtab command file
+rm -r ~/.claude/pi-remote                 # the Claude Code feed files
+```
+
+The settings as they were before the change are kept in `~/.claude/settings.json.bak-pi-remote`.
+
+Also:
+
+- The pi extensions are plain files in `~/.pi/agent/extensions/`, so delete them yourself. `sh pi-extension/install.sh --list` shows their names. Run `/reload` in pi afterwards.
+- The tmux session stays. If you do not need it, close it with `tmux kill-session -t antenna` (whatever runs in it ends too).
+- If you installed any [optional features](#optional-features), remove them as each section says.
+- On the phone, delete the app. Once the settings folder on the Mac is gone, the token the phone was given no longer works.
+- Delete the repository folder last.

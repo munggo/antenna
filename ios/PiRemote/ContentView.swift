@@ -125,7 +125,8 @@ struct ContentView: View {
             .foregroundColor(Theme.accent)
             .accessibilityIdentifier("scanQR")
             .sheet(isPresented: $showScanner) { QRScanSheet { settings.applyPairURL($0) } }
-            Text(settings.pairing ? "맥과 짝짓는 중…" : "맥에서 antenna-pair 를 실행해 QR을 찍으면 돼요(맥 주소도 함께 저장). 토큰만 넣으면 같은 Wi-Fi에서만 맥을 찾아요.")
+            // 안내하는 명령은 설명서와 같게(어느 맥에나 있는 것). 'antenna-pair' 같은 바로가기는 만든 사람의 맥에만 있다
+            Text(settings.pairing ? "맥과 짝짓는 중…" : "맥의 Antenna 폴더에서 sh deploy/pair.sh 를 실행하고, 화면에 뜬 QR을 찍으면 돼요. 위 토큰 칸은 예전 방식(공유 토큰)을 쓰는 맥에만 필요해요.")
                 .multilineTextAlignment(.center)
                 .font(.system(size: 12)).foregroundColor(Theme.muted)
                 .frame(maxWidth: .infinity, alignment: .center)

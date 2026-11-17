@@ -4,7 +4,7 @@
 
 Use the [Claude Code](https://claude.com/claude-code) and [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) sessions running on your Mac from your iPhone.
 
-Your agents keep running in tmux on the Mac. The iPhone app shows each tmux tab either as a chat (messages, approval and question cards, to-do list) or as the real terminal, and whatever you type on either side shows up on the other. Nothing runs on the phone and nothing leaves your own network: the app talks straight to a small bridge on your Mac.
+Your agents keep running in tmux on the Mac. The iPhone app shows each tmux tab either as a chat (messages, approval and question cards, to-do list) or as the real terminal, and whatever you type on either side shows up on the other. Nothing runs on the phone. The app talks straight to a small bridge on your Mac, with no server in between. The only things that leave the Mac are the usage lookup (Anthropic) and, if you turn notifications on, the notifications (Apple's push service).
 
 > Formerly called pi-remote. Identifiers still use the old name: the config folder `~/.config/pi-remote`, the `PI_REMOTE_*` settings, the `piremote://` link scheme.
 
@@ -12,7 +12,7 @@ Your agents keep running in tmux on the Mac. The iPhone app shows each tmux tab 
 
 - **Chat view** for Claude Code and pi tabs: the conversation, tool steps, and cards for permission prompts and multiple-choice questions that you can answer from the phone. Screens where Claude Code waits for a key without telling any hook (such as the unsent-feedback prompt on `/exit`) are read off the Mac screen and shown as cards too.
 - **Terminal view** for any tab: the same tmux window you see on the Mac.
-- **Tabs**: switch, open, rename and close tmux windows; send a long task to a background tab (listed in its own section of the drawer with its status, elapsed time, the tab that asked for it, and its model and thinking level; finished ones close in one tap); reopen a past pi conversation. Shells and agents that Claude Code runs in the background show up under the tab as "백그라운드 작업 N" (background tasks); tap it to see each task's name, running time (for an agent also its type and model, and its thinking level when known) and the shell's latest output, and stop it (a shell is stopped right away; for an agent, Claude is asked to stop it). On the Mac, the tab that handed off the work shows the same in one "백그라운드: …" (background) line: a widget in pi, and in Claude Code a line your status line script adds from the tmux window option `@ai_bg_line`.
+- **Tabs**: switch, open, rename and close tmux windows; send a long task to a background tab (listed in its own section of the drawer with its status, elapsed time, the tab that asked for it, and its model and thinking level; finished ones close in one tap); reopen a past pi conversation. Shells and agents that Claude Code runs in the background show up under the tab as "백그라운드 작업 N" (background tasks); tap it to see each task's name, running time (for an agent also its type and model, and its thinking level when known) and the shell's latest output, and stop it (a shell is stopped right away; for an agent, Claude is asked to stop it). On the Mac, the tab that handed off the work shows the same in one "백그라운드: …" (background) line: a widget in pi, and in Claude Code a line that your own status line script can add from the tmux window option `@ai_bg_line` (that script is not part of this repository).
 - **Admin (sudo) commands** open in their own tab where you confirm and type the password yourself; the agent never sees it.
 - **Usage** of your Claude subscription limits (see the [note on usage](./docs/setup.md#usage)).
 - **MacBook battery**: the Mac's charge shows next to the connection status at the top (a bolt when plugged in, red when under 20% without a charger). With notifications set up, the phone is also told once when it gets that low. Nothing is shown for a Mac without a battery.
@@ -41,32 +41,36 @@ On the same Wi-Fi the phone finds the Mac by itself (Bonjour). Away from it, the
 
 ## Requirements
 
-- A Mac with [tmux](https://github.com/tmux/tmux) and [Node.js](https://nodejs.org) 20 or newer (`brew install tmux node`)
+- A Mac with [tmux](https://github.com/tmux/tmux) and [Node.js](https://nodejs.org) 20 or newer (`brew install tmux node`). It has to stay awake while you use it from the phone: when the Mac sleeps, the bridge stops
 - Claude Code and/or pi on that Mac
 - An iPhone or iPad on iOS 16 or newer
-- To build the app: Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`), and an Apple developer account to put it on a device
+- To build the app yourself (not needed if you get it through a TestFlight invitation): Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`), and a paid Apple Developer Program membership
 
 ## Quick start
 
 **1. Install the Mac side**
 
 ```sh
-git clone <this repository> antenna
+git clone <this repository> antenna   # <this repository>: the address from the Code button on this page
 cd antenna
 sh install.sh
 ```
 
 `install.sh` checks tmux and Node, installs the bridge's modules, creates the settings file `~/.config/pi-remote/env`, hooks up Claude Code and pi if you have them, starts the bridge at login, and runs a health check. It is safe to run again. It does not install tmux or Node for you, and it does not touch anything optional.
 
+Clone the repository somewhere it can stay (under your home folder, for example). The login item that starts the bridge holds the path of this folder, so if you move the folder, run `sh install.sh` again.
+
+On a Mac with pi, the pi extensions the phone needs are installed into `~/.pi/agent/extensions/`, and pi changes accordingly. It gets a feed that sends the conversation to the phone and tools for multiple-choice questions, a to-do list, plan mode, artifacts and background tabs, and it asks for approval before sending a message to someone or running a command that is hard to undo (in a pi that runs without a screen, those actions are blocked). A file with the same name that is already there with different contents is kept in `~/.cache/pi-remote/backup/` and replaced.
+
 **2. Put the app on your phone**
 
-If you were invited to TestFlight, follow the invitation email and get Antenna in the TestFlight app. An app installed this way gets no notifications (see [Status](#status)).
+The prebuilt app comes through a TestFlight invitation. To get one, tell the person who invited you to this repository the email address of your Apple Account. Install the TestFlight app on the phone, then open the link in the invitation email on the phone and get Antenna. An app installed this way gets no notifications (see [Status](#status)).
 
-Without an invitation, build it yourself:
+To use it without an invitation, build it yourself:
 
 ```sh
 cp ios/Local.xcconfig.example ios/Local.xcconfig   # put your Apple team ID and your own identifier prefix in it
-cd ios && xcodegen generate && open PiRemote.xcodeproj
+(cd ios && xcodegen generate && open PiRemote.xcodeproj)
 ```
 
 Select your phone and run. Details and a command-line install are in the [setup guide](./docs/setup.md#building-the-app).
@@ -77,7 +81,9 @@ Select your phone and run. Details and a command-line install are in the [setup 
 sh deploy/pair.sh
 ```
 
-A QR code appears in the terminal. Scan it with the phone's camera (or with "QR 코드 찍기" on the app's first screen). It carries a one-time pairing code, the fingerprint of your Mac's certificate, the port and your Mac's address, so there is nothing to type. The phone trades the code for a token of its own.
+A QR code appears in the terminal. Scan it with the phone's camera (or with "QR 코드 찍기" on the app's first screen). It carries a one-time pairing code, the fingerprint of your Mac's certificate, the port and your Mac's address, so there is nothing to type. The phone trades the code for a token of its own. The QR goes away when the phone is paired, when you press Enter, or after five minutes.
+
+The first time the app opens, iOS asks about local network access. Allow it, or the app cannot find the Mac on the same Wi-Fi. If scanning with the camera is what opened the app for the first time, it may say "맥에 닿지 못했어요" (could not reach the Mac) while you are answering that prompt; scan once more while the QR is still up. If it still says so, check that the phone and the Mac are on the same Wi-Fi.
 
 **4. Work**
 
@@ -85,7 +91,9 @@ A QR code appears in the terminal. Scan it with the phone's camera (or with "QR 
 tmux attach -t antenna
 ```
 
-Start `claude` or `pi` inside that session. The tab shows up in the app.
+Start `claude` or `pi` inside that session. The tab shows up in the app. To leave tmux while the session keeps running, press Ctrl-b and then d (with the default tmux settings).
+
+When a new version is out, run `git pull` and then `sh install.sh` again on the Mac, and get the new build of the app on the phone (see [Updating](./docs/setup.md#updating)).
 
 ## Away from home
 
@@ -113,7 +121,7 @@ How to choose a network, and the steps for each way (a VPN service that links yo
 
 All off unless you turn them on. See the [setup guide](./docs/setup.md#optional-features).
 
-- Notifications through your own Apple push key
+- Notifications through your own Apple push key (see [Notifications](./docs/setup.md#notifications))
 - Two Claude accounts chosen by folder, switching when one hits its limit
 - Keeping the Mac connected to an OpenVPN server
 - Daily updates of Claude Code and pi, restarting idle sessions on a new version
@@ -125,7 +133,7 @@ All off unless you turn them on. See the [setup guide](./docs/setup.md#optional-
 ```sh
 node deploy/doctor.mjs         # is everything installed and running? (settings, bridge, hooks, installed copies)
 node deploy/doctor.mjs --fix   # fix what can be fixed safely
-sh test.sh                     # the test suite: no model calls, never touches your real session or bridge
+sh test.sh                     # the test suite: no model calls, never touches your real session or bridge (needs Node 22.6 or newer)
 ```
 
 If the bridge ever dies, the reason is kept in `~/.cache/pi-remote/crash.log` and the health check shows it.
@@ -135,6 +143,8 @@ If the bridge ever dies, the reason is kept in `~/.cache/pi-remote/crash.log` an
 A personal tool that grew up; expect rough edges.
 
 - macOS and iOS only.
+- The author uses it daily on macOS 26 with tmux 3.5a (Homebrew), Claude Code 2.1 and pi 1.5. Older versions have not been tested.
+- Parts of a Claude Code tab (the number of background tasks, the cards read off the screen, whether it is working) depend on what Claude Code draws in the terminal. When a new version of Claude Code changes its screen, they can be off until this is updated.
 - The prebuilt app is shared only by TestFlight invitation for now. Without an invitation you build and sign it yourself.
 - Notifications need your own Apple developer push key. So they come only to an app you built yourself, not to one installed from TestFlight.
 

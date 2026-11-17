@@ -104,6 +104,7 @@ run windows "탭 목록: 백그라운드 탭·뒤에서 도는 일·끝난 것 �
 run switch "계정 전환 때 다시 켤 옵션" "$NODE" claude-remote/test/switch-cases.mjs
 run vpn-guard "VPN 지킴이(선택 기능): 설정 읽기·터널 지키기" "$NODE" test/vpn-guard.test.mjs
 run qr "짝짓기 QR: 그리기·짝짓기 명령·다시 읽기" "$NODE" test/qr.test.mjs
+run bridge-stale "새 판을 받은 뒤 브리지를 다시 시작해야 하는지(브리지가 뜬 뒤 코드가 바뀌었는지)" "$NODE" test/bridge-stale.test.mjs
 if command -v python3 >/dev/null 2>&1; then
   run reload-screen "업데이트 뒤 자동 다시 켜기: 끄면 안 되는 것(셸·초안·하위 에이전트 목록)이 화면에 보이는지" python3 test/claude-reload.test.py
 else
@@ -137,12 +138,12 @@ if command -v tmux >/dev/null 2>&1; then
   run notify-hold "맥을 쓰는 중이면 폰 알림을 미루는지" "$NODE" server/test/notify-hold-e2e.mjs
   run no-pi "pi 가 없는 맥에서도 브리지가 되는지" "$NODE" server/test/no-pi.test.mjs
   run reach "재부팅 알림: 밖에서 붙을 주소가 올라와 있는지" "$NODE" server/test/reach.test.mjs
-  run pairing "짝짓기·기기 토큰으로 붙기·바꾸기·끊기, 예전 토큰에서 옮기기" "$NODE" server/test/pairing.test.mjs
+  run pairing "짝짓기·기기 토큰으로 붙기·바꾸기·끊기, 예전 토큰에서 옮기기, 짝짓기 QR 이 찍을 때까지 떠 있는지" "$NODE" server/test/pairing.test.mjs
   run accounts-alert "개인·회사 계정이 섞이면 어느 쪽인지 가려 폰에 알림" "$NODE" server/test/accounts-alert.test.mjs
   run bg-drawer "서랍의 백그라운드 칸: 실행기·탭 목록·끝난 것 모두 닫기" "$NODE" server/test/bg-drawer.test.mjs
   run tasks "단축어로 시킨 일: 새 백그라운드 탭에서 시작·같은 요청은 한 번만·없는 폴더와 토큰 없는 접속은 거절" "$NODE" server/test/tasks.test.mjs
   run battery-bridge "맥북 배터리를 앱에 보내고, 낮으면 폰에 한 번 알림" "$NODE" server/test/battery-bridge.test.mjs
-  run install "설치 명령: 새 맥(가짜 홈)에서 설치·브리지·점검·짝짓기" "$NODE" test/install.test.mjs
+  run install "설치 명령: 새 맥(가짜 홈)에서 설치·브리지·점검·짝짓기, 새 판을 받은 뒤 다시 돌리면 브리지 다시 시작" "$NODE" test/install.test.mjs
 else
   skip sudo-tab "tmux 가 없음"
   skip rev-handover "tmux 가 없음"

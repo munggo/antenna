@@ -2,7 +2,7 @@
 /**
  * Antenna 점검: 맥 쪽이 제대로 깔려 돌고 있는지 한 번에 본다.
  *   node deploy/doctor.mjs         점검만(아무것도 바꾸지 않음)
- *   node deploy/doctor.mjs --fix   안전하게 고칠 수 있는 것은 고침: 설치본을 저장소와 맞춤, 고친 뒤 다시 시작하지 않은 브리지 다시 시작,
+ *   node deploy/doctor.mjs --fix   안전하게 고칠 수 있는 것은 고침: 설치본을 저장소와 맞춤, 코드가 바뀐 뒤 다시 시작하지 않은 브리지 다시 시작,
  *                                  쉬는 탭의 옛 연결부 다시 띄우기(작업 중·답을 기다리는 탭은 건드리지 않음)
  * 보는 것: 필요한 프로그램 · 설정 파일 · 브리지(등록·실행·포트·죽은 기록·지금 코드인지) · 자동 실행 등록 ·
  *          Claude Code 연결(훅·설치본·탭마다 도는 연결부의 판) · pi 확장 설치본
@@ -17,6 +17,7 @@ import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDeviceStore } from "../server/devices.mjs";
+import { staleSince, startedAt } from "./bridge-stale.mjs";
 import { accountsMixed, MIXED_TEXT, mixedDirection } from "../server/usage-history.mjs";
 
 const FIX = process.argv.includes("--fix");
@@ -87,7 +88,7 @@ else {
   // 폰의 토큰은 기기마다 따로(짝짓기로 받음). 예전 방식의 공유 토큰이 남아 있으면 알려 준다
   const paired = createDeviceStore(dirname(ENV_FILE)).list();
   if (paired.length) good(`짝지은 기기 ${paired.length}대(보기·끊기: sh deploy/pair.sh --list)`);
-  if (env.PI_REMOTE_TOKEN) note("예전 방식의 공유 토큰(PI_REMOTE_TOKEN)이 켜져 있음: 아직 다시 짝짓지 않은 폰이 이것으로 붙어요. 모든 폰을 새로 짝지었으면 그 줄을 지우고 브리지를 다시 시작(또는 폰 앱의 '연결 토큰 새로 바꾸기')");
+  if (env.PI_REMOTE_TOKEN) note("예전 방식의 공유 토큰(PI_REMOTE_TOKEN)이 켜져 있음: 아직 다시 짝짓지 않은 폰이 이것으로 붙어요. 모든 폰을 새로 짝지었으면 그 줄을 지우고 브리지를 다시 시작(또는 폰 앱 메뉴의 '연결 토큰 바꾸기')");
   else if (!paired.length) note("아직 짝지은 폰이 없음: sh deploy/pair.sh 로 QR 을 띄워 폰으로 찍기");
   // 연결 암호화: 인증서는 브리지가 처음 뜰 때 만든다
   if (!existsSync(join(dirname(ENV_FILE), "tls/cert.pem"))) note("아직 인증서가 없음(브리지가 처음 뜰 때 만들어요)");
@@ -110,7 +111,7 @@ else {
   else if (!existsSync(env.PI_REMOTE_APNS_KEY.replace(/^~/, HOME))) bad("폰 알림 키 파일이 없어요(PI_REMOTE_APNS_KEY 가 가리키는 파일)");
   else good("폰 알림 설정 있음");
 }
-const SESSION = env.PI_TMUX_SESSION || "pi";
+const SESSION = env.PI_TMUX_SESSION || "antenna";   // 브리지(server/bridge.mjs)의 기본값과 같게
 const PORT = Number(env.PORT || 8787);
 
 // ── 브리지 ──
@@ -131,13 +132,11 @@ else if (!bridgePid) bad("등록은 돼 있지만 돌고 있지 않아요", `lau
 else good(`돌고 있음(프로세스 ${bridgePid})`);
 if (open) good(`포트 ${PORT} 열림`);
 else bad(`포트 ${PORT} 가 열려 있지 않아요`);
-// 고친 뒤 다시 시작했는지: 브리지가 뜬 시각과 브리지 코드가 마지막으로 바뀐 시각
+// 새 판을 받거나 고친 뒤 다시 시작했는지: 브리지가 뜬 시각과 브리지 코드가 마지막으로 바뀐 시각(bridge-stale.mjs. install.sh 도 같은 판정으로 다시 시작함)
 if (bridgePid) {
-  const started = Date.parse(sh("ps", ["-o", "lstart=", "-p", String(bridgePid)]) ?? "");
-  const files = readdirSync(join(REPO, "server")).filter((f) => f.endsWith(".mjs")).map((f) => join(REPO, "server", f));
-  const newest = files.map((f) => ({ f, t: statSync(f).mtimeMs })).sort((a, b) => b.t - a.t)[0];
-  if (started && newest.t > started + 1000) {
-    bad(`브리지가 옛 코드로 돌고 있어요(${newest.f.split("/").pop()} 를 고친 뒤 다시 시작하지 않음)`, `launchctl kickstart -k gui/${uid}/${BRIDGE_LABEL}`);
+  const changed = staleSince(startedAt(bridgePid));
+  if (changed) {
+    bad(`브리지가 옛 코드로 돌고 있어요(${changed.split("/").pop()} 가 바뀐 뒤 다시 시작하지 않음)`, `launchctl kickstart -k gui/${uid}/${BRIDGE_LABEL} (또는 sh install.sh 를 다시)`);
     if (FIX) {
       sh("launchctl", ["kickstart", "-k", `gui/${uid}/${BRIDGE_LABEL}`]);
       await sleep(3000);

@@ -4,10 +4,11 @@
 # 폰은 그 지문의 맥과만 암호화 연결을 맺는다(같은 망의 다른 기기가 엿보거나 맥인 척할 수 없음).
 # 폰은 그 코드를 브리지에 내고 그 폰만의 연결 토큰을 받는다 → QR 사진이 새어도 5분 뒤에는 쓸모가 없고, 폰마다 따로 끊을 수 있다.
 # PI_REMOTE_HOSTS 가 없으면 주소 없이 만든다(같은 Wi-Fi 에서는 자동으로 찾고, 폰이 전에 받은 주소가 있으면 그대로 씀).
-# 쓰기: antenna-pair                       새 짝짓기 QR
-#       antenna-pair --list                짝지은 기기 보기
-#       antenna-pair --revoke <번호|이름>   그 기기 끊기(붙어 있던 연결도 1분 안에 닫힘)
-#       antenna-pair --legacy              예전 앱용 QR(설정의 공유 토큰 PI_REMOTE_TOKEN 이 남아 있을 때만. 코드를 모르는 예전 앱에)
+# 쓰기: sh deploy/pair.sh                       새 짝짓기 QR
+#       sh deploy/pair.sh --list                짝지은 기기 보기
+#       sh deploy/pair.sh --revoke <번호|이름>   그 기기 끊기(붙어 있던 연결도 1분 안에 닫힘)
+#       sh deploy/pair.sh --legacy              예전 앱용 QR(설정의 공유 토큰 PI_REMOTE_TOKEN 이 남아 있을 때만. 코드를 모르는 예전 앱에)
+# 자주 쓰면 PATH 에 든 폴더에 바로가기를 만들어도 된다(예: ln -s "$PWD/deploy/pair.sh" ~/.local/bin/antenna-pair).
 # 짝지어지면(또는 Enter, 5분) 화면과 tmux 기록에서 QR 을 지운다.
 # 작성: 서문교
 set -e
@@ -72,16 +73,20 @@ if [ "${1:-}" = "--legacy" ]; then
 else
   echo "찍으면 Antenna 가 열려 이 맥과 짝지어요(이 QR 은 5분 동안, 한 번만 쓸 수 있어요). 그만두려면 Enter"
 fi
-# 짝지어지거나(기기 목록이 바뀜) Enter 를 누르거나 5분이 지나면 지운다
+# 짝지어지거나(기기 목록이 바뀜) Enter 를 누르거나 5분이 지나면 지운다.
+# 입력이 터미널이 아니면(다른 프로그램이 부름) 기다리지 않고 바로 지운다.
+# 1초씩 기다리며 본다: Enter 면 read 가 성공하고, 시간이 다 되면 실패한다. 그 실패의 끝 코드는 맥에 딸린 bash(3.2)에서는 1,
+# 새 bash 에서는 128 보다 큰 값이라 끝 코드로 가리지 않는다(2026-11-17: '128 보다 크면 시간 초과'로 봐서, 맥에 딸린 셸에서는
+# QR 이 뜬 지 1초 만에 지워졌다)
 PAIRED=""
-i=0
-while [ $i -lt 300 ]; do
-  RC=0
-  read -r -t 1 _ || RC=$?
-  [ "$RC" -gt 128 ] || break                                  # 시간이 다 된 것이 아니면(Enter·입력 없음) 그만
-  if [ "$(stamp)" != "$BEFORE" ]; then PAIRED=1; break; fi
-  i=$((i + 1))
-done
+if [ -t 0 ]; then
+  i=0
+  while [ $i -lt 300 ]; do
+    if read -r -t 1 _; then break; fi
+    if [ "$(stamp)" != "$BEFORE" ]; then PAIRED=1; break; fi
+    i=$((i + 1))
+  done
+fi
 clear
 [ -n "${TMUX:-}" ] && tmux clear-history 2>/dev/null || true
 if [ -n "$PAIRED" ]; then

@@ -1,6 +1,7 @@
 // 설치 명령 시험(sh install.sh): 아무것도 없는 새 맥을 흉내 낸 가짜 홈에서 처음부터 끝까지 돌려 본다.
 // - 가짜 홈(설정·Claude Code·pi 가 없음), 따로 띄운 tmux(소켓 폴더를 바꿈 → 내 tmux 설정 없이 기본 설정), 시험 세션·시험 포트
 // - 자동 실행 등록은 하지 않는다(--no-agent: 등록은 이 맥의 실제 로그인 항목이라 시험에서 건드리지 않음). 브리지는 직접 켠다
+// - 새 판을 받은 뒤 다시 돌렸을 때 브리지를 다시 시작하는지는, 등록 명령(launchctl)과 프로세스가 뜬 시각(ps)을 가짜로 바꿔서 본다
 // - 쓰는 브리지·쓰는 tmux 세션·내 설정은 건드리지 않는다. 실행: node test/install.test.mjs
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
@@ -205,6 +206,50 @@ try {
   writeFileSync(`${EXT}/lib/bg-launch.mjs`, "// 예전 판\n");
   const d2 = spawnSync(process.execPath, [join(REPO, "deploy/doctor.mjs")], { encoding: "utf8", env: pm.env, timeout: 60000 });
   ok(d2.stdout.includes("설치본이 저장소와 달라요: lib/bg-launch.mjs"), "점검: 설치본이 저장소와 다르면 알려 줌");
+
+  // ── 7. 새 판을 받은 뒤 다시 돌림: 브리지가 뜬 뒤에 브리지 코드가 바뀌었으면 다시 시작한다 ──
+  // 자동 실행 등록 명령(launchctl)과 '프로세스가 뜬 시각'(ps -o lstart=)을 가짜로 바꿔, 이 맥의 실제 로그인 항목과 쓰는 브리지는 건드리지 않는다
+  const up = mac("update");
+  const lcLog = `${up.dir}/launchctl.log`, pidFile = `${up.dir}/bridge.pid`, lstartFile = `${up.dir}/lstart`;
+  writeFileSync(`${up.bin}/launchctl`, `#!/bin/sh\necho "$*" >> '${lcLog}'\nif [ "$1" = print ]; then\n  [ -f '${pidFile}' ] || exit 113\n  printf 'gui/x = {\\n\\tstate = running\\n\\tpid = %s\\n}\\n' "$(cat '${pidFile}')"\nfi\nexit 0\n`);
+  writeFileSync(`${up.bin}/ps`, `#!/bin/sh\ncase "$*" in *lstart=*) cat '${lstartFile}'; exit 0 ;; esac\nexec /bin/ps "$@"\n`);
+  chmodSync(`${up.bin}/launchctl`, 0o755);
+  chmodSync(`${up.bin}/ps`, 0o755);
+  const which = spawnSync("/bin/sh", ["-c", "command -v launchctl"], { encoding: "utf8", env: up.env }).stdout.trim();
+  if (which !== `${up.bin}/launchctl`) {
+    ok(false, `가짜 등록 명령이 먼저 잡히지 않아 이 단계는 돌리지 않음(잡힌 것: ${which})`);
+  } else {
+    // 설정을 먼저 만들고, 포트는 이 시험이 열어 둔 것으로(브리지가 뜨기를 기다리지 않게). 세션 이름도 쓰는 것과 다르게
+    const { createServer } = await import("node:net");
+    const holder = createServer(() => {});
+    await new Promise((res) => holder.listen(0, "127.0.0.1", res));
+    up.install("--no-agent");
+    writeFileSync(up.envFile, readFileSync(up.envFile, "utf8").replace(/^PORT=.*$/m, `PORT=${holder.address().port}`).replace(/^PI_TMUX_SESSION=.*$/m, `PI_TMUX_SESSION=${S}-up`));
+    const calls = () => (existsSync(lcLog) ? readFileSync(lcLog, "utf8").split("\n").filter(Boolean) : []);
+    const kicks = () => calls().filter((l) => l.startsWith("kickstart ")).length;
+    r = up.install();
+    ok(r.stdout.includes("pi-remote: 설치·등록함") && existsSync(`${up.home}/Library/LaunchAgents/com.munggo.pi-remote.plist`) && calls().some((l) => l.startsWith("bootstrap ")) && kicks() === 0,
+      "처음에는 브리지를 자동 실행에 등록함(따로 다시 시작하지는 않음)");
+    // 브리지가 오래전에 떴고 그 뒤에 코드가 바뀜(새 판을 받음) → 다시 시작
+    writeFileSync(pidFile, "4242");
+    writeFileSync(lstartFile, "Thu Jan  1 09:00:00 2026\n");
+    r = up.install();
+    const said = (r.stdout.match(/브리지 코드가 바뀌어\(([\w.-]+)\) 다시 시작했어요/) ?? [])[1] ?? "";
+    ok(r.stdout.includes("그대로 둠") && /\.mjs$/.test(said) && kicks() === 1 && calls().includes(`kickstart -k gui/${uid}/com.munggo.pi-remote`),
+      `새 판을 받은 뒤 다시 돌리면 브리지를 다시 시작하고 까닭(바뀐 파일 ${said || "?"})을 알림`);
+    // 브리지가 코드보다 나중에 떴으면 그대로 둠
+    writeFileSync(lstartFile, "Fri Jan  1 09:00:00 2100\n");
+    r = up.install();
+    ok(r.stdout.includes("그대로 둠") && !r.stdout.includes("다시 시작했어요") && kicks() === 1, "브리지가 지금 코드로 돌고 있으면 다시 시작하지 않음(폰 연결을 괜히 끊지 않음)");
+    // 설정을 바꾸면 다시 시작(예전부터 있던 동작이 그대로인지)
+    r = up.install("--host", "100.64.3.4");
+    ok(r.stdout.includes("설정이 바뀌어 브리지를 다시 시작했어요") && kicks() === 2, "설정을 바꾸면 다시 시작");
+    // 등록은 됐지만 돌고 있지 않으면(프로세스 번호를 모름) 여기서는 판정하지 않음
+    rmSync(pidFile);
+    r = up.install();
+    ok(!r.stdout.includes("다시 시작했어요") && kicks() === 2, "브리지가 돌고 있지 않으면 다시 시작하지 않음(점검이 따로 알려 줌)");
+    holder.close();
+  }
 } catch (e) {
   ok(false, `시험 중 오류: ${e.stack ?? e.message}`);
 } finally {

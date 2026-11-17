@@ -1,4 +1,5 @@
-// 짝짓기와 기기별 토큰을 시험 브리지로 확인: 코드로 짝짓기, 토큰으로 붙기, 토큰 바꾸기, 기기 끊기, 예전 공유 토큰에서 옮기기
+// 짝짓기와 기기별 토큰을 시험 브리지로 확인: 코드로 짝짓기, 토큰으로 붙기, 토큰 바꾸기, 기기 끊기, 예전 공유 토큰에서 옮기기,
+// 짝짓기 명령을 진짜 터미널(시험 세션의 창)에서 돌렸을 때 QR 이 Enter·짝짓기 전까지 떠 있는지(맥에 딸린 셸로)
 // 가짜 홈·시험 세션(pairtest)·포트 8792 를 쓰고 끝나면 지운다. 쓰는 브리지와 쓰는 tmux 세션은 건드리지 않는다.
 // 실행: node server/test/pairing.test.mjs
 import { execFileSync, spawn } from "node:child_process";
@@ -158,6 +159,36 @@ try {
   ok(!q.windows && q.code !== 4001, `암호화 없는 연결은 토큰이 맞아도 받지 않음(${q.code ?? "붙지 못함"})`);
   const all = allLog + readFileSync(`${CONF}/env`, "utf8");
   ok(/짝짓기: .* 기기 d[0-9a-f]{8} 등록/.test(allLog) && ![mine.token, rotated, moved, code, SHARED].some((x) => all.includes(x)), "브리지 기록에 짝짓기가 남되, 기록·설정 파일에 토큰·코드 원문은 남지 않음");
+
+  // ── 짝짓기 명령(deploy/pair.sh)을 진짜 터미널에서: QR 이 짝지어지거나 Enter 를 누를 때까지 떠 있는지 ──
+  // 맥에 딸린 셸(/bin/sh·/bin/bash 3.2)은 '1초 기다리기'가 시간이 다 되면 끝 코드 1 을 낸다(새 bash 는 128 보다 큰 값).
+  // 그것을 Enter 로 잘못 보면 QR 이 뜬 지 1초 만에 지워진다(2026-11-17: 설명서대로 sh deploy/pair.sh 를 돌리면 그랬음).
+  // 시험 세션의 새 창에서 돌리고 화면을 읽는다. TMUX 는 넘기지 않고(기록 지우기가 닿지 않게) 시험용 설정을 쓴다
+  const PAIR = join(SERVER, "..", "deploy", "pair.sh");
+  const NODE_DIR = dirname(process.execPath);
+  const screen = (win) => tm("capture-pane", "-p", "-t", win) ?? "";
+  const shown = (win) => /그만두려면 Enter/.test(screen(win)) && !/QR 을 지웠어요/.test(screen(win));
+  const waitScreen = async (win, re, ms) => { for (let t = 0; t < ms; t += 200) { if (re.test(screen(win))) return true; await sleep(200); } return re.test(screen(win)); };
+  const openPair = (shell) => tm("new-window", "-d", "-P", "-F", "#{window_id}", "-t", `${S}:`, "-c", "/tmp",
+    `env -u TMUX PATH='${NODE_DIR}:/usr/bin:/bin' PI_REMOTE_ENV='${CONF}/env' ${shell} '${PAIR}'; echo PAIR-EXIT=$?; sleep 60`);
+  for (const shell of ["/bin/sh", "/bin/bash"]) {
+    const win = openPair(shell);
+    ok(await waitScreen(win, /그만두려면 Enter/, 6000), `${shell}: 짝짓기 QR 과 안내가 뜸`);
+    await sleep(3500);
+    ok(shown(win), `${shell}: 3초 넘게 지나도 QR 이 그대로 떠 있음(찍을 시간이 있음)`);
+    tm("send-keys", "-t", win, "Enter");
+    ok(await waitScreen(win, /QR 을 지웠어요\.[\s\S]*PAIR-EXIT=0/, 4000) && !/짝지었어요/.test(screen(win)), `${shell}: Enter 를 누르면 QR 을 지우고 끝남`);
+    tm("kill-window", "-t", win);
+  }
+  // 짝지어지면(맥의 기기 목록이 바뀌면) 저절로 지움
+  const win = openPair("/bin/sh");
+  await waitScreen(win, /그만두려면 Enter/, 6000);
+  await sleep(1500);
+  const before = store.list().length;
+  const again = await pair({ type: "pair", code: store.startPairing().code, name: "QR 을 찍은 폰" });
+  ok(again.type === "paired" && store.list().length === before + 1, "QR 이 떠 있는 동안 폰이 짝지음");
+  ok(await waitScreen(win, /짝지었어요\. QR 을 지웠어요\.[\s\S]*PAIR-EXIT=0/, 5000), "짝지어지면 Enter 없이도 QR 을 지우고 '짝지었어요'라고 알림");
+  tm("kill-window", "-t", win);
 } catch (e) {
   ok(false, `시험 중 오류: ${e.stack ?? e.message}`);
 } finally {

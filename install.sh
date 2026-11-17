@@ -156,10 +156,19 @@ if [ -n "$AGENT" ]; then
   sub sh "$HERE/deploy/install-agents.sh" pi-remote
   case "$SUB_OUT" in
     *"그대로 둠"*)
-      # 등록은 그대로인데 이번에 설정을 바꿨으면 다시 시작해야 새 설정을 읽는다
-      if [ -n "$CHANGED" ]; then
+      # 등록은 그대로인데 이번에 설정을 바꿨거나, 브리지가 뜬 뒤에 코드가 바뀌었으면(새 판을 받음) 다시 시작해야 새 것으로 돈다.
+      # 코드가 바뀌었는지는 점검과 같은 판정으로(deploy/bridge-stale.mjs: 옛 코드면 바뀐 파일 이름을 찍음)
+      BPID=$(launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | awk '$1 == "pid" && $2 == "=" { print $3; exit }')
+      STALE=""
+      if [ -n "$BPID" ]; then STALE=$("$NODE" "$HERE/deploy/bridge-stale.mjs" "$BPID" 2>/dev/null || true); fi
+      if [ -n "$CHANGED" ] || [ -n "$STALE" ]; then
         launchctl kickstart -k "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
-        echo "  설정이 바뀌어 브리지를 다시 시작했어요"
+        if [ -n "$CHANGED" ]; then
+          echo "  설정이 바뀌어 브리지를 다시 시작했어요"
+        else
+          echo "  브리지 코드가 바뀌어($STALE) 다시 시작했어요. 폰 연결은 잠깐 끊겼다 다시 붙어요"
+        fi
+        sleep 2   # 앞의 브리지가 내려간 뒤에 포트를 봄
       fi
       ;;
   esac

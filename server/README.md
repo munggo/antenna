@@ -23,16 +23,23 @@ PI_TMUX_SESSION=antenna node bridge.mjs
 - `advertise.mjs` — announcing the bridge on the local network (Bonjour)
 - `reach.mjs` — whether the outside address is up on this Mac
 - `crash-log.mjs` — keeping the reason when the bridge dies
-
 - `devices.mjs` — per-device tokens and one-time pairing codes
+- `tls.mjs` — the Mac's own certificate and serving TLS and plain connections on one port
+- `windows.mjs` — turning the tmux window list into the tab list the app shows
+- `tasks.mjs` — starting a task sent by the app's Shortcuts action in a new background tab
+- `battery.mjs` — the MacBook's battery and charger state
 
 ## Connecting
 
-`ws://<host>:<port>/?cols=<N>&rows=<M>` with the device token in an `Authorization: Bearer <token>` header. (Older apps put it in the address as `token=`; that still works.)
+`wss://<host>:<port>/?cols=<N>&rows=<M>` with the device token in an `Authorization: Bearer <token>` header. (Older apps put it in the address as `token=`; that still works.)
+
+The bridge makes a certificate of its own the first time it starts (`~/.config/pi-remote/tls/`) and the pairing QR carries its fingerprint, which is the only certificate the app accepts. Plain `ws://` on the same port is accepted only when `PI_REMOTE_TLS_ONLY=1` is not set, for old builds of the app.
 
 Binary frames carry terminal bytes in both directions. Text frames carry JSON messages with a `type` field, for example `{"type":"resize","cols":100,"rows":30}` or `{"type":"new-window"}`.
 
-Pairing uses `ws://<host>:<port>/pair` without a token: the phone sends `{"type":"pair","code":"…","name":"…"}` and gets `{"type":"paired","token":"…"}` once. The code comes from the pairing QR, lasts five minutes and works one time.
+Pairing uses `wss://<host>:<port>/pair` without a token: the phone sends `{"type":"pair","code":"…","name":"…"}` and gets `{"type":"paired","token":"…"}` once. The code comes from the pairing QR, lasts five minutes and works one time.
+
+`wss://<host>:<port>/push`, with the token, is a short connection that does not attach to tmux. The app uses it when it is woken in the background: to register Live Activity tokens, and to start a task from the Shortcuts action (`{"type":"task-start","id":"…","text":"…","agent":"claude","cwd":"…"}`, answered with `task-started` or `task-failed`). The bridge closes it after ten seconds.
 
 ## Tests
 

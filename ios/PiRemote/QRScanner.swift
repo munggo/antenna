@@ -24,7 +24,7 @@ struct QRScanSheet: View {
                             }
                         }
                         .ignoresSafeArea()
-                        Text(wrong ? "Antenna 연결 QR이 아니에요. 맥에서 antenna-pair 로 띄운 QR을 찍어 주세요."
+                        Text(wrong ? "Antenna 연결 QR이 아니에요. 맥에서 sh deploy/pair.sh 로 띄운 QR을 찍어 주세요."
                                    : "맥 화면의 연결 QR을 비춰 주세요")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(.white)

@@ -9,7 +9,9 @@
 - [앱 빌드](#앱-빌드)
 - [알림](#알림)
 - [사용량](#사용량)
+- [단축어](#단축어)
 - [선택 기능](#선택-기능)
+- [새 판으로 올리기](#새-판으로-올리기)
 - [문제 해결](#문제-해결)
 - [빼기](#빼기)
 
@@ -33,7 +35,7 @@ launchctl kickstart -k gui/$(id -u)/com.munggo.pi-remote   # 브리지 다시 �
 sh deploy/pair.sh                                          # 짝짓기 QR 띄우기
 ```
 
-`sh install.sh --no-agent` 는 로그인 항목에 등록하지 않는다. 그때는 `server/run.sh` 로 브리지를 직접 켠다.
+`sh install.sh --no-agent` 는 로그인 항목에 등록하지 않는다. 그때는 `server/run.sh` 로 브리지를 직접 켠다. 켜기 전에는 설치 끝의 점검이 브리지 항목을 ✗ 로 보여 주는데, 켜면 사라진다.
 
 ### 짝지은 기기
 
@@ -47,9 +49,9 @@ sh deploy/pair.sh --list           # 짝지은 기기
 sh deploy/pair.sh --revoke <번호>   # 하나 끊기(열려 있던 연결도 1분 안에 닫힘)
 ```
 
-앱 메뉴의 '연결 토큰 새로 바꾸기'는 그 폰의 토큰만 바꾼다.
+앱 메뉴의 '연결 토큰 바꾸기'는 그 폰의 토큰만 바꾼다.
 
-기기별 토큰이 생기기 전에 설치한 맥에는 설정 파일에 공유 토큰 `PI_REMOTE_TOKEN` 줄이 있고 `PI_REMOTE_TLS_ONLY` 줄이 없어서, 그때 짝지은 폰은 암호화 없이 계속 붙는다. 모든 폰이 지금 앱으로 새로 짝지은 뒤에는 `PI_REMOTE_TOKEN` 줄을 지우고 `PI_REMOTE_TLS_ONLY=1` 을 적은 다음 브리지를 다시 시작한다. 그런 폰에서 '연결 토큰 새로 바꾸기'를 눌러도 같은 일이 일어난다: 그 폰은 자기만의 토큰을 받고 공유 토큰은 없어진다. `sh deploy/pair.sh --legacy` 는 짝짓기 코드를 모르는 예전 앱을 위한 예전 방식의 QR 을 띄운다.
+(예전 판에서 올라온 맥에만 해당한다.) 기기별 토큰이 생기기 전에 설치한 맥에는 설정 파일에 공유 토큰 `PI_REMOTE_TOKEN` 줄이 있고 `PI_REMOTE_TLS_ONLY` 줄이 없어서, 그때 짝지은 폰은 암호화 없이 계속 붙는다. 모든 폰이 지금 앱으로 새로 짝지은 뒤에는 `PI_REMOTE_TOKEN` 줄을 지우고 `PI_REMOTE_TLS_ONLY=1` 을 적은 다음 브리지를 다시 시작한다. 그런 폰에서 '연결 토큰 바꾸기'를 눌러도 같은 일이 일어난다: 그 폰은 자기만의 토큰을 받고 공유 토큰은 없어진다. `sh deploy/pair.sh --legacy` 는 짝짓기 코드를 모르는 예전 앱을 위한 예전 방식의 QR 을 띄운다.
 
 ## 밖에서 맥에 붙기
 
@@ -136,7 +138,13 @@ sh install.sh --host <그 주소>
 
 ## 앱 빌드
 
-Xcode, XcodeGen, 그리고 Apple Developer Program 가입이 필요하다(앱이 푸시 알림 권한을 쓰는데, 무료 계정으로는 서명할 수 없다).
+TestFlight 초대로 앱을 받았으면 이 절은 필요 없다.
+
+Xcode, XcodeGen, 그리고 Apple Developer Program 가입(유료)이 필요하다. 앱이 푸시 알림 권한을 쓰는데, 무료 계정으로는 서명할 수 없다.
+
+- 작성자는 Xcode 27.2 로 빌드한다. 더 옛 판으로는 시험하지 않았다.
+- 터미널 화면(SwiftTerm)이 Metal 셰이더를 써서 Xcode 의 Metal 툴체인이 있어야 한다. 없으면 `xcodebuild -downloadComponent MetalToolchain` 으로 받는다.
+- 폰에서는 개발자 모드를 켠다(설정 › 개인정보 보호 및 보안 › 개발자 모드. 폰을 Xcode 에 한 번 이은 뒤에 보인다).
 
 ```sh
 cp ios/Local.xcconfig.example ios/Local.xcconfig
@@ -150,10 +158,10 @@ cp ios/Local.xcconfig.example ios/Local.xcconfig
 **Xcode 로**
 
 ```sh
-cd ios && xcodegen generate && open PiRemote.xcodeproj
+(cd ios && xcodegen generate && open PiRemote.xcodeproj)
 ```
 
-폰을 고르고 실행한다. `project.yml` 이나 xcconfig 파일을 고치면 `xcodegen generate` 를 다시 돌린다.
+폰을 맥에 이어 신뢰한 뒤, Xcode 에서 폰을 고르고 실행한다. `project.yml` 이나 xcconfig 파일을 고치면 `xcodegen generate` 를 다시 돌린다.
 
 **명령줄로**(폰이 맥과 같은 Wi-Fi 에 있을 때)
 
@@ -201,14 +209,16 @@ Claude Code 만 쓰면 아직 그 값을 적어 주는 것이 없어서, 화면�
 
 쓰는 법: 단축어 앱에서 새 단축어를 만들고, 동작 추가에서 Antenna 의 '맥의 AI 에게 일 시키기'를 고른다. 폰의 사건에 걸려면 단축어 앱의 자동화 탭에서 조건(시간, 도착, 충전기 연결, NFC 태그 등)을 고르고 이 동작을 넣는다. Siri 에게 "Antenna에 일 시키기"라고 말하거나 Spotlight 에서 찾아 실행할 수도 있다.
 
-시작한 일은 앱 서랍의 '백그라운드' 칸에 '단축어로 시킴'으로 보인다. [알림](#알림)을 설정했으면 끝났을 때 걸린 시간과 상관없이 알림이 온다.
+시작한 일은 앱 서랍의 '백그라운드' 칸에 '단축어로 시킴'으로 보인다. [알림](#알림)을 설정했으면 끝났을 때 걸린 시간과 상관없이 알림이 온다. 알림이 오지 않는 앱(TestFlight 로 받은 앱)에서는 그 칸에서 끝났는지 본다.
 
 알아 둘 것:
 
 - 그 순간 폰이 맥에 닿아야 한다(같은 Wi-Fi 이거나 [밖에서 맥에 붙기](#밖에서-맥에-붙기)의 VPN 이 켜져 있음). 닿지 못하면 단축어가 그 까닭을 보여 준다.
+- 단축어는 맥을 새로 찾지 않고, 앱이 마지막으로 붙었던 주소와 QR 로 받은 주소로 붙는다. 집 Wi-Fi 에서 맥의 주소가 바뀌었으면 앱을 한 번 열어 다시 붙인다.
+- 자동화에 걸 때는 묻지 않고 바로 돌게 고른다('즉시 실행'). 그러지 않으면 조건이 맞을 때마다 폰에서 확인을 눌러야 한다.
 - 폰을 껐다 켠 뒤에는 잠금을 한 번 풀어야 한다(연결 토큰을 읽을 수 있게).
 - 에이전트는 그 폴더에서 평소 켜는 것과 같은 설정으로 켜진다. 승인을 물으면 평소처럼 폰에 카드와 알림이 온다.
-- 맥의 Antenna 가 이 동작을 모르는 예전 판이면 단축어가 그렇게 알려 준다. 맥에서 새 판을 받아 `sh install.sh` 를 다시 돌린다.
+- 맥의 Antenna 가 이 동작을 모르는 예전 판이면 단축어가 그렇게 알려 준다. 맥을 [새 판으로 올린다](#새-판으로-올리기).
 
 ## 선택 기능
 
@@ -228,6 +238,12 @@ sh deploy/install-agents.sh --all               # 전부
 | `pi-auto-update` | 매일 05:00 에 pi 와 확장을 업데이트한다 |
 | `antenna-attach` | 로그인하면 iTerm2 를 열어 tmux 세션에 붙는다 |
 
+작성자의 맥에 맞춰 쓴 것이라 전제가 있다. 맞지 않는 맥에서는 등록해도 하는 일이 없다.
+
+- `claude-auto-update`, `claude-reload` — Claude Code 가 `~/.local/bin/claude` 에 있어야 한다(Anthropic 의 설치 스크립트로 깐 자리). Homebrew 나 npm 으로 깐 것은 찾지 못한다
+- `pi-auto-update` — nvm 으로 깐 Node 아래의 pi 만 찾는다
+- `antenna-attach` — iTerm2 와 Homebrew 로 깐 tmux 가 있어야 한다
+
 빼기: `launchctl bootout gui/$(id -u)/com.munggo.<이름>` 을 한 뒤 `~/Library/LaunchAgents/com.munggo.<이름>.plist` 를 지운다.
 
 ### Claude 계정 둘
@@ -241,9 +257,17 @@ Claude 구독이 둘이면(예: 개인과 회사) 폴더에 따라 하나를 고
   security add-generic-password -s pi-anthropic-work -a "$USER" -T /usr/bin/security -w
   ```
 
-- Claude Code: `~/.claude/pi-remote/claude-account <폴더>` 가 `work` 나 `personal` 을 낸다. 셸 함수에서 이것을 불러 `work` 일 때 `CLAUDE_CODE_OAUTH_TOKEN` 을 넣어 켠다.
-  한도 때문에 계정을 바꿀 때는 연결부가 Claude Code 를 끄고 `~/.claude/pi-remote/claude-as.sh <계정>` 으로 같은 대화를 다시 켠다. 셸 함수를 고치기 전에 열어 둔 셸에서도 맞는 계정으로 켜진다. 다시 켠 뒤에도 계정이 그대로면 6시간 동안 다시 바꾸지 않고 폰에 알린다.
+- Claude Code: `~/.claude/pi-remote/claude-account <폴더>` 가 그 폴더에서 쓸 계정(`work` 나 `personal`)을 내고, `~/.claude/pi-remote/claude-as.sh <계정>` 이 그 계정으로 Claude Code 를 켠다(`work` 면 키체인의 토큰을 `CLAUDE_CODE_OAUTH_TOKEN` 으로 넘긴다). 켤 때마다 맞는 계정이 되게 셸 설정(`~/.zshrc`)에 함수를 둔다.
+
+  ```sh
+  claude() {
+    ~/.claude/pi-remote/claude-as.sh "$(~/.claude/pi-remote/claude-account "$PWD")" "$@"
+  }
+  ```
+
+  한도 때문에 계정을 바꿀 때는 연결부가 Claude Code 를 끄고 `claude-as.sh` 로 같은 대화를 다시 켠다. 셸 함수를 고치기 전에 열어 둔 셸에서도 맞는 계정으로 켜진다. 다시 켠 뒤에도 계정이 그대로면 6시간 동안 다시 바꾸지 않고 폰에 알린다.
 - pi: 확장을 깐다. `sh pi-extension/install.sh --with claude-accounts`
+- 한도에 따라 바꾸려면 계정별 사용량이 있어야 하는데, 지금은 pi 확장 `claude-accounts` 만 그 값을 적는다(`~/.cache/pi-remote/claude-accounts.json`). Claude Code 만 쓰는 맥에서는 폴더에 따라 고르는 것까지만 된다.
 
 ### 맥을 OpenVPN 서버에 늘 붙여 두기
 
@@ -282,6 +306,24 @@ sh pi-extension/install.sh --with compact-tools,web,subagent
 
 이미 있던 파일과 내용이 다르면 `~/.cache/pi-remote/backup/` 에 남기고 덮어쓴다. 깐 뒤 pi 에서 `/reload` 한다.
 
+## 새 판으로 올리기
+
+맥과 폰을 따로 올린다. 한쪽만 새 판이어도 쓰던 기능은 그대로 되고, 새로 생긴 기능은 양쪽이 모두 새 판이어야 된다.
+
+맥:
+
+```sh
+cd antenna        # 저장소를 받아 둔 폴더
+git pull
+sh install.sh
+```
+
+`install.sh` 는 다시 돌려도 된다. 설정은 그대로 두고, Claude Code 연결부와 pi 확장을 새 판으로 바꾸고, 브리지 코드가 바뀌었으면 브리지를 다시 시작한다(폰 연결이 잠깐 끊겼다 다시 붙는다). 켜져 있던 Claude Code 탭의 연결부는 그 탭이 쉴 때 스스로 새 판으로 바뀐다. 켜져 있던 pi 는 `/reload` 해야 새 확장을 읽는다.
+
+폰: TestFlight 로 받았으면 TestFlight 앱에서 새 판을 받는다(자동 업데이트를 켜 두면 저절로 받는다). 직접 빌드했으면 다시 빌드해 넣는다.
+
+올린 뒤 `node deploy/doctor.mjs` 를 돌려 확인한다.
+
 ## 문제 해결
 
 점검 명령부터 돌린다. 설정을 읽고 브리지·훅·설치본을 확인해, 무엇을 하면 되는지 알려 준다.
@@ -291,7 +333,9 @@ node deploy/doctor.mjs
 node deploy/doctor.mjs --fix
 ```
 
+- **QR 을 찍었는데 '맥에 닿지 못했어요'가 나온다.** 폰과 맥이 같은 Wi-Fi 에 있는지 본다. 앱을 처음 연 것이면 로컬 네트워크 접근을 허용한 뒤, QR 이 떠 있는 동안 다시 찍는다(닿지 못한 코드는 쓰이지 않았으니 그대로 쓸 수 있다). 'QR 이 만료됐어요'나 '이미 쓴 QR 이에요'가 나오면 `sh deploy/pair.sh` 를 다시 돌린다.
 - **같은 Wi-Fi 인데 앱이 붙지 않는다.** iOS 설정에서 앱의 로컬 네트워크 접근을 허용한다. 브리지가 돌고 포트가 열려 있는지 본다(점검 명령이 둘 다 보여 준다).
+- **잘 되다가 한참 뒤에 붙지 않는다.** 맥이 잠들면 브리지도 멈춘다. 폰으로 쓸 동안은 맥이 깨어 있어야 한다. 전원을 꽂아 두고 잠자기를 막는다(터미널에 `caffeinate -s` 를 켜 두거나, 시스템 설정에서 전원을 꽂았을 때 잠자지 않게 바꾼다). 맥북은 덮개를 닫으면 잠든다.
 - **집에서는 되는데 밖에서 안 된다.** 차례로 본다. 폰의 VPN 이 켜져 있는지, 맥이 그 망에 올라와 있는지(`PI_REMOTE_HOSTS` 의 주소가 맥에 없으면 점검 명령이 알려 준다), 주소를 바꾼 뒤 QR 을 다시 찍었는지, 그 망이 기기끼리의 통신을 막고 있지 않은지([밖에서 맥에 붙기](#밖에서-맥에-붙기)).
 - **Claude Code 탭이 터미널로만 보인다.** 훅이 없거나, 훅을 걸기 전에 켠 세션이다. `sh claude-remote/install.sh` 를 돌리고 Claude Code 세션을 새로 켠다.
 - **pi 탭이 터미널로만 보인다.** `sh pi-extension/install.sh` 를 돌리고 pi 에서 `/reload` 한다.
@@ -303,9 +347,24 @@ node deploy/doctor.mjs --fix
 ```sh
 launchctl bootout gui/$(id -u)/com.munggo.pi-remote
 rm ~/Library/LaunchAgents/com.munggo.pi-remote.plist
-sh claude-remote/install.sh --remove      # ~/.claude/settings.json 에서 훅을 뺌
-rm -r ~/.claude/pi-remote                 # Claude Code 연결부 파일
 rm -r ~/.config/pi-remote ~/.cache/pi-remote
 ```
 
-pi 확장은 `~/.pi/agent/extensions/` 에 있는 보통 파일이다. 이름은 `sh pi-extension/install.sh --list` 로 볼 수 있다.
+`~/.cache/pi-remote/backup/` 에는 설치하면서 덮어쓴 내 원래 파일(pi 확장)이 들어 있다. 되살릴 것이 있으면 지우기 전에 꺼낸다.
+
+Claude Code 를 이은 맥에서는 더 한다. 켜져 있는 Claude Code 를 먼저 끈다(탭마다 떠 있는 연결부가 함께 끝난다).
+
+```sh
+sh claude-remote/install.sh --remove      # ~/.claude/settings.json 에서 훅을 빼고 /bgtab 명령 파일을 지움
+rm -r ~/.claude/pi-remote                 # Claude Code 연결부 파일
+```
+
+고치기 전의 설정은 `~/.claude/settings.json.bak-pi-remote` 에 남는다.
+
+그 밖에:
+
+- pi 확장은 `~/.pi/agent/extensions/` 에 있는 보통 파일이라 직접 지운다. 이름은 `sh pi-extension/install.sh --list` 로 본다. 지운 뒤 pi 에서 `/reload` 한다.
+- tmux 세션은 그대로 남는다. 필요 없으면 `tmux kill-session -t antenna` 로 닫는다(그 안에서 돌던 것도 함께 끝난다).
+- [선택 기능](#선택-기능)을 깔았으면 각 절의 빼기대로 뺀다.
+- 폰에서는 앱을 지운다. 맥의 설정 폴더를 지웠으면 폰이 받았던 토큰은 더 쓸 수 없다.
+- 저장소 폴더는 마지막에 지운다.

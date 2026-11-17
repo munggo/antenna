@@ -13,7 +13,7 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
-export PI_TMUX_SESSION="${PI_TMUX_SESSION:-pi}"
+export PI_TMUX_SESSION="${PI_TMUX_SESSION:-antenna}"   # 브리지·설명서의 기본값과 같게
 export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-8787}"
 
