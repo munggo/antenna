@@ -2207,6 +2207,7 @@ final class PiRemoteUITests: XCTestCase {
     ///     가짜 Claude Code 의 대화 기록으로 본다(마지막 응답의 입력 토큰 152,000, Opus 5.5 의 기억 용량 1M):
     ///     ① 위쪽 고리에 15%  ② 누르면 사용 중 152K / 1M 토큰, 자동 압축은 97%(967K)에서, 설명 글은 pi 가 아니라 Claude Code
     ///     ③ 셸만 있는 탭으로 가면 고리가 사라짐  ④ '지금 압축하기'를 누르면 창이 닫힘(맥에 /compact 가 갔는지는 test/app.sh 가 확인)
+    ///     ⑤ 맥이 압축하는 동안 '대화를 압축하는 중'이 보이고, 끝나면 요약 줄이 생기고 고리는 '–'(가짜가 /compact 를 받아 진짜처럼 압축함)
     func testXX_ClaudeContext() throws {
         guard let text = try? String(contentsOfFile: "/tmp/ptest/bg-wins", encoding: .utf8) else { throw XCTSkip("가짜 Claude Code 탭 준비 안 됨") }
         let n = text.split(separator: " ").compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
@@ -2241,6 +2242,19 @@ final class PiRemoteUITests: XCTestCase {
         XCTAssertTrue(compact.waitForExistence(timeout: 5) && compact.isEnabled, "쉬는 중엔 '지금 압축하기'가 켜져 있어야 함")
         compact.tap()
         XCTAssertTrue(waitGone(el("contextSheet"), 5), "'지금 압축하기'를 누르면 창이 닫혀야 함")
+
+        // ⑤ 맥의 Claude Code 가 압축하는 동안(가짜는 8초) 대화 아래에 '대화를 압축하는 중'이 보이고, 끝나면 사라지며
+        //    요약 줄이 생기고 고리는 다음 답까지 '–'(사용자 요청 11-17 '컨텍스트가 압축 중일 때 앱에서도 확인이 되어야 됩니다')
+        let status = el("statusRow")
+        let compactingNow = expectation(for: NSPredicate(format: "label CONTAINS '압축하는 중'"), evaluatedWith: status)
+        XCTAssertEqual(XCTWaiter().wait(for: [compactingNow], timeout: 10), .completed, "맥이 압축하는 동안 '대화를 압축하는 중'이 보여야 함")
+        shot("xx-claude-compacting")
+        XCTAssertTrue(waitGone(status, 20), "압축이 끝나면 '대화를 압축하는 중'이 사라져야 함")
+        let summary = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '이전 대화를 요약했어요'")).firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 10), "압축 뒤 요약 줄이 보여야 함")
+        let unknown = expectation(for: NSPredicate(format: "label == '컨텍스트 –'"), evaluatedWith: gauge)
+        XCTAssertEqual(XCTWaiter().wait(for: [unknown], timeout: 10), .completed, "압축 뒤에는 다음 답까지 사용률을 모름(현재 \(gauge.label))")
+        shot("xx-claude-compacted")
     }
 
     /// WW. 단축어 동작 '맥의 AI 에게 일 시키기'(사용자 요청 11-17: 폰의 사건으로 AI 에게 일 시키기).

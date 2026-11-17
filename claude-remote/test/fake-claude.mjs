@@ -1,7 +1,7 @@
 // 시험용 가짜 Claude Code(모델을 부르지 않음). tmux 칸에서 이름이 버전 번호 꼴인 node(예: 9.9.9)로 띄운다(연결부가 Claude Code 로 여김).
 //   node fake-claude.mjs <폴더>              가짜 Claude Code: <폴더>/cmd 가 생기면 진짜처럼 명령 셸(shell-snapshots 를 읽는 zsh)을
 //                                           자기 프로세스 묶음으로 띄워 출력을 <폴더>/job.output 에 쓰고 셸 번호를 <폴더>/shell.pid 에 적음.
-//                                           칸에 붙여 넣은 글은 <폴더>/typed.txt 에 적음
+//                                           칸에 붙여 넣은 글은 <폴더>/typed.txt 에 적음. /compact 가 들어오면 압축을 흉내 냄(진행 줄 8초 → 기록에 압축 줄·요약 줄)
 //   node fake-claude.mjs --feed <폴더> <칸>  그 칸의 연결부에 대화 기록(뒤에서 도는 셸 'bshapp'·에이전트 'aagapp')을 알려 줌
 // 앱 화면 시험(test/app.sh)과 연결부 시험(claude-remote/test/bg-jobs.test.mjs)이 쓴다
 // 작성: 서문교
@@ -41,8 +41,32 @@ if (a1 === "--feed") {
 } else {
   const dir = a1;
   // 모드 줄의 '· 1 shell · 2 local agents' 는 연결부가 읽어 탭에 '셸 1개 · 에이전트 2개'로 적는다(앱 서랍의 '백그라운드 작업 3')
-  process.stdout.write(`⏺ 답\n${"─".repeat(60)}\n❯ \n${"─".repeat(60)}\n  ⏵⏵ auto mode on · 1 shell · 2 local agents`);
-  process.stdin.on("data", (d) => appendFileSync(`${dir}/typed.txt`, d));
+  const MODE = "  ⏵⏵ auto mode on · 1 shell · 2 local agents";
+  process.stdout.write(`⏺ 답\n${"─".repeat(60)}\n❯ \n${"─".repeat(60)}\n${MODE}`);
+  // 입력창에 /compact 가 들어오면 진짜처럼 압축한다(실제 Claude Code 2.1.326 에서 본 순서): 진행 줄 '✽ Compacting conversation… (Ns · …)' 을 8초 보이고,
+  // 대화 기록에 압축이 끝났다는 줄과 요약 줄을 적은 뒤 끝난 화면으로. 앱의 '대화를 압축하는 중' 표시를 시험한다(앱 화면 시험 XX)
+  const draw = (progress) => process.stdout.write(`\x1b[H${["⏺ 답", progress, "─".repeat(60), "❯ ", "─".repeat(60), MODE].map((r) => `${r}\x1b[K`).join("\r\n")}\x1b[J`);
+  let compacting = null;
+  const compact = () => {
+    if (compacting) return;
+    let sec = 0;
+    draw("✽ Compacting conversation… (0s)");
+    compacting = setInterval(() => {
+      if (++sec < 8) return void draw(`✽ Compacting conversation… (${sec}s · ↓ ${sec * 120} tokens)`);
+      clearInterval(compacting);
+      compacting = null;
+      const at = new Date().toISOString();
+      appendFileSync(`${dir}/t.jsonl`, [
+        { type: "system", subtype: "compact_boundary", uuid: `cb${Date.now()}`, timestamp: at, content: "Conversation compacted", compactMetadata: { trigger: "manual", preTokens: 152_000, postTokens: 6_000, durationMs: 8_000 } },
+        { type: "user", uuid: `cs${Date.now()}`, timestamp: at, isCompactSummary: true, message: { role: "user", content: "This session is being continued from a previous conversation. (시험용 요약)" } },
+      ].map((o) => `${JSON.stringify(o)}\n`).join(""));
+      draw("✻ Conversation compacted (ctrl+o for the summary)");
+    }, 1000);
+  };
+  process.stdin.on("data", (d) => {
+    appendFileSync(`${dir}/typed.txt`, d);
+    if (String(d).includes("/compact")) compact();
+  });
   setInterval(() => {
     const f = `${dir}/cmd`;
     if (!existsSync(f)) return;

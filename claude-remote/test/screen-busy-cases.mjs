@@ -1,5 +1,5 @@
 // Claude Code 화면 일하는 중 판단(screenBusy) 시험. 실행: node claude-remote/test/screen-busy-cases.mjs
-const { screenBusy, backgroundShown, backgroundJobs, aboveInput, typedOnPrompt, agentPanel, shownMode, mergeJobs } = await import(new URL("../claude-feed.mjs", import.meta.url).pathname);
+const { screenBusy, backgroundShown, backgroundJobs, aboveInput, typedOnPrompt, agentPanel, shownMode, mergeJobs, compactingFor } = await import(new URL("../claude-feed.mjs", import.meta.url).pathname);
 const box = (above, mode) => `${above}\n──────\n❯ \n──────\n  ~/works/personal/game [main] Fable 5.2 (max) · 개인 주 64%\n  ${mode}`;
 // 모드 줄 아래에 붙는 하위 에이전트 목록(2.1.32x, 11-17 실제 화면의 모양. 글은 지어낸 것): 이 대화(main)와 하위 에이전트 줄들, 다섯을 넘으면 '↓ N more'
 const agentRow = (kind, what, took, mark = "◯") => `  ${mark} ${kind}  ${what}${" ".repeat(40)}${took} · ↓ 53.1k tokens`;
@@ -190,6 +190,35 @@ const typed = [
   wrapped(T, LONG, false, "접혀 있어도 첫 글자가 빠지면 아님", LONG.slice(1)),
 ]);
 for (const [scr, cmd, cur, want, name] of typed) if (typedOnPrompt(scr, cmd, cur) !== want) { bad++; console.log(`틀림: ${name}`); }
-const total = cases.length + bg.length + jobs.length + panels.length + modes.length + merged.length + above.length + typed.length;
+
+// 압축하는 중(compactingFor): 진행 줄이 압축 줄이면 그 줄의 경과 시간(초), 아니면 null. 앱의 '대화를 압축하는 중' 표시가 이것을 따른다
+// (11-17 사용자 요청). 줄들은 실제 Claude Code 2.1.326 화면에서 모은 것: /compact 와 자동 압축이 같은 줄을 쓴다
+const compacting = [
+  [box("· Compacting conversation… (0s)\n  ⎿  Tip: Share Claude Code and earn $10 in usage credits · /passes", "⏸ manual mode on · esc to interrupt"), 0, "/compact 직후"],
+  [box("✽ Compacting conversation… (1s · ↓ 55 tokens)", "⏸ manual mode on · esc to interrupt"), 1, "받는 토큰이 붙은 줄"],
+  [box("✻ Compacting conversation… (0s · ↑ 275 tokens · thought for 1s)", "⏸ manual mode on · esc to interrupt"), 0, "차례 도중 자동 압축(생각 시간이 붙어도 맨 앞 시간)"],
+  [box("✶ Compacting conversation… (12s · ↑ 1.3k tokens)", "⏵⏵ auto mode on (shift+tab to cycle) · ⧉ 14"), 12, "자동 모드·백그라운드 표시(모드 줄에 esc to interrupt 가 없음)"],
+  [box("✢ Compacting conversation… (1m 49s · ↓ 4.2k tokens)", "⏵⏵ auto mode on"), 109, "1분 넘음"],
+  [box("✳ Compacting conversation… (1h 2m 5s)", "⏵⏵ auto mode on"), 3725, "1시간 넘음"],
+  [box("✽ Compacting conversation…", "⏵⏵ auto mode on"), 0, "시간이 아직 안 붙은 줄"],
+  [box("✽ Compacting conversation…\n(12s · ↓ 1.0k tokens)", "⏵⏵ auto mode on"), 0, "좁은 창에서 시간이 다음 줄로 접힘(지금부터로 셈)"],
+  [box("⏺ 답\n✽ Compacting conversation… (3s)\n  ⎿  Tip: x\n  ☐ 할 일 하나\n  ☐ 할 일 둘\n  ☐ 할 일 셋", "⏵⏵ auto mode on"), 3, "진행 줄 아래에 팁·할 일 목록이 있어도"],
+  [withPanel(box("✽ Compacting conversation… (7s)", "⏵⏵ auto mode on · 1 shell"), ...EIGHT), 7, "하위 에이전트 목록이 붙어도"],
+  [box("✻ Conversation compacted (ctrl+o for the summary)", "⏸ manual mode on · ? for shortcuts"), null, "끝난 화면"],
+  [box("✻ Synthesizing… (5s · ↓ 38 tokens · thinking)", "⏸ manual mode on · esc to interrupt"), null, "다른 일을 하는 진행 줄"],
+  [box("✶ Running PreCompact hooks… (running PreCompact hook · 2s · ↓ 269 tokens · thinking)", "⏸ manual mode on · esc to interrupt"), null, "압축 직전 훅이 도는 줄(뒤에서 요약을 미리 쓰기 시작할 때도 뜸)"],
+  [box("✻ Running PostCompact hooks… (running PostCompact hook · 12s · ↑ 1.3k tokens)", "⏸ manual mode on · esc to interrupt"), null, "압축 끝 훅이 도는 줄"],
+  [box("* Sautéed for 7m 38s · done 8:36 PM\n● Compacted while idle, before the prompt cache expired", "⏵⏵ auto mode on"), null, "쉬는 동안 압축이 끝났다는 안내"],
+  [box("⏺ 화면에는 이렇게 보입니다:\n  ✽ Compacting conversation… (3s)\n  그동안 기다리면 됩니다.", "⏵⏵ auto mode on"), null, "답 글 속에 들여 쓴 인용"],
+  [box("⏺ Compacting conversation… (3s) 라는 줄이 뜹니다", "⏵⏵ auto mode on"), null, "답이 그 문구로 시작"],
+  [`${"답 줄\n".repeat(3)}──────\n❯ Compacting conversation… (3s)\n──────\n  ⏵⏵ auto mode on`, null, "입력창에 그 문구를 침"],
+  [box("  ⎿  Compacting conversation… (3s)", "⏵⏵ auto mode on"), null, "도구 결과 줄"],
+  [`✽ Compacting conversation… (3s)\n${"답 줄\n".repeat(20)}❯ \n  ⏸ manual mode on · ? for shortcuts`, null, "아래 12줄 밖의 옛 줄"],
+  [box("✽ Compacting conversations… (3s)", "⏵⏵ auto mode on"), null, "비슷하지만 다른 문구"],
+  [box("✽ Compacting conversation…tail (3s)", "⏵⏵ auto mode on"), null, "문구 뒤에 다른 글이 바로 붙음"],
+  ["", null, "빈 화면"],
+];
+for (const [scr, want, name] of compacting) if (compactingFor(scr) !== want) { bad++; console.log(`틀림: 압축하는 중 — ${name}(${compactingFor(scr)})`); }
+const total = cases.length + bg.length + jobs.length + panels.length + modes.length + merged.length + above.length + typed.length + compacting.length;
 console.log(`전체 ${total}개 중 틀림 ${bad}개`);
 process.exit(bad ? 1 : 0);

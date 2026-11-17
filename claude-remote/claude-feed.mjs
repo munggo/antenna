@@ -226,6 +226,20 @@ export function screenBusy(screen) {
   return /esc to interrupt|[A-Za-z]+…\s*\([^)\n]*?\b(\d+h\s*)?(\d+m\s*)?\d+s\b/i.test(tail);
 }
 
+/** 대화를 압축하는 중인지(화면 아래 12줄, 에이전트 목록은 떼고): 진행 줄이 '✽ Compacting conversation… (12s · ↓ 1.0k tokens)' 꼴일 때.
+ *  /compact·자동 압축 모두 이 줄이다(11-17 실제 Claude Code 2.1.326 으로 확인). 압축 중이면 그 줄에 적힌 경과 시간(초), 아니면 null.
+ *  줄 맨 앞의 진행 표시 글자부터 봐서, 답이나 입력창에 그 문구가 적혀 있는 것(들여 쓰였거나 ⏺·❯·⎿ 로 시작)과 가린다.
+ *  압축 직전 훅(PreCompact)으로 알지 않는 까닭: 그 훅은 뒤에서 요약을 미리 써 두기 시작할 때도 와서, 그때 화면은 평소처럼 일하는 중이다 */
+export function compactingFor(screen) {
+  for (const l of agentPanel(screen).screen.split("\n").filter((x) => x.trim()).slice(-12)) {
+    const m = l.match(/^[^\s⏺❯⎿]\s+Compacting conversation…(?:\s*\((.*)|\s*$)/);
+    if (!m) continue;
+    const t = (m[1] ?? "").match(/(?:(\d+)h\s*)?(?:(\d+)m\s*)?(\d+)s\b/);
+    return t ? Number(t[1] ?? 0) * 3600 + Number(t[2] ?? 0) * 60 + Number(t[3]) : 0;
+  }
+  return null;
+}
+
 const MODES = [["manual", /⏸ manual mode on/], ["acceptEdits", /⏵⏵ accept edits on/], ["plan", /⏸ plan mode on/], ["auto", /⏵⏵ auto mode on/], ["bypass", /bypass permissions on/]];
 /** 화면에 보이는 권한 모드(입력창 아래 모드 줄, 아래 4줄 안). 확인 창·안내 창에 가려 모드 줄이 안 보이면 null
  *  (그런 창이 떠 있으면 글을 넣거나 끄면 안 되므로, 쉬는 입력 상태인지 가릴 때도 쓴다). 에이전트 목록은 입력을 막지 않으니 떼고 본다 */
@@ -903,14 +917,34 @@ export function runFeed(pane) {
   const pushContext = () => {
     if (`${conv.model()}:${conv.usage()}` !== contextKey) broadcast({ t: "context", context: contextNow() });
   };
+  // 압축하는 중(앱 대화 아래의 '대화를 압축하는 중'): 맥 화면에 압축 진행 줄이 보이는 동안. 화면이 기준이라 /compact 와 자동 압축을
+  // 같은 식으로 알고, 맥 화면과 앱이 어긋나지 않는다. 화면 타이머(아래 권한 모드 읽기)가 2초마다 보고, 보이면 바로 켠다(시작한 때는 그 줄의 경과 시간으로 셈).
+  // 끄는 것은 압축이 끝났다는 기록 줄을 읽었을 때 바로, 또는 진행 줄이 두 번 연속 안 보일 때(취소·실패하면 기록에 남는 것이 없다. 한 번은 화면을 다시 그리는 틈일 수 있음).
+  // 한 시간쯤 쉰 뒤에 하는 압축은 직접 보지 못했다(같은 줄일 것으로 봄): 오래 걸린 압축인데 진행 줄을 못 봤으면 훅 기록에 남으니 그것으로 안다
+  let compactSince = 0;   // 압축을 시작한 때(ms). 0 이면 압축하는 중이 아님
+  let compactGone = 0;
+  const setCompacting = (since, why = "") => {
+    if (!since === !compactSince) return;
+    compactSince = since;
+    compactGone = 0;
+    broadcast({ t: "compacting", value: !!since, since: since || null });
+    logHook(since ? "압축하는 중(맥 화면에 압축 진행 줄)" : `압축하는 중 끝(${why})`);
+  };
+  const noteCompacting = (scr) => {
+    const sec = compactingFor(scr);
+    if (sec !== null) {
+      compactGone = 0;
+      if (!compactSince) setCompacting(Date.now() - sec * 1000);
+    } else if (compactSince && ++compactGone >= 2) setCompacting(0, "진행 줄이 사라짐");
+  };
   const snapshot = () => {
     const msgs = conv.messages();
     const q = queueNow();
     queueSent = JSON.stringify(q);
     return {
       t: "snapshot", v: FEED_VERSION, agent: "claude", messages: msgs.slice(-MAX_MESSAGES), truncated: Math.max(0, msgs.length - MAX_MESSAGES),
-      working, queue: q, canSend: true, notice: null, context: contextNow(), compacting: false, since: working ? workSince : null,
-      approvals: [...approvals.values()], questions: [...[...questions.values()].map((q) => q.item), ...(screenAsk ? [screenAsk.item] : [])], todos: visibleTodos(), planMode: permMode === "plan", compactSince: null,
+      working, queue: q, canSend: true, notice: null, context: contextNow(), compacting: !!compactSince, since: working ? workSince : null,
+      approvals: [...approvals.values()], questions: [...[...questions.values()].map((q) => q.item), ...(screenAsk ? [screenAsk.item] : [])], todos: visibleTodos(), planMode: permMode === "plan", compactSince: compactSince || null,
       permMode, modelChoices: MODEL_CHOICES, rev: CODE_REV,
     };
   };
@@ -1037,6 +1071,7 @@ export function runFeed(pane) {
     const changed = [];
     let fresh = false;   // 마지막 끝 훅 뒤에 생긴, 차례가 이어지는 중이라는 기록
     const asks = [];   // 마지막 끝 훅 뒤에 적힌 질문 호출(AskUserQuestion). 훅이 빠져도 폰 카드·푸시를 띄우게
+    let compacted = 0;   // 압축이 끝났다는 줄을 읽음(그 압축에 걸린 시간 ms, 모르면 1)
     for (const l of parts) {
       if (!l.trim()) continue;
       try {
@@ -1044,6 +1079,7 @@ export function runFeed(pane) {
         const ms = conv.add(o);
         changed.push(...ms);
         trackJobs(o);
+        if (o.type === "system" && o.subtype === "compact_boundary" && !o.isSidechain) compacted = Number(o.compactMetadata?.durationMs) || 1;
         if (o.type === "assistant" && !o.isSidechain && Date.parse(o.timestamp ?? "") > lastStopAt) {
           for (const b of Array.isArray(o.message?.content) ? o.message.content : []) if (b?.type === "tool_use" && b.name === "AskUserQuestion") asks.push(b);
         }
@@ -1089,6 +1125,12 @@ export function runFeed(pane) {
     if (changed.some((m) => m.role === "assistant")) updateChips();
     if (changed.length) pushTodos();
     pushContext();
+    // 처음 읽을 때의 옛 압축 줄로는 끄지 않음(지금 압축하는 중인지는 화면이 알려 줌)
+    if (compacted && !initial) {
+      // 오래 걸린 압축인데 화면에서 압축 진행 줄을 보지 못했으면 적어 둔다(진행 줄의 모양이 바뀌어 못 알아보는 것인지 나중에 알 수 있게)
+      if (!compactSince && compacted >= 10_000) logHook(`압축이 끝났는데 화면에서 압축 진행 줄을 보지 못함(${Math.round(compacted / 1000)}초 걸림)`);
+      setCompacting(0, "기록의 압축 줄");
+    }
     // Esc 로 멈춤(승인 거부·질문 취소 포함): 작업 끝 훅이 안 올 수 있어 기록의 '[Request interrupted by user' 로 끝냄
     if (interrupted) {
       if (working) broadcast({ t: "working", value: false });
@@ -1168,7 +1210,11 @@ export function runFeed(pane) {
     broadcast({ t: "permmode", mode: m });
     broadcast({ t: "planmode", on: m === "plan" });
   };
-  setInterval(() => noteMode(readMode()), 2000);
+  setInterval(() => {
+    const scr = tmux("capture-pane", "-p", "-t", pane) ?? "";
+    noteMode(shownMode(scr));
+    noteCompacting(scr);
+  }, 2000);
   let modeBusy = false;
   const setMode = async (target, sock) => {
     if (modeBusy) return;
@@ -1360,6 +1406,7 @@ export function runFeed(pane) {
       /* 기록 실패는 무시 */
     }
   };
+  noteCompacting(tmux("capture-pane", "-p", "-t", pane) ?? "");   // 압축하는 도중에 뜬 연결부도 처음부터 알게(기록을 남기므로 logHook 뒤에서)
   let lastHookAt = 0;
   const onHook = (ev) => {
     lastActivity = Date.now();
@@ -1721,7 +1768,9 @@ export function runFeed(pane) {
         setThinkingChip(lv);
         return void paste(`/effort ${lv}`);
       }
-      case "compact": return void paste("/compact");
+      case "compact":
+        if (compactSince) return void write(sock, { t: "notice", text: "이미 대화를 압축하는 중이에요" });
+        return void paste("/compact");
       case "approval": {
         // 폰 승인 카드: 허용은 '1', 거부는 Esc(맥 창과 같음)
         const id = String(o.id ?? "");
@@ -2019,7 +2068,8 @@ export function runFeed(pane) {
     }
   };
   setInterval(() => {
-    if (switching || Date.now() < switchPausedUntil || working || approvals.size || questions.size) return;
+    // 압축하는 중에도 끄지 않음: 쉬다가 하는 압축은 작업 중이 아닌 채로 1~2분 돈다(끄면 그 압축이 버려짐)
+    if (switching || Date.now() < switchPausedUntil || working || compactSince || approvals.size || questions.size) return;
     if (Date.now() - lastActivity < SWITCH_IDLE_MS) return;
     let proc;
     try {
@@ -2047,7 +2097,7 @@ export function runFeed(pane) {
   let failedRev = "";
   let failedAt = 0;
   setInterval(() => {
-    if (handingOver || switching || working || approvals.size || questions.size || screenAsk || conv.queue().length) return;
+    if (handingOver || switching || working || compactSince || approvals.size || questions.size || screenAsk || conv.queue().length) return;
     if (Date.now() - lastActivity < REV_IDLE_MS) return;
     const now = codeRev();
     if (!now || now === CODE_REV) return;

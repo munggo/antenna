@@ -98,7 +98,7 @@ run tls "연결 암호화(인증서·지문, 포트 하나에서 가려 받기)"
 run convert "Claude Code 대화 기록 → 폰 메시지" "$NODE" claude-remote/test/convert-cases.mjs
 run context "Claude Code 탭의 컨텍스트 사용량: 기억 용량·자동 압축 지점·대화 기록에서 따라가기" "$NODE" claude-remote/test/context-cases.mjs
 run account "개인·회사 계정 고르기" "$NODE" claude-remote/test/account-cases.mjs
-run screen-busy "Claude Code 화면이 일하는 중인지·뒤에서 도는 일" "$NODE" claude-remote/test/screen-busy-cases.mjs
+run screen-busy "Claude Code 화면이 일하는 중인지·압축하는 중인지·뒤에서 도는 일" "$NODE" claude-remote/test/screen-busy-cases.mjs
 run screen-dialog "훅 없이 묻는 Claude Code 창(피드백 초안·명령 창) → 폰 카드" "$NODE" claude-remote/test/screen-dialog-cases.mjs
 run bg-line "백그라운드 일의 모델·생각 깊이(맥 화면 한 줄·하위 에이전트 깊이)" "$NODE" claude-remote/test/bg-line-cases.mjs
 run windows "탭 목록: 백그라운드 탭·뒤에서 도는 일·끝난 것 고르기" "$NODE" server/test/windows.test.mjs
@@ -137,6 +137,7 @@ if command -v tmux >/dev/null 2>&1; then
   run stuck-screen "'작업 중' 바로잡기·훅 유실 막기·대화 기록으로 켜기·질문 카드" "$NODE" claude-remote/test/stuck-screen.test.mjs
   run bg-jobs "뒤에서 도는 작업 목록·종료(셸은 바로, 에이전트는 Claude 에게 부탁)" "$NODE" claude-remote/test/bg-jobs.test.mjs
   run context-feed "Claude Code 탭의 컨텍스트 사용량이 앱까지 가는지(새 응답·압축·설정·새 대화)" "$NODE" claude-remote/test/context-feed.test.mjs
+  run compacting "Claude Code 탭의 '압축하는 중'이 앱까지 가는지(시작·끝·취소·도중에 붙기·새 판 미루기)" "$NODE" claude-remote/test/compacting.test.mjs
   run notify-hold "맥을 쓰는 중이면 폰 알림을 미루는지" "$NODE" server/test/notify-hold-e2e.mjs
   run no-pi "pi 가 없는 맥에서도 브리지가 되는지" "$NODE" server/test/no-pi.test.mjs
   run reach "재부팅 알림: 밖에서 붙을 주소가 올라와 있는지" "$NODE" server/test/reach.test.mjs
@@ -152,6 +153,7 @@ else
   skip stuck-screen "tmux 가 없음"
   skip bg-jobs "tmux 가 없음"
   skip context-feed "tmux 가 없음"
+  skip compacting "tmux 가 없음"
   skip notify-hold "tmux 가 없음"
   skip no-pi "tmux 가 없음"
   run reach "재부팅 알림: 밖에서 붙을 주소가 올라와 있는지(판정만)" "$NODE" server/test/reach.test.mjs
