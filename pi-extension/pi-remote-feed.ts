@@ -471,9 +471,12 @@ export default function (pi: ExtensionAPI) {
   const bgInfo = (): { origin: string; by: string; name: string } | null => {
     try {
       const out = execFileSync("tmux", ["show-options", "-w", "-t", pane], { encoding: "utf8", timeout: 3000, stdio: ["ignore", "pipe", "ignore"] });
-      const get = (k: string) => (out.match(new RegExp(`^${k} (.*)$`, "m")) ?? [])[1]?.replace(/^"(.*)"$/, "$1") ?? "";
+      const get = (k: string) => (out.match(new RegExp(`^${k} (.*)$`, "m")) ?? [])[1]?.replace(/^(["'])(.*)\1$/, "$2") ?? "";
       const origin = get("@bg_origin");
-      return origin ? { origin, by: get("@bg_by") || "user", name: get("@bg_name") || "bg" } : null;
+      const by = get("@bg_by") || "user";
+      // 단축어로 시킨 탭은 시킨 칸이 없다: 끝난 때(@bg_done)를 적기 전까지 백그라운드 일로 봄(claude-remote/bg-launch.mjs 의 bgInfo 와 같은 규칙)
+      if (!origin && !(by === "shortcut" && !get("@bg_done"))) return null;
+      return { origin, by, name: get("@bg_name") || "bg" };
     } catch {
       return null;
     }
@@ -488,6 +491,7 @@ export default function (pi: ExtensionAPI) {
     } catch {
       /* 표시를 못 지우면 다음에 또 보고될 수 있음 */
     }
+    if (!bg.origin) return;   // 단축어로 시킨 일: 시킨 탭이 없어 폰 알림만
     const sock = `${process.env.HOME}/.cache/pi-remote/feed/${bg.origin.replace(/\W/g, "")}.sock`;
     if (!existsSync(sock)) return;   // 시킨 탭이 닫혔음(폰 알림은 감)
     const c = createConnection(sock);

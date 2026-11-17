@@ -1,12 +1,14 @@
 /**
  * 백그라운드 탭(/bgtab): 같은 tmux 세션 끝에 새 탭을 열고, 시킨 탭과 같은 것(pi | Claude Code)을 할 일과 함께 켬
  * - 새 탭은 로그인 셸 안에서 켬: 셸 함수 claude()(계정 고르기)가 쓰이고, 끝나도 셸이 남아 이어 쓸 수 있음
- * - 탭 옵션 @bg_origin(시킨 칸)·@bg_by(user | ai | phone)·@bg_name: 그 탭의 연결부가 끝났을 때 읽어
- *   폰 알림(시간과 상관없이)과 시킨 탭에 결과 요약을 보냄. 보낸 뒤 @bg_origin 은 지우고 @bg_done(끝난 때)을 적음
+ * - 탭 옵션 @bg_origin(시킨 칸)·@bg_by(user | ai | phone | shortcut)·@bg_name: 그 탭의 연결부가 끝났을 때 읽어
+ *   폰 알림(시간과 상관없이)과 시킨 탭에 결과 요약을 보냄. 보낸 뒤 @bg_origin 은 지우고 @bg_done(끝난 때)을 적음.
+ *   단축어로 시킨 탭(shortcut: 폰의 단축어 동작이 브리지에 보낸 일, server/tasks.mjs)은 시킨 칸이 없어 폰 알림만 보냄
  * - @bg_from(시킨 칸, 지우지 않음)·@bg_started(시작): 앱 서랍의 '백그라운드' 칸이 시킨 탭·걸린 시간을 보임(server/windows.mjs)
  * - 맥 화면의 '백그라운드: …' 한 줄(bgLine): 시킨 탭에서, 맡긴 백그라운드 탭과 뒤에서 도는 하위 에이전트를 모델·생각 깊이와 함께 보임.
  *   Claude Code 는 연결부가 칸 옵션 @ai_bg_line 에 적고 상태 줄 스크립트가 붙이며, pi 는 확장이 입력창 아래 위젯으로 보임(사용자 결정 11-16)
- * 쓰는 곳: pi 확장 bgtab.ts(/bgtab·background_task 도구)·pi-remote-feed.ts(위젯), Claude Code 훅(/bgtab)·연결부, 브리지(폰 '백그라운드로 보내기')
+ * 쓰는 곳: pi 확장 bgtab.ts(/bgtab·background_task 도구)·pi-remote-feed.ts(위젯), Claude Code 훅(/bgtab)·연결부,
+ *          브리지(폰 '백그라운드로 보내기'·단축어로 시킨 일)
  * 작성: 서문교
  */
 import { execFileSync } from "node:child_process";
@@ -61,7 +63,8 @@ export function launchBackground({ agent, cwd, task, originPane = "", by = "user
   return { window: Number(win), pane, name, session: sess };
 }
 
-/** 이 칸의 백그라운드 정보(없으면 null): 끝났을 때 연결부가 읽음 */
+/** 이 칸의 백그라운드 정보(없으면 null): 끝났을 때 연결부가 읽음.
+ *  보고할 것이 남은 탭만: 시킨 칸(@bg_origin)이 있거나, 단축어로 시킨 탭(시킨 칸이 없음)이 아직 끝난 때(@bg_done)를 적지 않았을 때 */
 export function bgInfo(pane) {
   let out = "";
   try {
@@ -69,9 +72,11 @@ export function bgInfo(pane) {
   } catch {
     return null;
   }
-  const get = (k) => (out.match(new RegExp(`^${k} (.*)$`, "m")) ?? [])[1]?.replace(/^"(.*)"$/, "$1") ?? "";
+  const get = (k) => (out.match(new RegExp(`^${k} (.*)$`, "m")) ?? [])[1]?.replace(/^(["'])(.*)\1$/, "$2") ?? "";
   const origin = get("@bg_origin");
-  return origin ? { origin, by: get("@bg_by") || "user", name: get("@bg_name") || "bg" } : null;
+  const by = get("@bg_by") || "user";
+  if (!origin && !(by === "shortcut" && !get("@bg_done"))) return null;
+  return { origin, by, name: get("@bg_name") || "bg" };
 }
 
 /** 모델 ID → 짧은 이름('claude-opus-5-5' → 'Opus 5.5'). 이미 짧은 이름이면 그대로 */

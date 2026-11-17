@@ -1,6 +1,7 @@
 /**
  * 탭 목록(앱 서랍·☰ 점용): tmux list-windows 출력 → 앱에 보낼 모양.
- * - 백그라운드 탭(/bgtab·AI·폰이 연 탭)은 탭 옵션 @bg_by(시킨 쪽 user | ai | phone)가 있다.
+ * - 백그라운드 탭(/bgtab·AI·폰·단축어가 연 탭)은 탭 옵션 @bg_by(시킨 쪽 user | ai | phone | shortcut)가 있다.
+ *   단축어로 시킨 탭은 시킨 칸이 없다(from 이 null).
  *   @bg_started(시작)·@bg_done(끝나 결과를 보낸 때)은 초 단위 시각. 시킨 칸은 @bg_from(결과를 보낸 뒤에도 남음),
  *   그 옵션이 없는 예전 탭은 @bg_origin(결과를 보내면 지워짐)
  * - 뒤에서 도는 일은 @ai_jobs(Claude Code 연결부가 화면의 모드 줄 '· 1 shell'·하위 에이전트 목록과 대화 기록에서 세어

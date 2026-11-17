@@ -16,6 +16,7 @@ Your agents keep running in tmux on the Mac. The iPhone app shows each tmux tab 
 - **Admin (sudo) commands** open in their own tab where you confirm and type the password yourself; the agent never sees it.
 - **Usage** of your Claude subscription limits (see the [note on usage](./docs/setup.md#usage)).
 - **MacBook battery**: the Mac's charge shows next to the connection status at the top (a bolt when plugged in, red when under 20% without a charger). With notifications set up, the phone is also told once when it gets that low. Nothing is shown for a Mac without a battery.
+- **Shortcuts**: a Shortcuts action, "맥의 AI 에게 일 시키기" (give the Mac's AI a task), starts Claude Code or pi on a task in a new background tab on the Mac without opening the app. Attach it to a Shortcuts automation (a time of day, arriving somewhere, plugging in the charger, an NFC tag) or run it from Siri or Spotlight (see [Shortcuts](./docs/setup.md#shortcuts)).
 - **Notifications** when an agent needs you or finishes, with your own Apple push key (see [Notifications](./docs/setup.md#notifications)).
 - After a reboot the bridge restores your tabs and resumes the conversations that were open.
 

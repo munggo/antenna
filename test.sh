@@ -140,6 +140,7 @@ if command -v tmux >/dev/null 2>&1; then
   run pairing "짝짓기·기기 토큰으로 붙기·바꾸기·끊기, 예전 토큰에서 옮기기" "$NODE" server/test/pairing.test.mjs
   run accounts-alert "개인·회사 계정이 섞이면 어느 쪽인지 가려 폰에 알림" "$NODE" server/test/accounts-alert.test.mjs
   run bg-drawer "서랍의 백그라운드 칸: 실행기·탭 목록·끝난 것 모두 닫기" "$NODE" server/test/bg-drawer.test.mjs
+  run tasks "단축어로 시킨 일: 새 백그라운드 탭에서 시작·같은 요청은 한 번만·없는 폴더와 토큰 없는 접속은 거절" "$NODE" server/test/tasks.test.mjs
   run battery-bridge "맥북 배터리를 앱에 보내고, 낮으면 폰에 한 번 알림" "$NODE" server/test/battery-bridge.test.mjs
   run install "설치 명령: 새 맥(가짜 홈)에서 설치·브리지·점검·짝짓기" "$NODE" test/install.test.mjs
 else
@@ -153,6 +154,7 @@ else
   skip pairing "tmux 가 없음"
   skip accounts-alert "tmux 가 없음"
   skip bg-drawer "tmux 가 없음"
+  run tasks "단축어로 시킨 일: 요청 판정(판정만)" "$NODE" server/test/tasks.test.mjs
   skip battery-bridge "tmux 가 없음"
   skip install "tmux 가 없음"
 fi

@@ -189,6 +189,27 @@ The usage screen shows your Claude subscription limits. The bridge reads them wi
 
 If you use only Claude Code, nothing records those values yet, so the screen says there is no data. A small status line helper for this is not included in this repository yet.
 
+## Shortcuts
+
+Installing the app adds one action to the Shortcuts app: **맥의 AI 에게 일 시키기** (give the Mac's AI a task). It opens a new background tab on the Mac and starts Claude Code or pi with the task you give it. It runs in the background without opening the app, so you can attach it to a Shortcuts automation.
+
+| Field | Meaning |
+|---|---|
+| 할 일 (task) | What to tell the agent |
+| 누구에게 (who) | Claude Code (the default) or pi. The tool you pick has to be installed on the Mac |
+| 폴더 (folder) | The folder on the Mac to start in, for example `~/works/my-project`. Leave it empty for the home folder |
+
+To use it, create a shortcut in the Shortcuts app, tap Add Action, and pick the action under Antenna. To run it on an event, open the Automation tab of the Shortcuts app, choose a trigger (a time of day, arriving somewhere, connecting the charger, an NFC tag and so on) and add this action. You can also say "Antenna에 일 시키기" to Siri, or find the action in Spotlight.
+
+The task shows up in the background section of the app's drawer, marked '단축어로 시킴' (started by a shortcut). If [notifications](#notifications) are set up, you are notified when it finishes, however long it ran.
+
+Things to know:
+
+- The phone has to reach the Mac at that moment: the same Wi-Fi, or the VPN from [Reaching the Mac from outside](#reaching-the-mac-from-outside) turned on. If it cannot, the shortcut shows why.
+- After restarting the phone, unlock it once so the app can read its connection token.
+- The agent starts with the same settings it normally has in that folder. If it asks for an approval, the card and the notification reach the phone as usual.
+- If the Antenna on the Mac is an older version that does not know this action, the shortcut says so. Pull the new version on the Mac and run `sh install.sh` again.
+
 ## Optional features
 
 Nothing here is installed by `install.sh`.

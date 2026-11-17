@@ -24,6 +24,7 @@ import { outsideReach, parseHosts, reachText } from "./reach.mjs";
 import { getPrefs, notify, pushEnabled, registerActivity, registerLiveStart, registerToken, setNotifyGate, setPrefs, startNotifySocket } from "./push.mjs";
 import { readBattery } from "./battery.mjs";
 import { launchBackground } from "../claude-remote/bg-launch.mjs";
+import { createTaskStarter } from "./tasks.mjs";
 import { createSession, loadSnapshot, saveSnapshot, snapshotTabs } from "./tabs-restore.mjs";
 import { editorEmpty, LEVELS, parseStatusLine } from "./status-line.mjs";
 import { finishedBackgroundIds, forApp, parseWindows, WINDOW_FORMAT } from "./windows.mjs";
@@ -690,6 +691,9 @@ function shutdown() {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
+// 단축어로 시킨 일: 폰이 짧은 접속으로 보낸 할 일을 새 백그라운드 탭에서 시작(폰의 '백그라운드로 보내기'와 같은 실행기)
+const startTask = createTaskStarter({ launch: launchBackground, home: process.env.HOME, session: SESSION, log: (text) => console.log(`[pi-remote] ${text}`) });
+
 wss.on("connection", (ws, req) => {
   const peer = req.socket.remoteAddress;
   const url = new URL(req.url || "/", "http://localhost");
@@ -750,13 +754,15 @@ wss.on("connection", (ws, req) => {
     ws.on("close", () => clearInterval(stillOk));
   }
 
-  // 작업 표시(Live Activity) 토큰 등록 전용: 앱이 백그라운드로 깨어났을 때도 짧게 접속한다. tmux 를 붙이지 않음
+  // 짧은 접속: 앱이 백그라운드로 깨어났을 때도 잠깐 붙어 요청 하나를 낸다. tmux 를 붙이지 않음
+  // - 작업 표시(Live Activity) 토큰 등록  - 단축어로 시킨 일(새 백그라운드 탭에서 시작하고 답을 돌려줌. tasks.mjs)
   if (url.pathname === "/push") {
     ws.on("message", (raw) => {
       try {
         const m = JSON.parse(String(raw));
         if (m.type === "live-register") registerLiveStart(String(m.token ?? ""), String(m.env ?? ""));
         if (m.type === "activity-token") registerActivity(Number(m.window), String(m.token ?? ""), String(m.env ?? ""));
+        if (m.type === "task-start") ws.send(JSON.stringify(startTask(m)));
       } catch {
         /* 잘못된 메시지는 무시 */
       }

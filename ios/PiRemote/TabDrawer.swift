@@ -84,6 +84,7 @@ enum BackgroundText {
         switch b.by {
         case "ai": parts.append(from.isEmpty ? "AI가 시킴" : "\(from)의 AI가 시킴")
         case "phone": parts.append("폰에서 시킴")
+        case "shortcut": parts.append("단축어로 시킴")   // 단축어 동작 '맥의 AI 에게 일 시키기'(시킨 탭이 없음)
         default: if !from.isEmpty { parts.append("\(from)에서 시킴") }
         }
         return parts.joined(separator: " · ")

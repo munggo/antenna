@@ -39,7 +39,7 @@ struct MacBattery: Equatable {
 
 /// 백그라운드 탭 정보(맥 브리지가 탭 옵션에서 읽어 탭 목록과 함께 보냄)
 struct BackgroundInfo: Equatable {
-    /// 시킨 쪽: user(맥에서 /bgtab) | ai(AI 가 맡김) | phone(폰에서 '백그라운드로 보내기')
+    /// 시킨 쪽: user(맥에서 /bgtab) | ai(AI 가 맡김) | phone(폰에서 '백그라운드로 보내기') | shortcut(단축어 동작)
     let by: String
     /// 시작·끝(결과를 보낸 때) 시각(1970년부터 초). 아직 안 끝났으면 done 은 0
     let started: Int

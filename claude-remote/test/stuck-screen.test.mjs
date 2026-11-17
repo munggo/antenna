@@ -9,6 +9,7 @@
 // 11) 연결부가 새로 뜰 때 맥에 질문 창이 떠 있으면 답 없는 마지막 질문을 카드로(창이 없으면 열지 않음)
 // 12) 묻는 알림은 하나만: 질문 호출이 연달아 와도 하나(질문 수를 보임), 카드가 떠 있는 동안의 '입력이 필요함'은 알리지 않음.
 //     질문 카드는 맥처럼 하나씩(앞 카드가 닫히면 다음 카드, 알림 없이), 기다리던 질문이 먼저 끝났으면 열지 않음
+// 13) 단축어로 시킨 탭(시킨 칸 없음)이 끝나면 백그라운드 끝남 알림과 끝난 때 기록, 그 뒤 차례는 보통 알림
 // 11-14 사용자 보고 '처리 중인데 앱에 처리 중 표시가 안 보임'(맥이 바빠 훅이 빠지고, 훅이 도는 동안의 진행 줄을 놓쳐 끔)
 // 시험 세션(stuckscreentest)·가짜 홈을 만들고 끝나면 지운다. 쓰는 tmux 세션과 쓰는 연결부는 건드리지 않는다.
 // 실행: node claude-remote/test/stuck-screen.test.mjs
@@ -255,10 +256,32 @@ try {
   await waitFor(() => askDone.includes("cc-q-q32"), 3000);
   await sleep(500);
   ok(!asked.includes("cc-q-q33"), "12) 기다리던 질문이 먼저 끝났으면 그 카드는 열지 않음");
-  notifySrv.close();
   mode("still");
   hook({ hook_event_name: "Stop" });
   await waitFor(() => working === false, 3000);
+  // 연결부는 같은 훅이 1.5초 안에 또 오면 중복으로 버린다: 아래에서 끝 훅을 다시 보내기 전에 그보다 길게 쉼(위 끝 훅의 알림도 그사이 다 옴)
+  const GAP = 1800;
+  await sleep(GAP);
+
+  // 13) 단축어로 시킨 탭(@bg_by shortcut, 시킨 칸 없음. 폰의 단축어 동작이 연 탭): 끝나면 걸린 시간과 상관없이
+  //     백그라운드 끝남 알림을 보내고 끝난 때를 적는다(서랍에 '끝남'). 그 뒤 차례의 끝은 보통 탭처럼 알림
+  for (const [k, v] of [["@bg_origin", ""], ["@bg_from", ""], ["@bg_by", "shortcut"], ["@bg_name", "bg 단축어 일"]]) tm("set-option", "-w", "-t", pane, k, v);
+  const n13 = pushes.length;
+  user("빌드가 깨졌는지 확인해 줘");
+  reply([{ type: "text", text: "빌드를 고쳤습니다.\n시험도 모두 통과했습니다." }], "end_turn");
+  await waitFor(() => working === true, 3000);
+  hook({ hook_event_name: "Stop" });
+  const p13 = await waitFor(() => pushes.slice(n13).find((p) => /^백그라운드 작업이 끝났어요/.test(p.title ?? "")), 4000);
+  ok(p13?.kind === "done" && p13.title === "백그라운드 작업이 끝났어요: bg 단축어 일" && p13.background === true && p13.body === "빌드를 고쳤습니다.",
+    `13) 단축어로 시킨 일이 끝나면 걸린 시간과 상관없이 알림(${JSON.stringify(p13 ?? pushes.slice(n13))})`);
+  ok(Boolean(await waitFor(() => Number(tm("show-options", "-w", "-v", "-t", pane, "@bg_done")) > 0, 3000)), "13) 끝난 때를 적음");
+  await sleep(GAP);
+  const n13b = pushes.length;
+  hook({ hook_event_name: "Stop" });
+  const p13b = await waitFor(() => pushes.slice(n13b).find((p) => p.kind === "done"), 4000);
+  ok(/^작업이 끝났어요/.test(p13b?.title ?? "") && !p13b?.background, `13) 그 뒤 차례의 끝은 보통 알림(${p13b?.title})`);
+  for (const k of ["@bg_origin", "@bg_from", "@bg_by", "@bg_name", "@bg_done"]) tm("set-option", "-w", "-u", "-t", pane, k);
+  notifySrv.close();
 
   // 11) 연결부가 새로 뜰 때: 맥에 질문 창이 떠 있으면 답이 없는 마지막 질문을 카드로, 창이 없으면 열지 않음
   feed.kill();

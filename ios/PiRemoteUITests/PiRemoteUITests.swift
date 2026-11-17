@@ -2203,6 +2203,34 @@ final class PiRemoteUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [done], timeout: 3), .completed, "누르면 '복사됨'으로 바뀌어야 함")
     }
 
+    /// WW. 단축어 동작 '맥의 AI 에게 일 시키기'(사용자 요청 11-17: 폰의 사건으로 AI 에게 일 시키기).
+    ///     동작을 실행하면 맥이 그 폴더에서 새 백그라운드 탭을 열고, 서랍의 '백그라운드' 칸에 '단축어로 시킴'으로 보인다.
+    ///     단축어 앱을 거치지 않고, 앱이 뜨면서 그 동작을 그대로 한 번 실행한다(PI_REMOTE_TEST_TASK. 매개변수·맥에 보내기·답 받기).
+    ///     맥 쪽: 시험 브리지는 새 탭에서 진짜 도구 대신 바로 끝나는 명령을 켠다. 탭이 그 폴더에서 하나만 열렸는지는 test/app.sh 가 확인
+    func testWW_ShortcutTask() throws {
+        guard FileManager.default.fileExists(atPath: "/tmp/ptest/shortcut-ok") else { throw XCTSkip("단축어 시험 준비 안 됨") }
+        app.terminate()
+        app.launchEnvironment["PI_REMOTE_TEST"] = ""
+        app.launchEnvironment["PI_REMOTE_TEST_TASK"] = "단축어 시험: 폴더 살펴보기"
+        app.launchEnvironment["PI_REMOTE_TEST_TASK_FOLDER"] = "/tmp/ptest"
+        app.launch()
+        openDrawer()
+        // 맥이 연 탭은 서랍의 백그라운드 칸에: 이름은 앞의 bg 를 뗀 할 일, 그 아래 시킨 쪽
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "단축어 시험")).firstMatch
+        let seen = { self.app.buttons.allElementsBoundByIndex.map(\.label).filter { $0.count > 3 }.prefix(14).joined(separator: " | ") }
+        XCTAssertTrue(row.waitForExistence(timeout: 25), "단축어 동작이 시킨 일이 서랍에 새 탭으로 보여야 함(지금 보이는 줄: \(seen()))")
+        XCTAssertTrue(row.label.contains("단축어로 시킴"), "시킨 쪽이 '단축어로 시킴'으로 보여야 함(현재: \(row.label))")
+        XCTAssertFalse(row.label.contains("bg 단축어"), "이름은 앞의 bg 를 뗀 할 일(현재: \(row.label))")
+        XCTAssertGreaterThan(row.frame.minY, el("drawerBgTitle").frame.minY, "백그라운드 칸 아래에 있어야 함")
+        // 백그라운드 칸의 맨 아래 줄이라 화면 밖일 수 있다: 사진에 보이게 목록을 천천히 끌어 올림(빠르게 쓸면 다른 줄이 눌림)
+        if !row.isHittable {
+            let from = el("drawerBgTitle").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            from.press(forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -260)))
+        }
+        XCTAssertTrue(el("drawer").exists && row.isHittable, "목록을 올리면 그 줄이 화면에 보여야 함(서랍은 열린 채)")
+        shot("ww-shortcut")
+    }
+
     /// TT. 사진 보관함에서 두 장을 고르면 입력창에 두 칸이 뜨고, 그림이 채워진 뒤 맥에 올라가야 한다
     ///     (사용자 보고 11-15 '사진을 고른 뒤 썸네일이 뜨기까지 시간이 걸림'). 걸린 시간은 시험 기록에 '[TT]' 로 남김
     func testTT_PhotoPicker() {

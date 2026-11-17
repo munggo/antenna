@@ -65,6 +65,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         PushManager.shared.start()
         LiveActivities.start()   // 맥 pi 작업 표시 토큰 등록(백그라운드로 깨어났을 때도)
+        #if DEBUG
+        ShortcutSelfTest.runIfAsked()   // 화면 시험: 단축어 동작을 한 번 실행(PI_REMOTE_TEST_TASK)
+        #endif
         return true
     }
 

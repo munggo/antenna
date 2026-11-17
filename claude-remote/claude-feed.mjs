@@ -1376,7 +1376,7 @@ export function runFeed(pane) {
       pushTodos();
       const bg = QUESTION_END.test(tail) ? null : bgInfo(pane);
       if (bg) {
-        // 다른 탭이 시킨 백그라운드 일(/bgtab): 시간과 상관없이 알림 + 시킨 탭에 결과 요약
+        // 다른 탭이 시킨 백그라운드 일(/bgtab)·단축어로 시킨 일: 시간과 상관없이 알림 + (시킨 탭이 있으면) 그 탭에 결과 요약
         setStatus(viewing() ? "" : "yourturn");
         notifyPhone("done", `백그라운드 작업이 끝났어요: ${bg.name}`, ls[0] ?? "결과를 확인해 주세요", { durationSec, background: true });
         bgReport(bg, text);
@@ -1399,6 +1399,7 @@ export function runFeed(pane) {
     const win = tmux("display", "-p", "-t", pane, "#{window_index}");
     tmux("set-option", "-w", "-u", "-t", pane, "@bg_origin");
     tmux("set-option", "-w", "-t", pane, "@bg_done", String(Math.floor(Date.now() / 1000)));
+    if (!bg.origin) return;   // 단축어로 시킨 일: 시킨 탭이 없어 폰 알림만
     const path = `${HOME}/.cache/pi-remote/feed/${bg.origin.replace(/\W/g, "")}.sock`;
     if (!existsSync(path)) return;   // 시킨 탭이 닫혔음(폰 알림은 감)
     const c = createConnection(path);
