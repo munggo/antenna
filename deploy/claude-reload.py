@@ -10,7 +10,7 @@ Claude Code가 세션마다 남기는 ~/.claude/sessions/<프로세스 번호>.j
   2. 지금 설치된 버전과 다른 버전으로 도는 중
   3. 상태가 idle 이고 그 뒤로 --idle 초가 지남(기본 10분)
   4. 입력창이 비어 있음(쓰다 만 글이 있으면 건드리지 않음)
-  5. 그냥 끄면 안 되는 것이 없음: 뒤에서 도는 작업(실행 중인 명령, 화면 맨 아랫줄의 '· 1 shell' 같은 표시)과
+  5. 그냥 끄면 안 되는 것이 없음: 뒤에서 도는 작업(실행 중인 명령, 모드 줄의 '· 1 shell' 같은 표시, 그 아래 하위 에이전트 목록)과
      보내지 않은 피드백 초안('· 1 feedback draft'. /exit 가 보낼지 버릴지 묻는 화면에서 멈춘다)
 방법: 그 창에 /exit → 셸로 돌아오면 `cd <폴더> && claude --resume <대화 번호>` 입력.
 셸의 claude 함수를 거치므로 폴더별 계정(회사·개인)도 그대로 적용된다.
@@ -37,6 +37,11 @@ ESC = re.compile(r"\x1b\[[0-9;]*m")
 # 뒤 작업은 끊기고, 보내지 않은 피드백 초안이 있으면 '보낼지 버릴지' 묻는 화면에서 멈춘다(2026-11-13 낮에 실제로 한 세션이 멈췄음).
 # 모르는 항목도 건드리지 않는다(안전한 쪽)
 BACKGROUND = re.compile(r"·\s*(\d+\s+[A-Za-z]+(?:\s+drafts?)?)")
+# 입력창 아래의 모드 줄, 그리고 그 아래에 붙는 하위 에이전트 목록의 줄('⏺ main', '◯ general-purpose  설명 … 4s', '↓ 3 more').
+# 2.1.32x 부터 하위 에이전트는 모드 줄에 수를 적지 않고 이 목록으로만 보인다(연결부 claude-feed.mjs 의 agentPanel 과 같은 규칙)
+MODE_LINE = re.compile(r"⏸ manual mode on|⏵⏵ accept edits on|⏸ plan mode on|⏵⏵ auto mode on|bypass permissions on|\? for shortcuts")
+PANEL_ITEM = re.compile(r"^\s*[⏺◯○●◉]\s+(\S+)")
+PANEL_MORE = re.compile(r"^\s*([↓↑])\s*(\d+)\s+more\b")
 LOCK = os.path.expanduser("~/.cache/claude-auto-update/reload.lock")
 
 
@@ -84,6 +89,32 @@ def input_empty(pane):
     return False  # 입력창을 못 찾으면 건드리지 않음
 
 
+def screen_background(lines):
+    """화면(빈 줄을 뺀 줄들)에 보이는 '그냥 끄면 안 되는 것'의 표시(없으면 None).
+
+    맨 아래 두 줄(상태 줄·모드 줄)의 '· 1 shell', '· 1 feedback draft' 같은 것. 모드 줄 아래에 하위 에이전트 목록이 붙어 있으면
+    그 목록을 떼고 본다(목록에 밀려 모드 줄이 맨 아래 두 줄 밖으로 나가면 도는 셸·초안을 놓쳤다, 2026-11-17).
+    목록의 하위 에이전트도 끄면 같이 끝나므로 '2 agents' 로 알린다('main' 은 그 대화 자신, 위로 접힌 것은 세지 않음)
+    """
+    end, agents = len(lines), 0
+    while end > 0:
+        more, item = PANEL_MORE.match(lines[end - 1]), PANEL_ITEM.match(lines[end - 1])
+        if more:
+            agents += int(more.group(2)) if more.group(1) == "↓" else 0
+        elif item:
+            agents += item.group(1) != "main"
+        else:
+            break
+        end -= 1
+    if end == len(lines) or end == 0 or not MODE_LINE.search(lines[end - 1]):
+        end, agents = len(lines), 0  # 모드 줄 바로 아래가 아니면 목록이 아님
+    for line in lines[max(0, end - 2):end]:
+        m = BACKGROUND.search(line)
+        if m:
+            return m.group(1)
+    return f"{agents} agent{'s' if agents > 1 else ''}" if agents else None
+
+
 def background_work(pid, pane):
     """그냥 끄면 안 되는 것(뒤에서 도는 작업, 보내지 않은 초안)이 있으면 무엇인지(없으면 None)"""
     # 실행 중인 명령: Claude Code 가 명령을 돌릴 때 띄우는 셸은 shell-snapshots 파일을 읽어 들인다
@@ -91,12 +122,8 @@ def background_work(pid, pane):
         if "shell-snapshots/" in run("ps", "-o", "command=", "-p", kid).stdout:
             return "명령 실행 중"
     # 화면 표시: 하위 에이전트처럼 프로세스로 드러나지 않는 것
-    lines = [ESC.sub("", l) for l in run("tmux", "capture-pane", "-p", "-t", pane).stdout.splitlines() if l.strip()]
-    for line in lines[-2:]:
-        m = BACKGROUND.search(line)
-        if m:
-            return f"화면 표시 '{m.group(1)}'"
-    return None
+    shown = screen_background([ESC.sub("", l) for l in run("tmux", "capture-pane", "-p", "-t", pane).stdout.splitlines() if l.strip()])
+    return f"화면 표시 '{shown}'" if shown else None
 
 
 def resume_command(pid, cwd, session_id):

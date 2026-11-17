@@ -6,6 +6,7 @@
 // 5) Claude Code 를 켜기 전에 시작한 에이전트·감시는 뺌(세션 파일의 켠 때)
 // 6) 하위 에이전트의 종류·모델·생각 깊이(요즘 판은 run_in_background 없이 결과의 isAsync·resolvedModel, 깊이는 문서 순서),
 //    끝까지 기다린 하위 에이전트는 넣지 않음, 맥 화면 한 줄(@ai_bg_line): 이 칸이 맡긴 아직 일하는 백그라운드 탭과 에이전트
+// 7) 서랍의 수(@ai_jobs): 화면에서 센 것에 대화 기록으로 아는 에이전트·감시 수를 합쳐, 눌러서 보는 목록과 같은 수
 // 시험 세션(bgjobstest)·가짜 홈을 만들고 끝나면 지운다. 쓰는 tmux 세션과 쓰는 연결부는 건드리지 않는다.
 // 실행: node claude-remote/test/bg-jobs.test.mjs
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -151,11 +152,24 @@ try {
   bgWin("bg 다시 일함", { "@bg_from": pane, "@bg_by": "user", "@bg_done": now, "@pi_status": "working" });
   bgWin("bg 남의 일", { "@bg_from": "%999999", "@bg_by": "user", "@ai_model": "Opus 5.5" });
   const lineNow = () => tm("show-options", "-w", "-v", "-t", pane, "@ai_bg_line") ?? "";
-  const bgl = await waitFor(() => (/하네스 조사/.test(lineNow()) ? lineNow() : ""), 5000);
-  ok(bgl.startsWith("백그라운드: 하네스 조사 Opus 5.5 높음 · 다시 일함 · "), `6) 줄 앞: 맡긴 탭의 모델·깊이, 다시 일하는 탭(${bgl.slice(0, 60)}…)`);
+  // 위에서 탭과 옵션을 하나씩 만드는 사이에 연결부가 읽은 줄(깊이가 아직 없거나 다른 탭이 아직 없음)이 먼저 적힐 수 있다:
+  // 다 반영된 줄이 될 때까지 기다림(11-17 전체 시험에서 '하네스 조사 Opus 5.5 · 에이전트 …'를 읽어 한 번 실패)
+  const HEAD = "백그라운드: 하네스 조사 Opus 5.5 높음 · 다시 일함 · ";
+  const bgl = (await waitFor(() => (lineNow().startsWith(HEAD) ? lineNow() : ""), 5000)) || lineNow();
+  ok(bgl.startsWith(HEAD), `6) 줄 앞: 맡긴 탭의 모델·깊이, 다시 일하는 탭(${bgl.slice(0, 60)}…)`);
   ok(!/끝난 일|남의 일/.test(bgl), "6) 결과를 보내고 쉬는 탭, 다른 탭이 맡긴 탭은 뺌");
   ok(["에이전트 general-purpose Opus 5.5 매우 높음", "에이전트 Explore Haiku 5.5 · ", "에이전트 Explore Haiku 5.5 낮음", "에이전트 fork Opus 5.5 매우 높음", "에이전트 reviewer Haiku 5.5 최대"].every((s) => bgl.includes(s)),
     `6) 에이전트마다 종류·모델·깊이(${bgl})`);
+
+  // 7) 서랍의 수(@ai_jobs): 화면 모드 줄에서 센 것(셸 1·에이전트 2)에 대화 기록으로 아는 수(에이전트 6·감시 1)를 합침.
+  //    11-17 사용자 보고: 요즘 Claude Code 는 에이전트 수를 모드 줄에 쓰지 않아 서랍에 '백그라운드 작업'이 안 보였다(목록에는 있는데 수는 없음)
+  const jobsOpt = await waitFor(() => { const v = tm("show-options", "-w", "-v", "-t", pane, "@ai_jobs") ?? ""; return /감시/.test(v) ? v : ""; }, 5000)
+    || (tm("show-options", "-w", "-v", "-t", pane, "@ai_jobs") ?? "");
+  ok(jobsOpt === "셸 1개 · 에이전트 6개 · 감시 1개", `7) 서랍의 수는 종류마다 화면과 대화 기록 가운데 큰 쪽(${jobsOpt})`);
+  const shownSum = [...jobsOpt.matchAll(/(\d+)개/g)].reduce((s, m) => s + Number(m[1]), 0);
+  ok(shownSum === list.length, `7) 서랍의 수(${shownSum})가 눌러서 보는 목록의 수(${list.length})와 같음`);
+  const lineEnd = (await waitFor(() => (/ · 셸 1 · 감시 1$/.test(lineNow()) ? lineNow() : ""), 5000)) || lineNow();
+  ok(/ · 셸 1 · 감시 1$/.test(lineEnd), `7) 맥 화면 한 줄 끝에 셸·감시 수(${lineEnd.slice(-24)})`);
 
   // 2) 셸 종료
   ok(alive(shellPid) && alive(sleeper) && alive(outsider.pid), "2) 종료 전: 셸·그 안 명령·칸 밖 프로세스가 돎");

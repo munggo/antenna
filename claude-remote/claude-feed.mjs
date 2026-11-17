@@ -178,14 +178,61 @@ export function relaunchArgs(argsStr, mode) {
 }
 const SUBCOMMANDS = new Set(["mcp", "config", "doctor", "update", "install", "migrate-installer", "setup-token", "plugin", "agents", "auth", "remote-control", "ultrareview"]);
 
+/** 입력창 아래의 모드 줄('⏵⏵ auto mode on · 1 shell · ↓ to manage' 등) */
+const MODE_LINE = /⏸ manual mode on|⏵⏵ accept edits on|⏸ plan mode on|⏵⏵ auto mode on|bypass permissions on|\? for shortcuts/;
+const PANEL_ITEM = /^\s*[⏺◯○●◉]\s+(\S+)/;
+const PANEL_MORE = /^\s*([↓↑])\s*(\d+)\s+more\b/;
+/**
+ * 모드 줄 아래에 붙는 하위 에이전트 목록(2.1.32x. 그 전 판은 모드 줄에 '· 2 local agents' 로 적었다):
+ *     ⏵⏵ auto mode on · 1 shell · 2 feedback drafts
+ *
+ *     ⏺ main
+ *     ◯ general-purpose  자료 찾는 중                    4s · ↓ 53.1k tokens
+ *     ↓ 3 more
+ * 뒤에서 도는 하위 에이전트가 있는 동안만 보이고(끝난 것은 빠짐) 다섯을 넘으면 '↓ N more' 로 접힌다. 입력창은 그대로 쓸 수 있다.
+ * 화면 맨 아래에서부터 이런 줄이 이어지고 그 바로 위가 모드 줄일 때만 목록으로 본다(대화의 '⏺ 답' 줄과 헷갈리지 않게).
+ * → { screen: 목록을 뗀 화면, agents: 목록의 에이전트 수 }. 수는 'main'(이 대화)을 빼고 아래로 접힌 'N more' 를 더한다.
+ *   위로 접힌 것('↑ N more')은 이 대화가 섞였을 수 있어 세지 않는다. 목록이 없으면 화면 그대로·0
+ * (11-17 사용자 보고 '에이전트 8개가 도는데 서랍에 백그라운드 작업이 안 보임': 모드 줄이 화면 맨 아래라고 보던 판정들이
+ *  이 목록에 밀려 어긋났다. 서랍의 수·일하는 중·권한 모드·끄면 안 되는 것 판정이 모두 이 함수로 목록을 떼고 본다)
+ */
+export function agentPanel(screen) {
+  const text = String(screen ?? "");
+  const ls = text.split("\n");
+  let i = ls.length - 1;
+  let rows = 0;
+  let agents = 0;
+  for (; i >= 0; i--) {
+    if (!ls[i].trim()) continue;
+    const more = ls[i].match(PANEL_MORE);
+    const item = more ? null : ls[i].match(PANEL_ITEM);
+    if (!more && !item) break;
+    rows++;
+    if (more) agents += more[1] === "↓" ? Number(more[2]) : 0;
+    else if (item[1] !== "main") agents++;
+  }
+  if (!rows || i < 0 || !MODE_LINE.test(ls[i])) return { screen: text, agents: 0 };
+  return { screen: ls.slice(0, i + 1).join("\n"), agents };
+}
+
 /** Claude Code 가 일하는 중인지(화면 아래 12줄): 'esc to interrupt'(일부 모드의 모드 줄) 또는 진행 줄
  *  '✶ Whisking… (56m 34s · …)'. 끝나면 '✻ Sautéed for 7m 38s · done 8:36 PM' 처럼 바뀜. 자동 모드에 백그라운드 표시(⧉)가 있으면
  *  모드 줄에 'esc to interrupt' 가 없어서 진행 줄도 봄(사용자 보고 11-12).
  *  훅이 도는 동안에는 괄호가 시간 대신 '(running PostToolUse hooks… 1/2 · 8m 49s · …)' 로 시작하므로 괄호 안 어디든 시간이 있으면 진행 줄
- *  (11-14 사용자 보고 '처리 중인데 표시가 안 보임': 맥이 바빠 훅이 몇 초씩 걸리면 이 모양이 오래 남아 쉬는 중으로 잘못 봤다) */
+ *  (11-14 사용자 보고 '처리 중인데 표시가 안 보임': 맥이 바빠 훅이 몇 초씩 걸리면 이 모양이 오래 남아 쉬는 중으로 잘못 봤다).
+ *  모드 줄 아래 에이전트 목록은 떼고 본다(목록이 길면 진행 줄이 12줄 밖으로 밀림) */
 export function screenBusy(screen) {
-  const tail = String(screen ?? "").split("\n").filter((l) => l.trim()).slice(-12).join("\n");
+  const tail = agentPanel(screen).screen.split("\n").filter((l) => l.trim()).slice(-12).join("\n");
   return /esc to interrupt|[A-Za-z]+…\s*\([^)\n]*?\b(\d+h\s*)?(\d+m\s*)?\d+s\b/i.test(tail);
+}
+
+const MODES = [["manual", /⏸ manual mode on/], ["acceptEdits", /⏵⏵ accept edits on/], ["plan", /⏸ plan mode on/], ["auto", /⏵⏵ auto mode on/], ["bypass", /bypass permissions on/]];
+/** 화면에 보이는 권한 모드(입력창 아래 모드 줄, 아래 4줄 안). 확인 창·안내 창에 가려 모드 줄이 안 보이면 null
+ *  (그런 창이 떠 있으면 글을 넣거나 끄면 안 되므로, 쉬는 입력 상태인지 가릴 때도 쓴다). 에이전트 목록은 입력을 막지 않으니 떼고 본다 */
+export function shownMode(screen) {
+  const tail = agentPanel(screen).screen.split("\n").filter((l) => l.trim()).slice(-4).join("\n");
+  for (const [k, re] of MODES) if (re.test(tail)) return k;
+  return null;
 }
 
 /** 글자 하나가 터미널에서 차지하는 칸(대략): 한글·한자·가나·전각 글자와 그림 문자는 두 칸, 결합용 글자는 0 칸 */
@@ -240,14 +287,16 @@ export function aboveInput(screen) {
 /**
  * 그냥 끄면 안 되는 것의 화면 표시: 맨 아래 두 줄(상태 줄·모드 줄)의 '· 1 shell', '· 1 feedback draft' 같은 것.
  * 뒤에서 도는 셸은 Claude Code 를 끄면 같이 죽고, 보내지 않은 피드백 초안은 /exit 가 묻는 화면에서 멈춘다.
- * 자동 다시 켜기(deploy/claude-reload.py 의 background_work)와 같은 규칙. 있으면 그 글, 없으면 null
+ * 모드 줄 아래에 에이전트 목록이 붙어 있으면 떼고 그 위 두 줄을 보며, 목록의 하위 에이전트도 끄면 같이 죽으므로 '2 agents' 로 알린다.
+ * 자동 다시 켜기(deploy/claude-reload.py 의 screen_background)와 같은 규칙. 있으면 그 글, 없으면 null
  */
 export function backgroundShown(screen) {
-  for (const l of String(screen ?? "").split("\n").filter((x) => x.trim()).slice(-2)) {
+  const panel = agentPanel(screen);
+  for (const l of panel.screen.split("\n").filter((x) => x.trim()).slice(-2)) {
     const m = l.match(/·\s*(\d+\s+[A-Za-z]+(?:\s+drafts?)?)/);
     if (m) return m[1];
   }
-  return null;
+  return panel.agents ? `${panel.agents} agent${panel.agents > 1 ? "s" : ""}` : null;
 }
 
 /**
@@ -256,22 +305,37 @@ export function backgroundShown(screen) {
  * 그 아래에 안내 창('Teach auto mode about your environment?')을 띄우기도 해서 맨 아래 두 줄만 보면 놓친다(11-14 시험에서 확인).
  * 모드 줄을 못 찾으면 맨 아래 두 줄을 본다.
  * 아는 종류만 센다: 보내지 않은 피드백 초안('· 1 feedback draft')이나 '· 1 MCP server failed' 같은 안내는 도는 일이 아니다.
+ * 하위 에이전트는 2.1.32x 부터 모드 줄에 수를 적지 않고 그 아래 목록으로만 보이므로(agentPanel) 목록에서 센 수를 쓴다.
  * 여럿이면 ' · '로 잇고, 없으면 빈 글
  */
 const JOB_KINDS = { shell: "셸", bash: "셸", agent: "에이전트", task: "작업", job: "작업", monitor: "감시", process: "프로세스" };
-const MODE_LINE = /⏸ manual mode on|⏵⏵ accept edits on|⏸ plan mode on|⏵⏵ auto mode on|bypass permissions on|\? for shortcuts/;
+const jobsText = (counts) => [...counts].filter(([, n]) => n > 0).map(([kind, n]) => `${kind} ${n}개`).join(" · ");
 export function backgroundJobs(screen) {
-  const ls = String(screen ?? "").split("\n").filter((x) => x.trim());
+  const panel = agentPanel(screen);
+  const ls = panel.screen.split("\n").filter((x) => x.trim());
   const mode = ls.slice(-15).findLast((l) => MODE_LINE.test(l));
-  const out = [];
+  const counts = new Map();
   for (const l of mode ? [mode] : ls.slice(-2)) {
     for (const m of l.matchAll(/·\s*(\d+)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)/g)) {
       const word = m[2].trim().split(/\s+/).pop().toLowerCase();   // 'local agents' 처럼 두 낱말이면 뒤 낱말
       const kind = JOB_KINDS[word] ?? JOB_KINDS[word.replace(/s$/, "")] ?? JOB_KINDS[word.replace(/es$/, "")];
-      if (kind) out.push(`${kind} ${m[1]}개`);
+      if (kind) counts.set(kind, (counts.get(kind) ?? 0) + Number(m[1]));
     }
   }
-  return out.join(" · ");
+  if (panel.agents > (counts.get("에이전트") ?? 0)) counts.set("에이전트", panel.agents);
+  return jobsText(counts);
+}
+
+/**
+ * 화면에서 센 것(backgroundJobs)에 대화 기록으로 아는 수({ 에이전트: 8, 감시: 1 })를 합친다: 종류마다 큰 쪽.
+ * 화면 표시는 Claude Code 판마다 바뀌어 놓칠 수 있고(11-17: 에이전트 수가 모드 줄에서 사라져 서랍에 안 보임),
+ * 대화 기록은 맥 화면의 '백그라운드:' 줄과 앱의 작업 목록이 이미 쓰는 값이라 서랍의 수도 그 둘과 어긋나지 않게 한다
+ */
+export function mergeJobs(shown, known = {}) {
+  const counts = new Map();
+  for (const m of String(shown ?? "").matchAll(/(\S+) (\d+)개/g)) counts.set(m[1], (counts.get(m[1]) ?? 0) + Number(m[2]));
+  for (const [kind, n] of Object.entries(known ?? {})) if (Number(n) > (counts.get(kind) ?? 0)) counts.set(kind, Number(n));
+  return jobsText(counts);
 }
 
 /**
@@ -1039,12 +1103,7 @@ export function runFeed(pane) {
     for (const id of [...questions.keys()]) questionDone(id);
   };
   // ── 권한 모드: 입력창 아래 줄('⏵⏵ auto mode on' 등)을 읽고, 폰에서 고르면 Shift+Tab 으로 돌려 맞춤 ──
-  const MODES = [["manual", /⏸ manual mode on/], ["acceptEdits", /⏵⏵ accept edits on/], ["plan", /⏸ plan mode on/], ["auto", /⏵⏵ auto mode on/], ["bypass", /bypass permissions on/]];
-  const readMode = () => {
-    const tail = (tmux("capture-pane", "-p", "-t", pane) ?? "").split("\n").filter((l) => l.trim()).slice(-4).join("\n");
-    for (const [k, re] of MODES) if (re.test(tail)) return k;
-    return null;   // 확인 창 등으로 모드 줄이 안 보임
-  };
+  const readMode = () => shownMode(tmux("capture-pane", "-p", "-t", pane) ?? "");   // 확인 창 등으로 모드 줄이 안 보이면 null
   let permMode = readMode() ?? "auto";
   const noteMode = (m) => {
     if (!m || m === permMode) return;
@@ -1384,11 +1443,12 @@ export function runFeed(pane) {
   }, Number(process.env.PI_REMOTE_IDLE_CHECK_MS ?? 5000));
 
   // 뒤에서 도는 일(셸·에이전트)을 탭 옵션 @ai_jobs 에 적음(바뀔 때만). 브리지가 탭 목록과 함께 앱에 보내 서랍에 보임.
+  // 화면에서 센 것에 대화 기록으로 아는 에이전트·감시 수를 합친다(knownJobs: 화면 표시가 바뀌어 못 세도 서랍에 보이게).
   // 처음 한 번은 꼭 적거나 지움(예전 연결부가 남긴 값이 있을 수 있어서)
   let jobsShown = null;
   setInterval(() => {
     if (switching) return;
-    const jobs = backgroundJobs(tmux("capture-pane", "-p", "-t", pane) ?? "");
+    const jobs = mergeJobs(backgroundJobs(tmux("capture-pane", "-p", "-t", pane) ?? ""), knownJobs());
     if (jobs === jobsShown) return;
     jobsShown = jobs;
     if (jobs) tmux("set-option", "-w", "-t", pane, "@ai_jobs", jobs);
@@ -1489,6 +1549,15 @@ export function runFeed(pane) {
         ...(j.kind === "agent" ? agentInfo(j) : {}) });
     }
     return out.sort((a, b) => a.startedAt - b.startedAt);
+  };
+  /** 대화 기록으로 아는, 지금 뒤에서 도는 에이전트·감시 수(jobList 와 같은 조건) → { 에이전트, 감시 }. 서랍의 수(@ai_jobs)에 합침.
+   *  셸은 넣지 않는다: 도는지 알려면 프로세스를 뒤져야 하고, 화면의 모드 줄에 수가 그대로 나온다 */
+  const knownJobs = () => {
+    const tracked = [...bgJobs.values()].filter((j) => j.kind !== "shell");
+    if (!tracked.length) return {};
+    const since = claudeStartedAt();
+    const live = tracked.filter((j) => !(since && j.startedAt < since));
+    return { 에이전트: live.filter((j) => j.kind === "agent").length, 감시: live.filter((j) => j.kind === "monitor").length };
   };
   /** 뒤에서 도는 하위 에이전트(jobList 와 같은 조건) → 맥 화면 한 줄에 쓸 [{ type, model, thinking }] */
   const runningAgents = () => {

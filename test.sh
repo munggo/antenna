@@ -104,6 +104,11 @@ run windows "탭 목록: 백그라운드 탭·뒤에서 도는 일·끝난 것 �
 run switch "계정 전환 때 다시 켤 옵션" "$NODE" claude-remote/test/switch-cases.mjs
 run vpn-guard "VPN 지킴이(선택 기능): 설정 읽기·터널 지키기" "$NODE" test/vpn-guard.test.mjs
 run qr "짝짓기 QR: 그리기·짝짓기 명령·다시 읽기" "$NODE" test/qr.test.mjs
+if command -v python3 >/dev/null 2>&1; then
+  run reload-screen "업데이트 뒤 자동 다시 켜기: 끄면 안 되는 것(셸·초안·하위 에이전트 목록)이 화면에 보이는지" python3 test/claude-reload.test.py
+else
+  skip reload-screen "python3 가 없음"
+fi
 # 앱의 글 꾸밈 해석은 화면 프레임워크를 쓰지 않는 파일이라, 맥에서 바로 컴파일해 돌린다(swift 가 있을 때)
 inline_markdown() {
   xcrun swiftc -parse-as-library ios/PiRemote/InlineMarkdown.swift ios/test/inline-markdown.swift -o "$OUT/inline-markdown" && "$OUT/inline-markdown"
