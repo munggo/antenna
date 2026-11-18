@@ -1,7 +1,8 @@
 // 시험용 가짜 대화 피드(모델도 pi·Claude Code 도 띄우지 않음): tmux 칸 하나의 대화 피드 소켓을 열고, 붙는 브리지에 정해 둔 대화를 준다.
-// 앱 화면 시험 YY(긴 것 접기)가 쓴다: 짧은 글, 화면 두 장을 넘는 내 메시지·답, 12줄을 넘는 '!' 명령 출력, 긴 코드 블록.
+// 앱 화면 시험 YY(긴 것 접기)가 쓴다: 짧은 글, 화면 두 장을 넘는 내 메시지·답(링크가 든 것 포함), 12줄을 넘는 '!' 명령 출력, 긴 코드 블록.
 //   node fake-feed.mjs <칸 id> <신호 폴더>
 //   <신호 폴더>/fold-arrive 가 생기면 긴 답을 통째로 하나 더 보낸다(Claude Code 탭에서 답이 오는 모양)
+//   <신호 폴더>/fold-link   가 생기면 링크가 든 긴 답을 보낸다(접힌 답의 링크 시험)
 //   <신호 폴더>/fold-grow   가 생기면 답 하나를 조금씩 키워 가며 보낸다(쓰는 중인 답)
 //   <신호 폴더>/fold-busy   가 있는 동안은 '작업 중'인 탭으로 보인다(새로 붙는 앱이 받는 처음 대화에도). 없어지면 쉬는 중으로
 // 소켓 자리는 진짜 피드와 같은 ~/.cache/pi-remote/feed/<칸 번호>.sock (시험 세션의 칸이라 쓰는 탭과 겹치지 않음). 끝날 때 지운다.
@@ -23,6 +24,10 @@ const paras = (name, n, ended = true) => Array.from({ length: n }, (_, i) =>
 const answer = (id, text, stop = "stop") => ({ id, role: "assistant", blocks: [{ type: "text", text }], stop, error: null });
 const user = (id, text) => ({ id, role: "user", text, images: 0 });
 const code = Array.from({ length: 120 }, (_, i) => `let line${i + 1} = ${i + 1}`).join("\n");
+// 링크가 든 긴 답(시험 YY ⑥, 신호 fold-link): 접힌 채 보이는 둘째 문단은 링크 하나뿐, 잘려서 안 보이는 다섯째 문단부터 끝 문단 앞까지는 링크로 빽빽하게
+const linked = (name, n) => paras(name, n).split("\n\n").map((p, i) =>
+  i === 1 ? "https://example.com/fold-visible"
+    : i >= 4 && i < n - 1 ? Array.from({ length: 6 }, () => `https://example.com/fold-hidden-${i + 1}`).join(" ") : p).join("\n\n");
 
 const messages = [
   user("u1", "짧은 질문입니다"),
@@ -63,6 +68,11 @@ const once = (name, run) => {
 once("fold-arrive", () => {
   upsert(user("u4", "하나 더 주세요"));
   upsert(answer("a5", paras("둘째 긴 답", 30)));
+});
+// 링크가 든 긴 답은 신호가 있을 때만 보낸다(처음부터 두면 주황 링크가 시험 AAB 의 '작업 중' 점 찾기에 점으로 잡힘)
+once("fold-link", () => {
+  upsert(user("u6", "링크를 주세요"));
+  upsert(answer("a7", linked("링크 답", 30)));
 });
 once("fold-grow", () => {
   upsert(user("u5", "천천히 써 주세요"));

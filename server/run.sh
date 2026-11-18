@@ -31,4 +31,18 @@ if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
 fi
 [ -n "$NODE_BIN" ] || { echo "node 를 찾지 못했어요. $ENV_FILE 에 PI_REMOTE_NODE=<node 경로> 를 적어 주세요(sh install.sh 가 적어 줍니다)" >&2; exit 1; }
 
+# 모듈 폴더(node_modules)가 지워졌으면 잠금 파일대로 다시 설치한다(11-18 용량 정리로 지워진 일. 도는 동안에는 브리지가 스스로 본다: deps.mjs).
+# 설치에 실패했는데 node-pty 가 아예 없으면 브리지가 뜨지 못하므로 1분 쉬고 끝낸다 → launchd 가 다시 켜며 다시 시도(네트워크를 계속 두드리지 않게)
+if ! "$NODE_BIN" --input-type=module -e 'import { missingDeps } from "./deps.mjs"; process.exit(missingDeps(".").length ? 1 : 0)' 2>/dev/null; then
+  echo "[pi-remote] 모듈 폴더에 없는 것이 있어 다시 설치합니다(켜기 전)" >&2
+  NPM_BIN="$(dirname "$NODE_BIN")/npm"
+  [ -x "$NPM_BIN" ] || NPM_BIN=npm
+  if PATH="$(dirname "$NODE_BIN"):$PATH" "$NPM_BIN" ci --no-audit --no-fund >&2; then
+    echo "[pi-remote] 모듈 다시 설치 끝" >&2
+  else
+    echo "[pi-remote] 모듈 다시 설치 실패" >&2
+    if [ ! -f node_modules/node-pty/package.json ]; then sleep "${PI_REMOTE_DEPS_RETRY_SEC:-60}"; exit 1; fi
+  fi
+fi
+
 exec "$NODE_BIN" bridge.mjs

@@ -5,7 +5,8 @@
 #   sh test.sh --app     빠른 시험 뒤에 앱 화면 시험도(시뮬레이터, 빌드 포함 10분쯤 더. test/app.sh)
 #   sh test.sh --list    무엇이 도는지만
 # 모델을 부르지 않고, 쓰는 tmux 세션(antenna)과 쓰는 브리지는 건드리지 않는다.
-# 묶음에 넣지 않은 것(각 파일 머리말의 방법대로 따로 돌림): 실제 pi·Claude Code 를 띄우는 *-e2e 시험, 그것들이 필요한 앱 화면 시험
+# 묶음에 넣지 않은 것(각 파일 머리말의 방법대로 따로 돌림): 실제 pi·Claude Code 를 띄우는 *-e2e 시험, 그것들이 필요한 앱 화면 시험,
+#   모듈을 실제로 다시 설치해 보는 server/test/deps-e2e.mjs(네트워크 필요)
 # 작성: 서문교
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -96,6 +97,7 @@ run live-activity "작업 표시(잠금 화면)" "$NODE" server/test/live-activi
 run battery "맥북 배터리 읽기(잔량·충전기·낮음)" "$NODE" server/test/battery.test.mjs
 run advertise "브리지가 죽지 않는지(자동 발견 오류·죽음 기록)" "$NODE" server/test/advertise.test.mjs
 run devices "기기별 토큰·짝짓기 코드(만들기·한 번 쓰기·끊기)" "$NODE" server/test/devices.test.mjs
+run deps "브리지 모듈 폴더 지키기: 지워진 것 알아채기·다시 설치(한 번에 하나, 실패하면 5분 쉼)" "$NODE" server/test/deps.test.mjs
 run tls "연결 암호화(인증서·지문, 포트 하나에서 가려 받기)" "$NODE" server/test/tls.test.mjs
 run convert "Claude Code 대화 기록 → 폰 메시지" "$NODE" claude-remote/test/convert-cases.mjs
 run context "Claude Code 탭의 컨텍스트 사용량: 기억 용량·자동 압축 지점·대화 기록에서 따라가기" "$NODE" claude-remote/test/context-cases.mjs

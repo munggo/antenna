@@ -2,7 +2,7 @@
 /**
  * Antenna 점검: 맥 쪽이 제대로 깔려 돌고 있는지 한 번에 본다.
  *   node deploy/doctor.mjs         점검만(아무것도 바꾸지 않음)
- *   node deploy/doctor.mjs --fix   안전하게 고칠 수 있는 것은 고침: 설치본을 저장소와 맞춤, 코드가 바뀐 뒤 다시 시작하지 않은 브리지 다시 시작,
+ *   node deploy/doctor.mjs --fix   안전하게 고칠 수 있는 것은 고침: 지워진 브리지 모듈 다시 설치, 설치본을 저장소와 맞춤, 코드가 바뀐 뒤 다시 시작하지 않은 브리지 다시 시작,
  *                                  쉬는 탭의 옛 연결부 다시 띄우기(작업 중·답을 기다리는 탭은 건드리지 않음)
  * 보는 것: 필요한 프로그램 · 설정 파일 · 브리지(등록·실행·포트·죽은 기록·지금 코드인지) · 자동 실행 등록 ·
  *          Claude Code 연결(훅·설치본·탭마다 도는 연결부의 판) · pi 확장 설치본
@@ -17,6 +17,7 @@ import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDeviceStore } from "../server/devices.mjs";
+import { missingDeps } from "../server/deps.mjs";
 import { staleSince, startedAt } from "./bridge-stale.mjs";
 import { accountsMixed, MIXED_TEXT, mixedDirection } from "../server/usage-history.mjs";
 
@@ -73,8 +74,19 @@ const bridgeNode = (pinned && existsSync(pinned) ? pinned : null) ?? sh("/bin/sh
   ?? ["/opt/homebrew/bin/node", "/usr/local/bin/node"].find((p) => existsSync(p)) ?? process.execPath;
 good(`node ${sh(bridgeNode, ["-v"]) ?? "?"} (브리지가 쓰는 것: ${short(bridgeNode)})`);
 if (!pinned && existsSync(ENV_FILE)) note("설정에 PI_REMOTE_NODE 가 없음: 자동 실행에서는 PATH 로 node 를 찾지 못할 수 있어요(sh install.sh 가 적어 줌)");
-if (!existsSync(join(REPO, "server/node_modules"))) bad("브리지에 필요한 모듈이 깔려 있지 않아요", "sh install.sh (또는 cd server && npm install)");
-else if (sh(bridgeNode, ["-e", "require('node-pty'); require('ws'); require('bonjour-service'); require('qrcode-terminal')"], { cwd: join(REPO, "server") }) === null) {
+// 모듈 폴더: 통째로 없거나, node-pty 의 보조 실행 파일만 지워져도(11-18 용량 정리) 폰이 붙을 때 tmux 를 띄우지 못한다.
+// 도는 브리지는 1분 안에 스스로 다시 설치하고(server/deps.mjs), 켤 때는 server/run.sh 가 설치한다
+const missing = missingDeps(join(REPO, "server"));
+if (missing.length) {
+  bad(`브리지에 필요한 모듈이 없어요(${missing.join(", ")})`, "(cd server && npm ci). 도는 브리지는 1분 안에 스스로 다시 설치해요");
+  if (FIX) {
+    const npm = join(dirname(bridgeNode), "npm");
+    const out = sh(existsSync(npm) ? npm : "npm", ["ci", "--no-audit", "--no-fund"],
+      { cwd: join(REPO, "server"), timeout: 300_000, env: { ...process.env, PATH: `${dirname(bridgeNode)}:${process.env.PATH ?? ""}` } });
+    if (out !== null && !missingDeps(join(REPO, "server")).length) did("모듈을 잠금 파일대로 다시 설치함");
+    else note("다시 설치하지 못했어요(네트워크를 확인한 뒤 다시)");
+  }
+} else if (sh(bridgeNode, ["-e", "require('node-pty'); require('ws'); require('bonjour-service'); require('qrcode-terminal')"], { cwd: join(REPO, "server") }) === null) {
   bad("브리지 모듈이 이 node 에서 읽히지 않아요(모듈이 더해졌거나 node 를 바꾼 뒤 다시 깔지 않았을 때)", "(cd server && npm install)");
 } else good("브리지 모듈이 읽힘(node-pty·ws·bonjour-service·qrcode-terminal)");
 

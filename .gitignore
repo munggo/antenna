@@ -25,3 +25,6 @@ ios/Local.xcconfig
 ios/PiRemote.xcodeproj/
 ios/**/.swiftpm/
 design/out/
+
+# 작업용 스크립트·중간 결과(임시 폴더 대신)
+.work/

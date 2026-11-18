@@ -201,8 +201,9 @@ private struct FoldBody<Content: View>: View {
                 )
                 .frame(height: collapsed ? folded : nil, alignment: .top)
                 .clipped()
-                // 접힌 동안에는 안의 글·버튼이 눌리지 않는다(잘려서 안 보이는 부분까지 눌리므로)
-                .allowsHitTesting(!collapsed)
+                // 눌리는 범위도 보이는 높이까지만: 잘린 부분은 그려지지 않을 뿐 눌리기는 해서, 그 자리('더 보기' 옆 등)를 누르면 안 보이는 링크가 열린다.
+                // 보이는 링크·버튼은 그대로 눌린다(예전처럼 접힌 동안 통째로 막으면 보이는 링크도 안 눌림. 사용자 보고 11-18)
+                .contentShape(Rectangle())
                 .overlay(alignment: .bottom) {
                     if collapsed { FoldFade(color: fade, height: min(64, folded * 0.25)) }
                 }

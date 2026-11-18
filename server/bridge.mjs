@@ -16,7 +16,9 @@ import { createConnection } from "node:net";
 import { closeSync, existsSync, openSync, readSync, writeFileSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { userInfo } from "node:os";
+import { fileURLToPath } from "node:url";
 import { advertise } from "./advertise.mjs";
+import { createDepsGuard } from "./deps.mjs";
 import { installCrashLog } from "./crash-log.mjs";
 import { createDeviceStore, sameHex } from "./devices.mjs";
 import { createDualServer, ensureCert } from "./tls.mjs";
@@ -736,6 +738,12 @@ server.on("listening", () => {
 // 같은 Wi-Fi 에서 폰이 IP 없이 자동 발견하도록 Bonjour(mDNS) 광고. 네트워크가 끊긴 순간의 오류로 죽지 않게 따로 뺌(advertise.mjs)
 const advert = advertise({ port: PORT, session: SESSION });
 
+// 모듈 폴더 지키기(deps.mjs): 켤 때와 1분마다 보고, 지워졌으면 잠금 파일대로 다시 설치한다(11-18 용량 정리로 지워져 앱이 '연결 중'에 멈춘 일).
+// 이미 올려 둔 모듈은 그대로 쓰이므로 다시 시작하지 않아도 된다
+const deps = createDepsGuard({ dir: dirname(fileURLToPath(import.meta.url)) });
+deps.check("시작");
+setInterval(() => deps.check("정기 점검"), Number(process.env.PI_REMOTE_DEPS_CHECK_SEC ?? 60) * 1000).unref();
+
 function shutdown() {
   advert.stop();
   process.exit(0);
@@ -842,8 +850,10 @@ wss.on("connection", (ws, req) => {
       env: { ...process.env, TERM: "xterm-256color" },
     });
   } catch (err) {
-    console.error(`[pi-remote] tmux 실행 실패: ${err.message}`);
-    ws.close(4002, "tmux spawn failed");
+    // 모듈(보조 실행 파일 등)이 지워졌으면 그 자리에서 다시 설치한다. 앱은 끊기면 스스로 다시 붙으므로 설치가 끝난 뒤의 접속부터 된다
+    const fixing = deps.check("tmux 실행 실패");
+    console.error(`[pi-remote] tmux 실행 실패: ${err.message}${fixing ? " → 모듈을 다시 설치하는 중" : ""}`);
+    ws.close(4002, fixing ? "repairing" : "tmux spawn failed");
     return;
   }
 

@@ -28,6 +28,13 @@ PI_TMUX_SESSION=antenna node bridge.mjs
 - `windows.mjs` — turning the tmux window list into the tab list the app shows
 - `tasks.mjs` — starting a task sent by the app's Shortcuts action in a new background tab
 - `battery.mjs` — the MacBook's battery and charger state
+- `deps.mjs` — guarding `node_modules`: if it is deleted (a disk cleanup did this once), the bridge reinstalls it from the lock file while it keeps running
+
+## Modules
+
+`node-pty` is pinned to `1.2.0-beta.18`. Version 1.1.0 on macOS leaks a pty every time it starts a program (one per phone connection), and three when the start fails, so a bridge that ran for days could use up the Mac's ptys. The beta closes them and also says why a start failed (`posix_spawn failed: No such file or directory`).
+
+The bridge cannot work without `node_modules/node-pty/prebuilds/<platform>/spawn-helper`: node-pty starts every program through it. If the folder or that file goes missing while the bridge is running, the bridge still runs on the modules it has loaded, but every new connection fails. So `deps.mjs` checks at start, every minute, and whenever starting tmux fails, and runs `npm ci` (one at a time, waiting five minutes after a failure). The next connection works without a restart. `run.sh` runs the same check before it starts the bridge, for when the modules are gone entirely. `node ../deploy/doctor.mjs --fix` does it by hand.
 
 ## Connecting
 
@@ -43,4 +50,4 @@ Pairing uses `wss://<host>:<port>/pair` without a token: the phone sends `{"type
 
 ## Tests
 
-`sh ../test.sh` runs the whole suite. The tests here start their own bridge on another port with a test tmux session and never touch the one you use.
+`sh ../test.sh` runs the whole suite. The tests here start their own bridge on another port with a test tmux session and never touch the one you use. `node test/deps-e2e.mjs` (not in the suite, it needs the network) deletes the modules of a copy of the bridge while it runs and checks that it reinstalls them by itself.

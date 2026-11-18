@@ -2208,6 +2208,7 @@ final class PiRemoteUITests: XCTestCase {
     ///     ① 화면 두 장을 넘는 답·내 메시지는 반 장만 보이고 '더 보기', '!' 명령 출력은 12줄쯤, 긴 코드 블록은 코드만 접힘
     ///        (짧은 글과 화면 한 장쯤인 답은 그대로)  ② 통째로 온 긴 답은 접힌 채 머리부터 보임  ③ 쓰는 중에 길어진 답은 접지 않고 '접기'만
     ///     ④ 펼쳐도 읽던 자리는 그대로, 끝의 '접기'를 누르면 접힌 것이 보이는 자리로  ⑤ 접힌 코드도 복사는 전체
+    ///     ⑥ 접힌 답의 보이는 링크는 열리고, 잘려서 안 보이는 링크는 눌리지 않음
     func testYY_FoldLongMessages() throws {
         guard let text = try? String(contentsOfFile: "/tmp/ptest/fold-win", encoding: .utf8),
               let win = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw XCTSkip("접기 시험 탭 준비 안 됨") }
@@ -2233,12 +2234,39 @@ final class PiRemoteUITests: XCTestCase {
         XCTAssertTrue(inChat(first) && inChat(firstMore), "긴 답은 머리와 '더 보기'가 보이는 채로 와 있어야 함(첫 문단 \(place(first)), 더 보기 \(place(firstMore)))")
         shot("yy-folded")
 
+        // ⑥ 접힌 답 안의 링크(사용자 보고 11-18 '다른 링크는 잘 열리는데 이 링크는 눌러도 반응이 없다': 접힌 동안 안의 글이 통째로 눌리지 않았음).
+        //    잘려서 안 보이는 링크는 눌리지 않고('더 보기' 오른쪽 빈자리 밑에 잘린 링크 문단들이 깔려 있음), 보이는 링크는 열린다.
+        //    링크가 든 긴 답은 신호로 받는다(맨 아래에 접힌 채 옴)
+        FileManager.default.createFile(atPath: "/tmp/ptest/fold-link", contents: nil)
+        let linkHead = begins("링크 답의 첫 문단")
+        XCTAssertTrue(linkHead.waitForExistence(timeout: 10), "링크가 든 긴 답이 와야 함")
+        sleep(1)
+        XCTAssertEqual(more.count, 5, "링크가 든 긴 답도 접혀서 옴")
+        let linkMore = try XCTUnwrap(toggle(below: linkHead), "링크 답 아래에 '더 보기'")
+        XCTAssertTrue(inChat(linkHead) && inChat(linkMore), "링크 답의 머리와 '더 보기'가 보여야 함(첫 문단 \(place(linkHead)), 더 보기 \(place(linkMore)))")
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        let blank = linkMore.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5)).withOffset(CGVector(dx: 40, dy: 0))
+        blank.tap()
+        sleep(2)
+        XCTAssertEqual(app.state, .runningForeground, "'더 보기' 옆 빈자리를 눌러 잘려서 안 보이는 링크가 열리면 안 됨")
+        XCTAssertNotEqual(safari.state, .runningForeground)
+        let visibleLink = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "https://example.com/fold-visible")).firstMatch
+        XCTAssertTrue(visibleLink.exists && inChat(visibleLink) && visibleLink.frame.maxY < linkMore.frame.minY,
+                      "접힌 답의 보이는 곳에 링크가 있어야 함(\(visibleLink.frame))")
+        visibleLink.tap()
+        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 10), "접힌 답의 보이는 링크를 누르면 열려야 함")
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        sleep(1)
+        XCTAssertEqual(more.count, 5, "링크를 누르고 돌아와도 접힌 것은 그대로")
+        shot("yy-link")
+
         // ② 통째로 온 긴 답(Claude Code 탭에서 답이 오는 모양): 접힌 채로 와서 머리부터 보인다
         FileManager.default.createFile(atPath: "/tmp/ptest/fold-arrive", contents: nil)
         let second = begins("둘째 긴 답의 첫 문단")
         XCTAssertTrue(second.waitForExistence(timeout: 10), "새 긴 답이 와야 함")
         sleep(1)
-        XCTAssertEqual(more.count, 5, "새로 온 긴 답도 접혀 있어야 함")
+        XCTAssertEqual(more.count, 6, "새로 온 긴 답도 접혀 있어야 함")
         let secondMore = try XCTUnwrap(toggle(below: second))
         XCTAssertTrue(inChat(second) && inChat(secondMore), "방금 온 긴 답은 머리와 '더 보기'가 보여야 함(첫 문단 \(place(second)), 더 보기 \(place(secondMore)))")
         shot("yy-arrived")
@@ -2248,7 +2276,7 @@ final class PiRemoteUITests: XCTestCase {
         let grownEnd = begins("자라는 답의 마지막 문단")
         XCTAssertTrue(grownEnd.waitForExistence(timeout: 20), "쓰는 중인 답이 끝까지 와야 함")
         sleep(1)
-        XCTAssertEqual(more.count, 5, "쓰는 중에 길어진 답은 접히면 안 됨")
+        XCTAssertEqual(more.count, 6, "쓰는 중에 길어진 답은 접히면 안 됨")
         XCTAssertEqual(less.count, 1, "길어진 답에는 '접기'가 붙어야 함")
         XCTAssertTrue(inChat(grownEnd), "쓰는 동안 맨 아래를 따라가 답의 끝이 보여야 함(\(place(grownEnd)))")
         shot("yy-grown")
@@ -2258,7 +2286,7 @@ final class PiRemoteUITests: XCTestCase {
         let before = second.frame.minY
         secondMore.tap()
         sleep(1)
-        XCTAssertEqual(more.count, 4, "펼치면 '더 보기'가 하나 줄어야 함")
+        XCTAssertEqual(more.count, 5, "펼치면 '더 보기'가 하나 줄어야 함")
         XCTAssertEqual(second.frame.minY, before, accuracy: 2, "펼쳐도 읽던 자리(답의 머리)는 움직이지 않아야 함")
         let secondLess = try XCTUnwrap(toggle(below: begins("둘째 긴 답의 마지막 문단")), "펼친 답의 끝에 '접기'")
         XCTAssertEqual(secondLess.identifier, "foldLess")
@@ -2266,7 +2294,7 @@ final class PiRemoteUITests: XCTestCase {
         XCTAssertTrue(bring(secondLess), "'접기'까지 내려갈 수 있어야 함")
         secondLess.tap()
         sleep(1)
-        XCTAssertEqual(more.count, 5, "접으면 다시 '더 보기'")
+        XCTAssertEqual(more.count, 6, "접으면 다시 '더 보기'")
         XCTAssertEqual(second.frame.minY, chat.frame.minY, accuracy: 60, "접으면 접힌 답의 머리가 화면 위쪽에 와야 함(\(place(second)))")
         shot("yy-refolded")
 
@@ -2525,7 +2553,8 @@ final class PiRemoteUITests: XCTestCase {
         guard let text = try? String(contentsOfFile: "/tmp/ptest/fold-win", encoding: .utf8),
               let win = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw XCTSkip("접기 시험 탭 준비 안 됨") }
         let busy = "/tmp/ptest/fold-busy"
-        defer { try? FileManager.default.removeItem(atPath: busy) }   // 뒤에 도는 시험(YY)은 쉬는 탭에서 시작
+        // 뒤에 도는 시험(B·YY)은 쉬는 탭에서 시작. 실패하면 그 자리에서 멈추므로(continueAfterFailure = false) defer 가 아니라 끝 정리로 지운다
+        addTeardownBlock { try? FileManager.default.removeItem(atPath: busy) }
         let status = el("statusRow"), chat = el("chatScroll")
         /// 사진 8장(2초쯤): 점이 '작업 중' 줄 밖에 찍힌 장의 자리들과, 점이 찍힌 장 수
         func watch(_ name: String) -> (stray: [String], seen: Int) {
@@ -2559,6 +2588,10 @@ final class PiRemoteUITests: XCTestCase {
         XCTAssertTrue(status.waitForExistence(timeout: 20), "작업 중인 탭을 열면 '작업 중' 줄이 보여야 함")
         sleep(2)   // 처음 자리 잡기가 끝난 뒤에도 오가는지
         check("open", "작업 중인 탭을 열었을 때")
+        // 작업 중 표시는 제목 아래 '● 작업 중' 하나: 위쪽 막대에 돌아가는 표시가 겹쳐 있지 않아야 한다(사용자 결정 11-18)
+        XCTAssertTrue(app.staticTexts["작업 중"].exists, "제목 아래에 '작업 중'")
+        let spinners = app.activityIndicators.allElementsBoundByIndex.filter { $0.exists && $0.frame.maxY <= chat.frame.minY }
+        XCTAssertTrue(spinners.isEmpty, "위쪽 막대에 돌아가는 표시가 없어야 함(\(spinners.map { "\($0.frame)" }))")
 
         // ② 쉬는 탭을 열어 둔 채 작업이 시작될 때
         try? FileManager.default.removeItem(atPath: busy)

@@ -230,11 +230,7 @@ struct TerminalScreen: View {
             HStack(spacing: 14) {
                 // 컨텍스트 사용량(작은 고리 + %): 입력창 아래에서 옮겨 옴. 누르면 컨텍스트 화면(압축)
                 if showChat { ContextTopButton(session: session, meta: session.chat.meta) }
-                if session.isWorking {
-                    ProgressView()
-                        .tint(Theme.accent)
-                        .scaleEffect(0.85)
-                }
+                // 작업 중 표시는 제목 아래 '● 작업 중'으로만(여기 돌던 표시는 겹쳐서 뺌. 사용자 결정 11-18)
                 if showChat { ArtifactsButton(chat: session.chat) }
                 if session.chatAvailable {
                     Button {

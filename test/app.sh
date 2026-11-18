@@ -9,7 +9,8 @@
 #   XX Claude Code 탭의 컨텍스트 사용량(위쪽 고리의 사용률, 누르면 사용 중 토큰·자동 압축 지점, '지금 압축하기'가 맥에 /compact 로 가는지,
 #      맥이 압축하는 동안 '대화를 압축하는 중'이 보이고 끝나면 요약 줄·고리 '–') ·
 #   YY 긴 것 접기(화면 두 장을 넘는 답·내 메시지, 12줄을 넘는 '!' 명령 출력, 긴 코드 블록: '더 보기'·'접기', 접은 뒤의 자리,
-#      쓰는 중에 길어진 답은 접지 않는지, 접힌 코드도 복사는 전체인지. 대화는 test/fake-feed.mjs 가 줌) ·
+#      쓰는 중에 길어진 답은 접지 않는지, 접힌 코드도 복사는 전체인지, 접힌 답의 보이는 링크는 열리고 잘린 링크는 안 눌리는지.
+#      대화는 test/fake-feed.mjs 가 줌) ·
 #   ZZ 새 탭에서 켤 도구 고르기(서랍의 + 를 누르면 Claude Code·pi·Codex·Gemini CLI, 고르면 보던 탭의 폴더에서 새 탭) ·
 #   AAA 서랍의 이번 주 사용량 고리(모델별 주간 한도가 있으면 두 겹: 바깥은 모든 모델·안쪽은 모델별, 이름 아래 'Fable 74%'.
 #       없으면 한 겹. 여럿이면 가장 많이 쓴 것. 사용량 화면의 모델별 막대. 회사 계정의 Fable 값과, 한도에 걸렸다 풀린 것.
@@ -58,7 +59,7 @@ cleanup() {
   xcrun simctl uninstall "$SIM" "$ID" >/dev/null 2>&1   # 시험이 깐 앱은 남기지 않는다
   [ "$WAS_BOOTED" = 0 ] && xcrun simctl shutdown "$SIM" 2>/dev/null
   rm -rf "$D" "$W/secret-win" "$W/secret-win2" "$W/secret-cancel-flag" "$W/secret-got" "$W/pair-hosts-ok" "$W/pair-code-link" "$W/bg-wins" "$W/battery" "$W/shortcut-ok" \
-    "$W/fold-win" "$W/fold-arrive" "$W/fold-grow" "$W/fold-busy" "$W/pb-ask" "$W/pb-out" "$W/pb-out.tmp" "$W/usage.json" "$W/accounts.json"
+    "$W/fold-win" "$W/fold-arrive" "$W/fold-link" "$W/fold-grow" "$W/fold-busy" "$W/pb-ask" "$W/pb-out" "$W/pb-out.tmp" "$W/usage.json" "$W/accounts.json"
   rm -f "$HOME/.cache/pi-remote/notify-$S.sock"
 }
 trap cleanup EXIT
