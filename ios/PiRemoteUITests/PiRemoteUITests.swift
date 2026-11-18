@@ -2201,6 +2201,194 @@ final class PiRemoteUITests: XCTestCase {
         copy.tap()
         let done = expectation(for: NSPredicate(format: "label == '복사됨'"), evaluatedWith: copy)
         XCTAssertEqual(XCTWaiter().wait(for: [done], timeout: 3), .completed, "누르면 '복사됨'으로 바뀌어야 함")
+        XCTAssertEqual(copiedText(), "권장량은 하루 5~15분씩, 2~3회입니다.", "답변 복사에는 답의 글만(도구 앞의 진행 설명은 빠짐)")
+    }
+
+    /// YY. 긴 것 접기(사용자 요청 11-18 '출력되는 메시지가 너무 길면 일부만 보여 주고 접힘·펼침'. 대화는 맥의 test/fake-feed.mjs 가 줌):
+    ///     ① 화면 두 장을 넘는 답·내 메시지는 반 장만 보이고 '더 보기', '!' 명령 출력은 12줄쯤, 긴 코드 블록은 코드만 접힘
+    ///        (짧은 글과 화면 한 장쯤인 답은 그대로)  ② 통째로 온 긴 답은 접힌 채 머리부터 보임  ③ 쓰는 중에 길어진 답은 접지 않고 '접기'만
+    ///     ④ 펼쳐도 읽던 자리는 그대로, 끝의 '접기'를 누르면 접힌 것이 보이는 자리로  ⑤ 접힌 코드도 복사는 전체
+    func testYY_FoldLongMessages() throws {
+        guard let text = try? String(contentsOfFile: "/tmp/ptest/fold-win", encoding: .utf8),
+              let win = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw XCTSkip("접기 시험 탭 준비 안 됨") }
+        relaunch(test: "")
+        openTab(win)
+        let begins = { (part: String) in self.app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", part)).firstMatch }
+        let more = app.buttons.matching(identifier: "foldMore")
+        let less = app.buttons.matching(identifier: "foldLess")
+        let chat = el("chatScroll")
+        let half = app.windows.firstMatch.frame.height * 0.375   // 화면 반 장(대화가 보이는 높이는 화면의 4분의 3쯤)
+        let place = { (e: XCUIElement) in "y \(Int(e.frame.minY))~\(Int(e.frame.maxY)), 대화 영역 \(Int(chat.frame.minY))~\(Int(chat.frame.maxY))" }
+
+        // ① 처음: 긴 내 메시지·명령 출력·코드 블록·긴 답 넷만 접혀 있고, 맨 아래의 긴 답은 머리와 '더 보기'가 보인다
+        let first = begins("긴 답의 첫 문단")
+        XCTAssertTrue(first.waitForExistence(timeout: 20), "접기 시험 대화가 보여야 함")
+        sleep(1)
+        XCTAssertEqual(more.count, 4, "접힌 것은 넷이어야 함(긴 내 메시지·명령 출력·코드 블록·긴 답. 짧은 글과 화면 한 장쯤인 답은 그대로)")
+        XCTAssertEqual(less.count, 0, "처음에는 펼친 것이 없음")
+        let firstMore = try XCTUnwrap(toggle(below: first), "긴 답 아래에 '더 보기'")
+        XCTAssertEqual(firstMore.identifier, "foldMore")
+        XCTAssertEqual(firstMore.frame.minY - first.frame.minY, half, accuracy: 16, "접힌 답은 화면 반 장쯤만 보여야 함")
+        XCTAssertGreaterThan(begins("긴 답의 마지막 문단").frame.minY, firstMore.frame.maxY, "접힌 답의 끝은 '더 보기' 아래로 잘려 있어야 함")
+        XCTAssertTrue(inChat(first) && inChat(firstMore), "긴 답은 머리와 '더 보기'가 보이는 채로 와 있어야 함(첫 문단 \(place(first)), 더 보기 \(place(firstMore)))")
+        shot("yy-folded")
+
+        // ② 통째로 온 긴 답(Claude Code 탭에서 답이 오는 모양): 접힌 채로 와서 머리부터 보인다
+        FileManager.default.createFile(atPath: "/tmp/ptest/fold-arrive", contents: nil)
+        let second = begins("둘째 긴 답의 첫 문단")
+        XCTAssertTrue(second.waitForExistence(timeout: 10), "새 긴 답이 와야 함")
+        sleep(1)
+        XCTAssertEqual(more.count, 5, "새로 온 긴 답도 접혀 있어야 함")
+        let secondMore = try XCTUnwrap(toggle(below: second))
+        XCTAssertTrue(inChat(second) && inChat(secondMore), "방금 온 긴 답은 머리와 '더 보기'가 보여야 함(첫 문단 \(place(second)), 더 보기 \(place(secondMore)))")
+        shot("yy-arrived")
+
+        // ③ 쓰는 중에 길어진 답: 접지 않고 끝까지 따라가며, 끝난 뒤에는 '접기'만 붙는다
+        FileManager.default.createFile(atPath: "/tmp/ptest/fold-grow", contents: nil)
+        let grownEnd = begins("자라는 답의 마지막 문단")
+        XCTAssertTrue(grownEnd.waitForExistence(timeout: 20), "쓰는 중인 답이 끝까지 와야 함")
+        sleep(1)
+        XCTAssertEqual(more.count, 5, "쓰는 중에 길어진 답은 접히면 안 됨")
+        XCTAssertEqual(less.count, 1, "길어진 답에는 '접기'가 붙어야 함")
+        XCTAssertTrue(inChat(grownEnd), "쓰는 동안 맨 아래를 따라가 답의 끝이 보여야 함(\(place(grownEnd)))")
+        shot("yy-grown")
+
+        // ④ 펼치기·접기(둘째 긴 답): 펼쳐도 읽던 자리는 그대로, 끝의 '접기'를 누르면 접힌 답의 머리가 보이는 자리로
+        XCTAssertTrue(bring(secondMore), "둘째 긴 답의 '더 보기'까지 올라갈 수 있어야 함")
+        let before = second.frame.minY
+        secondMore.tap()
+        sleep(1)
+        XCTAssertEqual(more.count, 4, "펼치면 '더 보기'가 하나 줄어야 함")
+        XCTAssertEqual(second.frame.minY, before, accuracy: 2, "펼쳐도 읽던 자리(답의 머리)는 움직이지 않아야 함")
+        let secondLess = try XCTUnwrap(toggle(below: begins("둘째 긴 답의 마지막 문단")), "펼친 답의 끝에 '접기'")
+        XCTAssertEqual(secondLess.identifier, "foldLess")
+        shot("yy-expanded")
+        XCTAssertTrue(bring(secondLess), "'접기'까지 내려갈 수 있어야 함")
+        secondLess.tap()
+        sleep(1)
+        XCTAssertEqual(more.count, 5, "접으면 다시 '더 보기'")
+        XCTAssertEqual(second.frame.minY, chat.frame.minY, accuracy: 60, "접으면 접힌 답의 머리가 화면 위쪽에 와야 함(\(place(second)))")
+        shot("yy-refolded")
+
+        // ① 이어서, 긴 코드 블록: 코드만 접히고(답의 나머지 글은 그대로) ⑤ 접힌 채 복사해도 전체가 복사된다
+        let code = begins("let line1 = 1")
+        let lines = { code.label.components(separatedBy: "\n").count }
+        let codeMore = try XCTUnwrap(toggle(below: code), "코드 블록 아래에 '더 보기'")
+        XCTAssertEqual(codeMore.identifier, "foldMore")
+        XCTAssertTrue(lines() < 120 && abs(CGFloat(lines()) * UIFont.monospacedSystemFont(ofSize: 14, weight: .regular).lineHeight - half) < 24,
+                      "접힌 코드는 화면 반 장쯤의 줄만 보여야 함(지금 \(lines())줄)")
+        let after = begins("코드 뒤의 글")
+        XCTAssertTrue(after.frame.minY > codeMore.frame.maxY && after.frame.minY < codeMore.frame.maxY + 60, "코드만 접히고 답의 나머지 글은 바로 아래에 그대로")
+        XCTAssertTrue(bring(codeMore), "코드 블록까지 올라갈 수 있어야 함")
+        shot("yy-code")
+        let copy = app.buttons.matching(identifier: "copyCode").firstMatch
+        XCTAssertTrue(bring(copy), "접힌 코드 블록에도 복사 버튼")
+        copy.tap()
+        let copied = expectation(for: NSPredicate(format: "label == '복사됨'"), evaluatedWith: copy)
+        XCTAssertEqual(XCTWaiter().wait(for: [copied], timeout: 3), .completed)
+        let got = (copiedText() ?? "").components(separatedBy: "\n")
+        XCTAssertTrue(got.count == 120 && got.first == "let line1 = 1" && got.last == "let line120 = 120", "접힌 코드도 복사는 전체여야 함(복사된 줄 \(got.count))")
+        XCTAssertTrue(bring(codeMore))
+        codeMore.tap()
+        sleep(1)
+        XCTAssertEqual(lines(), 120, "펼치면 코드 전체")
+        let codeLess = try XCTUnwrap(toggle(below: code))
+        XCTAssertEqual(codeLess.identifier, "foldLess")
+        XCTAssertTrue(bring(codeLess), "코드 끝의 '접기'까지 내려갈 수 있어야 함")
+        codeLess.tap()
+        sleep(1)
+        XCTAssertLessThan(lines(), 120, "접으면 다시 앞의 몇 줄만")
+        XCTAssertTrue(inChat(copy), "코드를 접으면 코드 블록의 머리가 보이는 자리로(복사 버튼 \(place(copy)))")
+
+        // ① 이어서, '!' 명령 출력: 12줄쯤만 보이고 '더 보기'로 나머지
+        let output = begins("출력 1\n")
+        let outMore = try XCTUnwrap(toggle(below: output), "명령 출력 아래에 '더 보기'")
+        XCTAssertEqual(outMore.identifier, "foldMore")
+        let twelve = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular).lineHeight * 12
+        XCTAssertEqual(outMore.frame.minY - output.frame.minY, twelve, accuracy: 12, "접힌 명령 출력은 12줄쯤")
+        XCTAssertTrue(bring(outMore), "명령 출력까지 올라갈 수 있어야 함")
+        shot("yy-bash")
+        outMore.tap()
+        sleep(1)
+        let outLess = try XCTUnwrap(toggle(below: output))
+        XCTAssertEqual(outLess.identifier, "foldLess")
+        XCTAssertGreaterThan(outLess.frame.minY - output.frame.minY, twelve * 3, "펼치면 40줄이 모두 보여야 함")
+
+        // ① 이어서, 긴 내 메시지: 말풍선 안에서 반 장만
+        let bubble = begins("붙여 넣은 글 1번째 줄")
+        let bubbleMore = try XCTUnwrap(toggle(below: bubble), "긴 내 메시지 아래에 '더 보기'")
+        XCTAssertEqual(bubbleMore.identifier, "foldMore")
+        XCTAssertEqual(bubbleMore.frame.minY - bubble.frame.minY, half, accuracy: 16, "접힌 내 메시지는 화면 반 장쯤")
+        XCTAssertTrue(bring(bubbleMore), "긴 내 메시지까지 올라갈 수 있어야 함")
+        // 접힌 글의 가운데('더 보기'에서 접힌 높이의 절반 위)가 화면에 들어오게 한 뒤 그 자리를 누른다
+        for _ in 0..<3 where bubbleMore.frame.minY - half / 2 < chat.frame.minY + 20 { chat.swipeDown(velocity: .slow) }
+        let inside = bubbleMore.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -half / 2))
+        shot("yy-bubble")
+        // 접힌 글을 눌러서는 펼쳐지지 않는다(키보드를 내리려고 대화를 누르다 긴 글이 펼쳐지면 안 됨)
+        let foldedNow = more.count
+        inside.tap()
+        sleep(1)
+        XCTAssertEqual(more.count, foldedNow, "접힌 글을 눌러도 펼쳐지지 않아야 함('더 보기'로만 펼침)")
+        // 접힌 말풍선도 길게 누르면 메뉴가 뜨고, 복사는 전체
+        inside.press(forDuration: 1.0)
+        XCTAssertTrue(app.buttons["복사"].waitForExistence(timeout: 5), "접힌 말풍선도 길게 누르면 메뉴")
+        XCTAssertTrue(app.buttons["여기서 다시 하기"].exists)
+        app.buttons["복사"].tap()
+        let pasted = (copiedText() ?? "").components(separatedBy: "\n")
+        XCTAssertTrue(pasted.count == 80 && pasted.last == "붙여 넣은 글 80번째 줄", "접힌 말풍선의 복사도 전체여야 함(복사된 줄 \(pasted.count))")
+        XCTAssertTrue(bring(bubbleMore))
+        bubbleMore.tap()
+        sleep(1)
+        let bubbleLess = try XCTUnwrap(toggle(below: bubble))
+        XCTAssertEqual(bubbleLess.identifier, "foldLess")
+        XCTAssertGreaterThan(bubbleLess.frame.minY - bubble.frame.minY, half * 4, "펼치면 80줄이 모두 보여야 함")
+
+        // 짧은 글은 그대로: 접히지 않고, 짧은 말풍선의 길게 누르기 메뉴도 전과 같다
+        XCTAssertTrue(begins("짧은 답입니다").exists && begins("중간 답의 마지막 문단").exists, "짧은 답과 화면 한 장쯤인 답은 그대로 있음")
+        let short = begins("짧은 질문입니다")
+        XCTAssertTrue(bring(short), "맨 위의 짧은 내 메시지까지 올라갈 수 있어야 함")
+        short.press(forDuration: 1.0)
+        XCTAssertTrue(app.buttons["복사"].waitForExistence(timeout: 5), "짧은 말풍선을 길게 누르면 메뉴")
+        app.buttons["복사"].tap()
+        XCTAssertEqual(copiedText(), "짧은 질문입니다")
+    }
+
+    /// 그 요소 아래에서 가장 가까운 '더 보기'·'접기' 버튼
+    private func toggle(below e: XCUIElement) -> XCUIElement? {
+        let y = e.frame.minY
+        let all = ["foldMore", "foldLess"].flatMap { app.buttons.matching(identifier: $0).allElementsBoundByIndex }
+        return all.filter { $0.frame.minY > y }.min { $0.frame.minY < $1.frame.minY }
+    }
+
+    /// 대화를 넘겨 그 요소가 눌리는 자리에 오게 한다(멀면 빠르게, 가까우면 천천히)
+    private func bring(_ e: XCUIElement, tries: Int = 40) -> Bool {
+        let chat = el("chatScroll")
+        for _ in 0..<tries {
+            guard e.exists else { return false }
+            if e.isHittable { return true }
+            let f = chat.frame
+            let far = abs(e.frame.midY - f.midY) > f.height
+            if e.frame.midY < f.midY { chat.swipeDown(velocity: far ? .fast : .slow) } else { chat.swipeUp(velocity: far ? .fast : .slow) }
+        }
+        return e.isHittable
+    }
+
+    /// 그 요소가 대화 영역 안에 통째로 보이는 자리인지
+    private func inChat(_ e: XCUIElement) -> Bool {
+        let f = el("chatScroll").frame
+        return e.exists && e.frame.minY >= f.minY - 1 && e.frame.maxY <= f.maxY + 1
+    }
+
+    /// 시뮬레이터에 복사된 글. 맥의 test/app.sh 가 떠 준다(/tmp/ptest/pb-ask 를 만들면 /tmp/ptest/pb-out 에 적어 줌). 못 받으면 nil
+    private func copiedText() -> String? {
+        let (ask, out) = ("/tmp/ptest/pb-ask", "/tmp/ptest/pb-out")
+        try? FileManager.default.removeItem(atPath: out)
+        FileManager.default.createFile(atPath: ask, contents: nil)
+        for _ in 0..<50 {
+            if let t = try? String(contentsOfFile: out, encoding: .utf8) { return t.trimmingCharacters(in: .newlines) }
+            usleep(100_000)
+        }
+        return nil
     }
 
     /// XX. Claude Code 탭의 컨텍스트 사용량(11-17 사용자 보고 '앱에서 현재 컨텍스트 확인이 안 보인다': 고리가 pi 탭에서만 보였음).

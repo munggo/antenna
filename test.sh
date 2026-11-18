@@ -2,7 +2,7 @@
 # Antenna 시험 묶음: 고친 뒤 한 번에 돌려 확인한다.
 #   sh test.sh           빠른 시험 전부: 판정 시험과, 시험용 tmux 세션·시험 브리지만 쓰는 시험(2분쯤)
 #   sh test.sh <글>      이름에 그 글이 든 시험만(예: sh test.sh usage)
-#   sh test.sh --app     빠른 시험 뒤에 앱 화면 시험도(시뮬레이터, 빌드 포함 7~8분 더. test/app.sh)
+#   sh test.sh --app     빠른 시험 뒤에 앱 화면 시험도(시뮬레이터, 빌드 포함 10분쯤 더. test/app.sh)
 #   sh test.sh --list    무엇이 도는지만
 # 모델을 부르지 않고, 쓰는 tmux 세션(antenna)과 쓰는 브리지는 건드리지 않는다.
 # 묶음에 넣지 않은 것(각 파일 머리말의 방법대로 따로 돌림): 실제 pi·Claude Code 를 띄우는 *-e2e 시험, 그것들이 필요한 앱 화면 시험

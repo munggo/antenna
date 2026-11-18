@@ -18,6 +18,7 @@ struct ChatView: View {
     @State private var userScrolling = false    // 손가락으로 스크롤 중인지
     @State private var viewportHeight: CGFloat = 0
     @StateObject private var stepsPresenter = StepsPresenter()
+    @StateObject private var foldEvents = FoldEvents()
 
     var body: some View {
         let items = store.items
@@ -68,6 +69,7 @@ struct ChatView: View {
             .coordinateSpace(name: "chat")
             .environmentObject(session.thumbs)
             .environment(\.stepsPresenter, stepsPresenter)
+            .environment(\.foldEvents, foldEvents)
             .environment(\.rewindAction) { [weak session] id, text in session?.rewind(id: id, text: text) }
             .sheet(item: $stepsPresenter.request) { r in
                 StepsSheet(request: r, store: store, session: session)
@@ -115,6 +117,16 @@ struct ChatView: View {
             .onChange(of: store.compacting) { _ in
                 // '대화를 압축하는 중' 줄이 생기고 사라질 때도(대화 내용 버전은 그대로라 따로 따라감)
                 if follow { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) } }
+            }
+            .onChange(of: foldEvents.last) { e in
+                guard let e else { return }
+                if e.expanded {
+                    // 펼쳐서 읽는 동안 새 내용이 와도 맨 아래로 끌려가지 않게
+                    follow = false
+                } else {
+                    // 긴 것을 끝에서 접으면 그 머리가 화면 위로 사라진다 → 접힌 것이 보이는 자리로(접힌 높이가 정해진 뒤에)
+                    DispatchQueue.main.async { proxy.scrollTo(e.anchor, anchor: .top) }
+                }
             }
             .overlay(alignment: .top) {
                 // 업데이트·다시 불러오기 같은 안내를 위에 잠깐
@@ -403,10 +415,11 @@ struct ChatItemView: View, Equatable {
         case .user(let m):
             UserBubble(message: m)
         case .text(_, let text):
-            MarkdownView(text: text)
+            // 아주 긴 답은 앞부분만 보이고 '더 보기'(사용자 결정 11-18)
+            Foldable(guess: Fold.guessAnswer(text)) { MarkdownView(text: text, foldLongCode: true) }
         case .progress(_, let text):
             // 마지막 답과 구분되게 조금 흐리게(사용자 결정 11-17). 답 글과 도구 단계 줄(회색)의 사이쯤
-            MarkdownView(text: text)
+            MarkdownView(text: text, foldLongCode: true)
                 .opacity(0.68)
                 .accessibilityIdentifier("progressNote")
         case .tools(let id, let calls):
@@ -453,24 +466,27 @@ struct UserBubble: View {
                         .foregroundColor(Theme.muted)
                 }
                 if !parts.text.isEmpty {
-                    Text(parts.text)
-                        .font(.system(size: Typo.body))
-                        .lineSpacing(Typo.bodyLineSpacing)
-                        .foregroundColor(Theme.text)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.bubble))
-                        // 길게 누르면 Claude 앱처럼: 복사 · 여기서 다시 하기
-                        .contextMenu {
-                            Button { UIPasteboard.general.string = parts.text } label: { Label("복사", systemImage: "doc.on.doc") }
-                            if let rewindAction {
-                                Button { rewindAction(message.id, message.text ?? "") } label: {
-                                    Label("여기서 다시 하기", systemImage: "arrow.uturn.backward")
-                                }
+                    // 붙여 넣은 아주 긴 글은 말풍선 안에서 접는다(사용자 결정 11-18)
+                    Foldable(guess: Fold.guessBubble(parts.text), fade: Theme.bubble) {
+                        Text(parts.text)
+                            .font(.system(size: Typo.body))
+                            .lineSpacing(Typo.bodyLineSpacing)
+                            .foregroundColor(Theme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("userBubble")
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.bubble))
+                    // 길게 누르면 Claude 앱처럼: 복사 · 여기서 다시 하기
+                    .contextMenu {
+                        Button { UIPasteboard.general.string = parts.text } label: { Label("복사", systemImage: "doc.on.doc") }
+                        if let rewindAction {
+                            Button { rewindAction(message.id, message.text ?? "") } label: {
+                                Label("여기서 다시 하기", systemImage: "arrow.uturn.backward")
                             }
                         }
-                        .accessibilityIdentifier("userBubble")
+                    }
                 }
             }
         }
@@ -670,6 +686,8 @@ struct ToolImageInline: View {
 /// 사용자가 직접 실행한 `!` 명령
 struct BashRow: View {
     let message: ChatMessage
+    /// 출력 12줄의 높이
+    private static let outputHeight = UIFont.monospacedSystemFont(ofSize: Typo.codeSmall, weight: .regular).lineHeight * 12
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -678,11 +696,14 @@ struct BashRow: View {
                 .foregroundColor(Theme.text)
                 .textSelection(.enabled)
             if let out = message.output, !out.isEmpty {
-                Text(out)
-                    .font(.system(size: Typo.codeSmall, design: .monospaced))
-                    .foregroundColor(Theme.muted)
-                    .lineLimit(12)
-                    .textSelection(.enabled)
+                // 12줄쯤만 보이고, 더 있으면 '더 보기'로 펼친다
+                Foldable(guess: Fold.guess(Self.outputHeight, out, inset: 52, fontSize: Typo.codeSmall, perLine: 18),
+                         limit: Self.outputHeight, folded: Self.outputHeight, fade: Theme.bgElevated) {
+                    Text(out)
+                        .font(.system(size: Typo.codeSmall, design: .monospaced))
+                        .foregroundColor(Theme.muted)
+                        .textSelection(.enabled)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

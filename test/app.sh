@@ -1,5 +1,5 @@
 #!/bin/sh
-# 앱 화면 시험(시뮬레이터): 모델이 필요 없는 것들을 환경 준비부터 정리까지 한 번에 돌린다(빌드 포함 7~8분).
+# 앱 화면 시험(시뮬레이터): 모델이 필요 없는 것들을 환경 준비부터 정리까지 한 번에 돌린다(빌드 포함 10분쯤).
 #   LL 첫 화면에서 QR 링크로 연결 · PP 맥 주소와 확인 창 · QQ 관리자 권한 창(버튼 카드·가려진 입력란) ·
 #   RR 한 번 쓰는 코드로 짝짓고 암호화 연결로 붙기 · SS 서랍의 백그라운드 칸(끝난 것 모두 닫기, 뒤에서 도는 작업 목록·종료) ·
 #   TT 사진 보관함에서 두 장 고르기(입력창 칸·그림·맥에 올리기, 걸린 시간은 기록에 '[TT]') · B 붙인 사진을 x 로 빼기 ·
@@ -7,7 +7,9 @@
 #   VV Claude Code 탭의 대화 글(도구 앞의 진행 설명이 보이는지, 물결표 범위가 취소선이 되지 않는지, 답변 복사에는 답만) ·
 #   WW 단축어 동작 '맥의 AI 에게 일 시키기'(맥이 그 폴더에서 새 백그라운드 탭을 열고, 서랍에 '단축어로 시킴'으로 보이는지) ·
 #   XX Claude Code 탭의 컨텍스트 사용량(위쪽 고리의 사용률, 누르면 사용 중 토큰·자동 압축 지점, '지금 압축하기'가 맥에 /compact 로 가는지,
-#      맥이 압축하는 동안 '대화를 압축하는 중'이 보이고 끝나면 요약 줄·고리 '–')
+#      맥이 압축하는 동안 '대화를 압축하는 중'이 보이고 끝나면 요약 줄·고리 '–') ·
+#   YY 긴 것 접기(화면 두 장을 넘는 답·내 메시지, 12줄을 넘는 '!' 명령 출력, 긴 코드 블록: '더 보기'·'접기', 접은 뒤의 자리,
+#      쓰는 중에 길어진 답은 접지 않는지, 접힌 코드도 복사는 전체인지. 대화는 test/fake-feed.mjs 가 줌)
 # 쓰기: sh test/app.sh [시험 이름 일부…]   예) sh test/app.sh QQ     (sh test.sh --app 으로도 부름)
 # 하는 일: 시험용 tmux 세션과 시험 브리지(이 맥 안에서만 닿는 127.0.0.1)를 띄우고, 시뮬레이터를 켜서 시험한 뒤 모두 치운다.
 #          쓰는 tmux 세션(antenna)·쓰는 브리지·켜져 있는 다른 시뮬레이터는 건드리지 않는다.
@@ -41,12 +43,16 @@ cleanup() {
   for w in $(tmux list-windows -t "=$S" -F '#{window_index} #{window_name}' 2>/dev/null | grep '🔐' | cut -d' ' -f1); do tmux kill-window -t "$S:$w" 2>/dev/null; done
   sh "$REPO/claude-remote/test/stop-test-feeds.sh" "$S"   # SS 의 가짜 Claude Code 칸에 붙인 연결부
   [ -f "$D/fake/shell.pid" ] && kill -9 -"$(cat "$D/fake/shell.pid")" 2>/dev/null   # 그 가짜가 뒤에서 돌린 셸(시험이 못 껐을 때)
+  [ -f "$D/fold.pid" ] && kill "$(cat "$D/fold.pid")" 2>/dev/null                    # YY 의 가짜 대화 피드(끝나며 제 소켓을 지움)
+  [ -f "$D/fold.sock" ] && rm -f "$(cat "$D/fold.sock")"
+  [ -f "$D/pb.pid" ] && kill "$(cat "$D/pb.pid")" 2>/dev/null                        # 복사한 글을 떠 주는 도우미
   tmux kill-session -t "=$B" 2>/dev/null
   tmux kill-session -t "=$S" 2>/dev/null
   xcrun simctl terminate "$SIM" "$ID" >/dev/null 2>&1
   xcrun simctl uninstall "$SIM" "$ID" >/dev/null 2>&1   # 시험이 깐 앱은 남기지 않는다
   [ "$WAS_BOOTED" = 0 ] && xcrun simctl shutdown "$SIM" 2>/dev/null
-  rm -rf "$D" "$W/secret-win" "$W/secret-win2" "$W/secret-cancel-flag" "$W/secret-got" "$W/pair-hosts-ok" "$W/pair-code-link" "$W/bg-wins" "$W/battery" "$W/shortcut-ok"
+  rm -rf "$D" "$W/secret-win" "$W/secret-win2" "$W/secret-cancel-flag" "$W/secret-got" "$W/pair-hosts-ok" "$W/pair-code-link" "$W/bg-wins" "$W/battery" "$W/shortcut-ok" \
+    "$W/fold-win" "$W/fold-arrive" "$W/fold-grow" "$W/pb-ask" "$W/pb-out" "$W/pb-out.tmp"
   rm -f "$HOME/.cache/pi-remote/notify-$S.sock"
 }
 trap cleanup EXIT
@@ -111,6 +117,13 @@ tmux send-keys -t "$BGJ_PANE" -l "exec $FK/bin/9.9.9 $REPO/claude-remote/test/fa
 tmux send-keys -t "$BGJ_PANE" Enter
 "$NODE" "$REPO/claude-remote/claude-feed.mjs" "$BGJ_PANE" >/dev/null 2>&1 &
 "$NODE" "$REPO/claude-remote/test/fake-claude.mjs" --feed "$FK" "$BGJ_PANE" || echo "주의: 가짜 Claude Code 칸에 연결부가 뜨지 않았어요" >&2
+# YY: 긴 것 접기. 창 하나에 가짜 대화 피드를 붙여(pi·Claude Code 없이) 정해 둔 대화를 준다. 창 번호는 /tmp/ptest/fold-win 에
+FOLD=$(bgwin '접기시험')
+FOLD_PANE=$(tmux display -p -t "$S:$FOLD" '#{pane_id}')
+echo "$HOME/.cache/pi-remote/feed/$(printf '%s' "$FOLD_PANE" | tr -d '%').sock" > "$D/fold.sock"
+"$NODE" "$REPO/test/fake-feed.mjs" "$FOLD_PANE" "$W" > "$D/fold.log" 2>&1 &
+echo $! > "$D/fold.pid"
+echo "$FOLD" > "$W/fold-win"
 touch "$W/pair-hosts-ok"   # PP: 시험 브리지가 127.0.0.1 에만 열려 있다는 표시
 touch "$W/shortcut-ok"     # WW: 시험 브리지가 새 탭에서 진짜 도구를 켜지 않는다는 표시(이 준비 없이 돌리면 건너뜀)
 # RR: 짝짓기 링크(한 번 쓰는 코드 + 시험 브리지 인증서의 지문). 맥의 짝짓기 명령이 QR 에 담는 것과 같은 모양
@@ -123,9 +136,22 @@ printf 'piremote://pair?code=%s&port=%s&fp=%s&host=127.0.0.1' "$CODE" "$PORT" "$
 [ "$WAS_BOOTED" = 0 ] && xcrun simctl boot "$SIM" 2>/dev/null
 xcrun simctl bootstatus "$SIM" -b >/dev/null 2>&1
 xcrun simctl keychain "$SIM" reset
+# 복사한 글 떠 주기(VV·YY): 화면 시험이 /tmp/ptest/pb-ask 를 만들면 시뮬레이터에 복사된 글을 /tmp/ptest/pb-out 에 적는다.
+# 시험이 다 끝난 뒤에 한 번 보면, 뒤에 도는 시험이 또 복사했을 때 앞 시험의 글을 볼 수 없다
+(
+  while :; do
+    if [ -f "$W/pb-ask" ]; then
+      xcrun simctl pbpaste "$SIM" > "$W/pb-out.tmp" 2>/dev/null
+      mv "$W/pb-out.tmp" "$W/pb-out"
+      rm -f "$W/pb-ask"
+    fi
+    sleep 0.2
+  done
+) &
+echo $! > "$D/pb.pid"
 
 ONLY=""
-for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testWW_ShortcutTask testXX_ClaudeContext testB_RemoveAttachment; do
+for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testWW_ShortcutTask testXX_ClaudeContext testYY_FoldLongMessages testB_RemoveAttachment; do
   if [ $# -eq 0 ]; then ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t"; continue; fi
   for want in "$@"; do case "$t" in *"$want"*) ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t" ;; esac; done
 done
@@ -169,14 +195,6 @@ case "$ONLY" in *testSS_BackgroundDrawer*)
     else echo "통과  맥 쪽: 앱에서 종료한 뒤에서 도는 셸이 실제로 종료됨"; fi
     if grep -q "TaskStop" "$FK/typed.txt" 2>/dev/null && grep -q "aagapp" "$FK/typed.txt"; then echo "통과  맥 쪽: 에이전트는 Claude 에게 TaskStop 으로 종료해 달라는 글이 감"
     else echo "실패  맥 쪽: 에이전트를 종료해 달라는 글이 가지 않음"; RC=1; fi
-  fi ;;
-esac
-# VV 가 돌았으면 맥 쪽도 확인: '답변 복사'로 복사한 글에는 답의 글만 있고, 도구 앞의 진행 설명은 없는지(시뮬레이터의 복사한 글을 읽음)
-case "$ONLY" in *testVV_UpdatesAndTildes*)
-  if [ $RC -eq 0 ]; then
-    COPIED=$(xcrun simctl pbpaste "$SIM" 2>/dev/null)
-    if [ "$COPIED" = "권장량은 하루 5~15분씩, 2~3회입니다." ]; then echo "통과  맥 쪽: 답변 복사에는 답의 글만(도구 앞의 진행 설명은 빠짐)"
-    else echo "실패  맥 쪽: 답변 복사한 글이 다름: $COPIED"; RC=1; fi
   fi ;;
 esac
 # XX 가 돌았으면 맥 쪽도 확인: 앱에서 '지금 압축하기'를 누른 것이 가짜 Claude Code 의 입력창에 /compact 로 왔는지

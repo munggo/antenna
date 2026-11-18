@@ -5,6 +5,8 @@ import SwiftUI
 /// iOS 기본 마크다운 해석을 쓴다. 스트리밍 중 닫히지 않은 코드 블록도 코드로 보여준다.
 struct MarkdownView: View {
     let text: String
+    /// 긴 코드 블록을 접을지(대화 글에서만 켠다. 단계 창·문서 보기에서는 다 보여 줌)
+    var foldLongCode = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -51,7 +53,7 @@ struct MarkdownView: View {
             .padding(.leading, CGFloat(indent) * 16)
 
         case .code(let lang, let code):
-            CodeBlockView(lang: lang, code: code)
+            CodeBlockView(lang: lang, code: code, foldable: foldLongCode)
 
         case .table(let rows):
             TableBlockView(rows: rows)
@@ -81,8 +83,23 @@ struct MarkdownView: View {
 struct CodeBlockView: View {
     let lang: String
     let code: String
+    /// 긴 코드를 접을지(MarkdownView.foldLongCode)
+    let foldable: Bool
+    /// 스스로 접는 것은 처음 그릴 때 이미 길었던 코드뿐이다(쓰는 중에 자라난 코드는 그대로 두고 '접기'만 붙임). 그 뒤로는 누른 대로
+    @State private var folded: Bool
+    @State private var anchor = UUID()
+    @Environment(\.foldEvents) private var events
+
+    init(lang: String, code: String, foldable: Bool = false) {
+        self.lang = lang
+        self.code = code
+        self.foldable = foldable
+        _folded = State(initialValue: foldable && Fold.lineCount(code) > Fold.codeLimitLines)
+    }
 
     var body: some View {
+        let long = foldable && Fold.lineCount(code) > Fold.codeLimitLines
+        let collapsed = long && folded
         VStack(alignment: .leading, spacing: 0) {
             // 머리줄: 언어 이름 + 복사 버튼
             HStack {
@@ -97,17 +114,30 @@ struct CodeBlockView: View {
             .padding(.trailing, 4)
             .padding(.top, 4)
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
+                // 접힌 동안에는 앞의 몇 줄만 그린다(복사는 머리줄의 버튼으로 전체)
+                Text(collapsed ? Fold.firstLines(code, Fold.codeFoldedLines) : code)
                     .font(.system(size: Typo.code, design: .monospaced))
                     .foregroundColor(Theme.text)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: true, vertical: false)
                     .padding(12)
             }
+            .overlay(alignment: .bottom) {
+                if collapsed { FoldFade(color: Theme.bgElevated, height: 48) }
+            }
+            if long {
+                FoldToggle(collapsed: collapsed) {
+                    folded = !collapsed
+                    events?.send(anchor: anchor, expanded: collapsed)
+                }
+                .padding(.leading, 12)
+                .padding(.bottom, 4)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.bgElevated))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.border))
+        .id(anchor)
     }
 }
 
