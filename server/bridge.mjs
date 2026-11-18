@@ -28,7 +28,8 @@ import { createTaskStarter } from "./tasks.mjs";
 import { createSession, loadSnapshot, saveSnapshot, snapshotTabs } from "./tabs-restore.mjs";
 import { editorEmpty, LEVELS, parseStatusLine } from "./status-line.mjs";
 import { finishedBackgroundIds, forApp, parseWindows, WINDOW_FORMAT } from "./windows.mjs";
-import { accountsState, dailyUsage, MIXED_TEXT, mixedDirection, readUsageHistory, recordUsage, recordWorkUsage, sharedLimits, usageHistoryForApp, workUsageForApp } from "./usage-history.mjs";
+import { accountsState, claimsFromUsage, dailyUsage, MIXED_TEXT, mixedDirection, readUsageHistory, recordSharedClaims, recordUsage, recordWorkUsage, sharedLimits, usageHistoryForApp, workUsageForApp } from "./usage-history.mjs";
+import { loadPiAuth, PI_AUTH_FILE, USAGE_AUTH_FILE, usageToken } from "./usage-auth.mjs";
 
 // launchd 로 실행되면 언어 설정이 없어 tmux 가 한글(창 이름 등)을 "_" 로 바꿔 출력한다 → UTF-8 지정.
 // (이 프로세스에서 실행하는 tmux 명령들이 이 환경을 물려받는다)
@@ -273,25 +274,56 @@ function readPiStatus() {
 
 // --- Claude 요금제 사용량 ---
 // pi 가 로그인한 Anthropic 토큰(~/.pi/agent/auth.json)으로 사용량을 조회한다.
-// 토큰은 읽기만 하고(갱신은 pi 가 담당) 폰으로는 절대 보내지 않는다. 조회는 1분간 저장.
-const AUTH_FILE = `${process.env.HOME}/.pi/agent/auth.json`;
+// 토큰은 폰으로 절대 보내지 않는다. 만료가 가까우면 pi 가 쓰는 함수로 갱신한다(usage-auth.mjs). 조회는 1분간 저장.
+const AUTH_FILE = PI_AUTH_FILE;
 // 시험용: 사용량 조회 응답을 이 파일의 JSON 으로 대신한다(Anthropic 에 묻지 않고 로그인 정보도 읽지 않음).
 // 파일이 없거나 깨졌으면 조회가 안 된 것으로 본다(공유 파일 값으로 대신하는 길)
 const FAKE_USAGE_FILE = process.env.PI_REMOTE_FAKE_USAGE_FILE || "";
+// 시험용: 회사 계정 사용량 조회 응답을 이 파일의 JSON 으로 대신한다(조회 전용 로그인이 있는 것처럼)
+const FAKE_WORK_USAGE_FILE = process.env.PI_REMOTE_FAKE_WORK_USAGE_FILE || "";
 const USAGE_TTL_MS = 60_000;
 let usageCache = null; // { at, data }
 let planCache = null; // { at, plan }
 
-function anthropicToken() {
+/** 사용량 조회에 쓸 토큰. 못 얻었으면 까닭을 기록에 한 번씩만 남긴다(같은 까닭을 10분마다 되풀이하지 않게) */
+const tokenNotes = new Map();
+async function tokenFor(label, file, provider) {
+  const r = await usageToken({ file, provider, pi: await loadPiAuth(PI_PKG) });
+  if (r.refreshed) console.log(`[pi-remote] 사용량 조회용 로그인(${label})을 갱신함`);
+  const note = r.token ? (r.detail ? `갱신 실패(아직 만료 전이라 조회는 됨): ${r.detail}` : "") : r.error === "none" ? "" : `${r.error}${r.detail ? `: ${r.detail}` : ""}`;
+  if (note !== (tokenNotes.get(label) ?? "")) {
+    tokenNotes.set(label, note);
+    if (note) console.warn(`[pi-remote] 사용량 조회용 로그인(${label}): ${note}`);
+  }
+  return r;
+}
+
+async function anthropicToken() {
+  const r = await tokenFor("개인", AUTH_FILE, "anthropic");
+  if (r.token) return { token: r.token };
+  if (r.error === "none") return { error: "pi 에 Anthropic 계정으로 로그인돼 있지 않아요" };
+  return { error: "로그인 토큰이 만료됐어요. 맥 pi 를 한 번 사용하면 자동으로 갱신돼요" };
+}
+
+// 회사 계정: 조회 전용 로그인(deploy/usage-login.mjs 로 받아 둔 것)이 있으면 사용량을 조회해 공유 파일에 적는다.
+// 그 뒤는 전과 같다(공유 파일 값 → 회사 계정 한도·기록·터미널 하단 줄). 로그인이 없으면 아무것도 하지 않는다:
+// 그때 회사 값은 Claude Code 상태 줄이 적는 것(모든 모델 주간, 한도에 걸린 Fable)뿐이다
+async function refreshWorkUsage() {
   try {
-    const a = JSON.parse(readFileSync(AUTH_FILE, "utf8")).anthropic;
-    if (!a || a.type !== "oauth" || !a.access) return { error: "pi 에 Anthropic 계정으로 로그인돼 있지 않아요" };
-    if (a.expires && a.expires < Date.now()) {
-      return { error: "로그인 토큰이 만료됐어요. 맥 pi 를 한 번 사용하면 자동으로 갱신돼요" };
+    let u;
+    if (FAKE_WORK_USAGE_FILE) {
+      if (!existsSync(FAKE_WORK_USAGE_FILE)) return;
+      u = JSON.parse(readFileSync(FAKE_WORK_USAGE_FILE, "utf8"));
+    } else {
+      const r = await tokenFor("회사", USAGE_AUTH_FILE, "anthropic-work");
+      if (!r.token) return;
+      u = await anthropicGet("/api/oauth/usage", r.token);
     }
-    return { token: a.access };
-  } catch {
-    return { error: "pi 로그인 정보를 읽지 못했어요" };
+    recordSharedClaims("anthropic-work", claimsFromUsage(u));
+    tokenNotes.delete("회사 조회");
+  } catch (e) {
+    if (tokenNotes.get("회사 조회") !== e.message) console.warn(`[pi-remote] 회사 계정 사용량 조회 실패: ${e.message}`);
+    tokenNotes.set("회사 조회", e.message);
   }
 }
 
@@ -336,8 +368,10 @@ function sharedUsage() {
 
 async function fetchUsage(force = false) {
   if (!force && usageCache && Date.now() - usageCache.at < USAGE_TTL_MS) return usageCache.data;
-  const { token, error } = FAKE_USAGE_FILE ? { token: "" } : anthropicToken();
+  const work = refreshWorkUsage();   // 회사 계정 값을 공유 파일에(조회 전용 로그인이 있을 때만). 개인 조회와 나란히 하고, 값을 읽기 전에 기다린다
+  const { token, error } = FAKE_USAGE_FILE ? { token: "" } : await anthropicToken();
   if (error) {
+    await work;
     const data = sharedUsage();
     if (!data) return { error: "아직 사용량 값이 없어요. 맥에서 Claude Code 나 pi 를 한 번 쓰면 보여요" };
     usageCache = { at: Date.now(), data };
@@ -370,6 +404,7 @@ async function fetchUsage(force = false) {
         severity: l.severity || "normal",
       });
     }
+    await work;
     limits.push(...workLimits());
     const ex = u.extra_usage || {};
     const data = {
@@ -389,6 +424,7 @@ async function fetchUsage(force = false) {
     return data;
   } catch (e) {
     // 조회가 안 되면(네트워크·권한) 공유 파일의 값이라도 보여 준다
+    await work;
     return sharedUsage() ?? { error: `사용량을 불러오지 못했어요 (${e.message})` };
   }
 }

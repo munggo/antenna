@@ -89,6 +89,8 @@ sudo_tab() {
 
 # ── 판정 시험(다른 프로그램이 필요 없음) ──
 run usage "사용량 기록·공유 값" "$NODE" server/test/usage-history.test.mjs
+run usage-auth "사용량 조회용 로그인: 만료가 가까우면 pi 의 방식으로 갱신(한 번만), 실패해도 로그인 파일은 그대로" "$NODE" server/test/usage-auth.test.mjs
+run usage-login "회사 계정 조회용 로그인 명령: 회사 계정만 저장(개인 계정으로 승인하면 저장 안 함), 토큰을 찍지 않음" "$NODE" server/test/usage-login.test.mjs
 run status-line "맥 화면 상태 줄에서 모델·생각 깊이 읽기, 입력창이 비었는지" "$NODE" server/test/status-line.test.mjs
 run live-activity "작업 표시(잠금 화면)" "$NODE" server/test/live-activity.test.mjs
 run battery "맥북 배터리 읽기(잔량·충전기·낮음)" "$NODE" server/test/battery.test.mjs

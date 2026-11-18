@@ -4,7 +4,7 @@
 // 파일(PI_REMOTE_FAKE_USAGE_FILE)의 응답으로 대신한다. 쓰는 브리지와 쓰는 tmux 세션은 건드리지 않는다.
 // 실행: node server/test/usage-limits.test.mjs
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 const SERVER = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WebSocket = createRequire(join(SERVER, "package.json"))("ws");
 const S = "usagetest", PORT = 8785, ROOT = `/tmp/antenna-usage-${process.pid}`, TOKEN = "f".repeat(64);
-const FAKE = `${ROOT}/usage.json`, ACCOUNTS = `${ROOT}/accounts.json`;
+const FAKE = `${ROOT}/usage.json`, ACCOUNTS = `${ROOT}/accounts.json`, WORKFAKE = `${ROOT}/work-usage.json`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tm = (...a) => { try { return execFileSync("tmux", a, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return null; } };
 let fail = 0;
@@ -37,7 +37,7 @@ const bridge = spawn(process.execPath, ["bridge.mjs"], {
   cwd: SERVER,
   env: { PATH: process.env.PATH, LANG: "ko_KR.UTF-8", HOME: `${ROOT}/home`, PI_BIN: `${ROOT}/no-such/pi`, PI_PKG: `${ROOT}/no-such/pi-pkg`, PI_REMOTE_TOKEN: TOKEN, HOST: "127.0.0.1", PORT: String(PORT),
     PI_TMUX_SESSION: S, PI_REMOTE_PUSH_DRYRUN: "1", PI_REMOTE_PUSH_FILE: `${ROOT}/push.json`, PI_REMOTE_TABS_FILE: `${ROOT}/tabs.json`,
-    PI_REMOTE_USAGE_DIR: `${ROOT}/usage`, PI_ACCOUNTS_CACHE: ACCOUNTS, PI_REMOTE_FAKE_USAGE_FILE: FAKE, PI_REMOTE_CRASH_LOG: `${ROOT}/crash.log` },
+    PI_REMOTE_USAGE_DIR: `${ROOT}/usage`, PI_ACCOUNTS_CACHE: ACCOUNTS, PI_REMOTE_FAKE_USAGE_FILE: FAKE, PI_REMOTE_FAKE_WORK_USAGE_FILE: WORKFAKE, PI_REMOTE_CRASH_LOG: `${ROOT}/crash.log` },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let log = "";
@@ -120,6 +120,26 @@ try {
     u = await ask();
     ok(!u?.error && keys(acct(u, "personal")?.limits) === "week=40 week:Fable=70", `조회 응답 ${how}: 공유 파일의 개인 값 → ${u?.error ?? keys(acct(u, "personal")?.limits)}`);
   }
+
+  // 7-1) 회사 계정의 조회 전용 로그인이 있을 때(시험에서는 그 조회 응답을 파일로 대신): 회사 계정도 조회한 값으로(모든 모델과 Fable %)
+  writeFileSync(FAKE, JSON.stringify({ limits: [weekly(43), weekly(74, "Fable")] }));
+  writeFileSync(ACCOUNTS, JSON.stringify({ "anthropic-work": { "7d": claim(0.06, 30) } }));   // 상태 줄이 30분 전에 적은 값
+  writeFileSync(WORKFAKE, JSON.stringify({ limits: [weekly(12), weekly(55, "Fable")] }));
+  u = await ask();
+  ok(keys(acct(u, "work")?.limits) === "work:7d=12 work:7d:Fable=55", `회사: 조회한 값으로(모든 모델·Fable) → ${keys(acct(u, "work")?.limits)}`);
+  ok(acct(u, "work")?.limits.map((l) => l.label).join(" | ") === "주간 한도 | 주간 한도 · Fable", `회사: 이름 → ${acct(u, "work")?.limits.map((l) => l.label).join(" | ")}`);
+  ok(keys(acct(u, "personal")?.limits) === "week=43 week:Fable=74", "개인 계정 값은 그대로");
+  const shared = JSON.parse(readFileSync(ACCOUNTS, "utf8"))["anthropic-work"];
+  ok(shared["7d"].util === 0.12 && shared["7d:oi"].util === 0.55 && !("7d:fable" in shared),
+    `조회한 회사 값을 공유 파일에도 적음(터미널 하단 줄·기록이 같은 값을 봄. Fable 은 응답에 실려 오는 이름으로) → ${Object.keys(shared).join()}`);
+  // 회사 조회가 실패해도(응답이 깨짐) 개인 계정 값과 앞서 적힌 회사 값은 그대로 나온다
+  writeFileSync(WORKFAKE, "{ 깨진 글");
+  u = await ask();
+  u = await ask();
+  ok(keys(acct(u, "personal")?.limits) === "week=43 week:Fable=74" && keys(acct(u, "work")?.limits) === "work:7d=12 work:7d:Fable=55",
+    `회사 조회가 실패해도 나머지는 그대로 → ${keys(acct(u, "work")?.limits)}`);
+  ok((log.match(/회사 계정 사용량 조회 실패/g) ?? []).length === 1, `같은 실패는 기록에 한 번만 남김(${(log.match(/회사 계정 사용량 조회 실패/g) ?? []).length}번)`);
+  rmSync(WORKFAKE, { force: true });
 
   // 8) 아무 값도 없으면 안내 글(계정 카드는 보내지 않음)
   rmSync(FAKE, { force: true });

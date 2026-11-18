@@ -134,6 +134,48 @@ export function sharedLimits(provider, personal, now = Date.now(), file = ACCOUN
 }
 
 /**
+ * 사용량 조회 응답 → 공유 파일에 적을 값들({ "5h" | "7d" | "7d:<구분>": { util, reset, at } }).
+ * Fable 전용 주간 한도는 응답 헤더와 같은 구분 이름(7d:oi)으로 적는다: 계정 자동 전환 판단(claude-account.mjs·pi 확장)은
+ * 구분 이름을 모델 id 에서 찾는데 oi 는 어느 모델에도 없어, 전환 판단은 전과 같게 남는다(화면에는 Fable 로 보임)
+ */
+export function claimsFromUsage(u, now = Date.now()) {
+  const out = {};
+  const sec = (iso) => (iso ? Math.floor(Date.parse(iso) / 1000) || undefined : undefined);
+  for (const l of Array.isArray(u?.limits) ? u.limits : []) {
+    if (typeof l?.percent !== "number") continue;
+    const model = String(l?.scope?.model?.display_name ?? "").trim().split(/\s+/).pop()?.toLowerCase() ?? "";
+    const base = l.group === "weekly" ? "7d" : "5h";
+    out[model ? `${base}:${model === "fable" ? "oi" : model}` : base] = { util: l.percent / 100, reset: sec(l.resets_at), at: now };
+  }
+  if (!out["5h"] && typeof u?.five_hour?.utilization === "number") {
+    out["5h"] = { util: u.five_hour.utilization / 100, reset: sec(u.five_hour.resets_at), at: now };
+  }
+  return out;
+}
+
+/** 공유 파일의 그 계정 칸에 값을 적는다(다른 칸·다른 구분은 그대로, 통째로 바꿔 씀). 적었으면 참 */
+export function recordSharedClaims(provider, claims, file = ACCOUNTS_FILE) {
+  if (!claims || !Object.keys(claims).length) return false;
+  let all = {};
+  try {
+    all = JSON.parse(readFileSync(file, "utf8")) ?? {};
+  } catch {
+    /* 아직 없거나 깨짐: 새로 씀 */
+  }
+  all[provider] = { ...(all[provider] ?? {}), ...claims };
+  try {
+    mkdirSync(file.slice(0, file.lastIndexOf("/")), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(all));
+    renameSync(tmp, file);
+    return true;
+  } catch (e) {
+    console.warn(`[pi-remote] 공유 사용량 파일에 적지 못함: ${e.message}`);
+    return false;
+  }
+}
+
+/**
  * 개인·회사 계정이 섞였는지: 개인 칸에 적힌 주간 값이 회사 계정의 것으로 보이면 참.
  * 두 계정은 주간 한도가 따로라 사용률과 초기화 시각이 서로 다르다. 둘 다 최근(fresh 안)에 적혔는데 사용률과 초기화 시각이
  * 같으면 개인 탭이 회사 계정으로 돌고 있다는 뜻이다(이 맥의 Claude Code 기본 로그인이 회사 계정으로 바뀐 경우. 2026-11-13).
