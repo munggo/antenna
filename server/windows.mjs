@@ -10,6 +10,15 @@
  * 작성: 서문교
  */
 const SEP = ":::";
+
+/**
+ * 탭을 고르면(맥에서 바꾸든 폰에서 바꾸든 select-window) 그 탭의 '끝났어요'(@pi_status = yourturn)를 지우는 tmux 훅.
+ * 예전에는 pi 확장(tmux-tab-status)만 이 훅을 걸어서, pi 를 켜지 않은 맥(재부팅 뒤 Claude Code 탭만 되살린 때 등)에서는
+ * 탭을 열어 봐도 '끝났어요'가 남았다(11-19). 브리지가 세션을 챙길 때마다 건다(여러 번 걸어도 같음).
+ * pi 확장이 거는 [0] 칸과 겹치지 않게 다른 칸에, 외부 스크립트 없이 tmux 명령으로. 작업 중·답을 기다림은 그대로 둔다
+ */
+export const SEEN_HOOK = "after-select-window[47]";
+export const SEEN_HOOK_CMD = `if-shell -F '#{==:#{@pi_status},yourturn}' 'set-option -w @pi_status ""'`;
 const FIELDS = ["window_id", "window_index", "window_name", "window_active", "@pi_status", "@sudo_stage", "pane_id",
   "@bg_by", "@bg_started", "@bg_done", "@bg_from", "@bg_origin", "@ai_jobs", "@ai_model", "@ai_thinking"];
 export const WINDOW_FORMAT = FIELDS.map((f) => `#{${f}}`).join(SEP);

@@ -29,7 +29,7 @@ import { launchBackground } from "../claude-remote/bg-launch.mjs";
 import { createTaskStarter } from "./tasks.mjs";
 import { createSession, loadSnapshot, saveSnapshot, snapshotTabs } from "./tabs-restore.mjs";
 import { editorEmpty, LEVELS, parseStatusLine } from "./status-line.mjs";
-import { finishedBackgroundIds, forApp, parseWindows, WINDOW_FORMAT } from "./windows.mjs";
+import { finishedBackgroundIds, forApp, parseWindows, SEEN_HOOK, SEEN_HOOK_CMD, WINDOW_FORMAT } from "./windows.mjs";
 import { accountsState, claimsFromUsage, dailyUsage, MIXED_TEXT, mixedDirection, readUsageHistory, recordSharedClaims, recordUsage, recordWorkUsage, sharedLimits, usageHistoryForApp, workUsageForApp } from "./usage-history.mjs";
 import { loadPiAuth, PI_AUTH_FILE, USAGE_AUTH_FILE, usageToken } from "./usage-auth.mjs";
 
@@ -653,9 +653,18 @@ setInterval(batteryTick, Number(process.env.PI_REMOTE_BATTERY_SEC ?? 60) * 1000)
 // 1분마다 탭 목록(번호·이름·폴더·pi/Claude 대화)을 저장하고, 브리지가 켜질 때 세션이 없으면 그대로 되살린 뒤 폰에 한 번 알림
 const TABS_FILE = process.env.PI_REMOTE_TABS_FILE || `${process.env.HOME}/.cache/pi-remote/tabs-${SESSION}.json`;
 let restoreReport = null;   // 이번에 세션을 만들었으면 { restored, pi, claude, shell, fromSnapshot }
+/** 탭을 고르면 '끝났어요'를 지우는 훅(windows.mjs). pi 를 켜지 않은 맥에서도 걸리게 세션을 챙길 때마다 건다(여러 번 걸어도 같음) */
+function ensureSeenHook() {
+  try {
+    execFileSync(TMUX_BIN, ["set-hook", "-g", SEEN_HOOK, SEEN_HOOK_CMD], { stdio: "ignore" });
+  } catch {
+    /* tmux 서버가 없으면 다음에 */
+  }
+}
 function ensureSession() {
   try {
     execFileSync(TMUX_BIN, ["has-session", "-t", `=${SESSION}`], { stdio: "ignore" });
+    ensureSeenHook();
     return;
   } catch {
     /* 없음 → 만듦 */
@@ -670,6 +679,7 @@ function ensureSession() {
   } catch (e) {
     console.warn(`[pi-remote] tmux 세션을 만들지 못함: ${e.message}`);
   }
+  ensureSeenHook();
 }
 ensureSession();
 const saveTabs = () => {
