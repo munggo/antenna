@@ -145,6 +145,20 @@ struct TabDrawerButton: View {
     }
 }
 
+/// 새 탭에서 무엇을 켤지 고르는 항목들(메뉴 안에 넣어 쓴다: 서랍의 + 와 … 메뉴의 '새 창 열기'). 사용자 결정 11-18: 열 때마다 고름
+struct NewTabChoices: View {
+    @ObservedObject var session: TerminalSession
+
+    var body: some View {
+        ForEach(session.newTabTools) { tool in
+            Button(tool.title) {
+                session.newWindow(tool)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
+        }
+    }
+}
+
 /// 왼쪽 서랍(Claude 앱 방식): 탭을 세로로 이름·상태와 함께. 맨 위 새 탭, 아래 지난 대화·연결 설정.
 /// - 탭을 누르면 그 탭으로, 길게 누르면 이름 바꾸기·닫기
 /// - 백그라운드 탭(/bgtab·AI·폰이 맡긴 일)은 아래 '백그라운드' 칸에 따로: 할 일·상태·걸린 시간·시킨 탭, 끝난 것 모두 닫기
@@ -171,17 +185,17 @@ struct TabDrawer: View {
                     .font(.system(size: Typo.title, weight: .semibold))
                     .foregroundColor(Theme.text)
                 Spacer()
-                Button {
-                    session.newWindow()
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(Theme.text)
-                        .frame(width: 40, height: 40)
-                        .background(Circle().fill(Theme.surfaceHigh))
+                // 새 탭: 누르면 무엇을 켤지 고른다. 고를 것을 알려 주지 않는 예전 맥 브리지에서는 전처럼 바로 연다
+                if session.newTabTools.isEmpty {
+                    Button {
+                        session.newWindow()
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    } label: { newTabIcon }
+                    .accessibilityIdentifier("drawerNewTab")
+                } else {
+                    Menu { NewTabChoices(session: session) } label: { newTabIcon }
+                        .accessibilityIdentifier("drawerNewTab")
                 }
-                .accessibilityIdentifier("drawerNewTab")
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -209,6 +223,14 @@ struct TabDrawer: View {
         .background(Theme.bg.ignoresSafeArea())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("drawer")
+    }
+
+    private var newTabIcon: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundColor(Theme.text)
+            .frame(width: 40, height: 40)
+            .background(Circle().fill(Theme.surfaceHigh))
     }
 
     /// 아래 '백그라운드' 칸: 머리(개수·끝난 것 모두 닫기)와 줄들. 걸린 시간은 서랍이 열려 있는 동안 30초마다 다시 셈

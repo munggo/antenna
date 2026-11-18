@@ -434,6 +434,19 @@ function activePaneId() {
   }
 }
 
+// 폰의 '새 탭'에서 고르는 도구(사용자 결정 11-18: 열 때마다 고름). cmd 는 새 탭의 셸에 넣을 명령이다
+// (셸에 넣으므로 별칭·함수도 그대로 쓰임. 예: 계정을 고르는 claude 함수). 정해 둔 이 넷만 받는다(임의 입력 차단).
+// 채팅 화면이 없는 도구(터미널 화면으로 씀)는 탭 이름을 정해 준다: 안 정하면 tmux 가 'node' 처럼 실행 파일 이름을 붙여 알아볼 수 없다.
+// 앱에는 이름 목록을 탭 목록 메시지에 얹어 알린다(그 목록이 오는 브리지에서만 앱이 고르는 메뉴를 보임)
+const NEW_TAB_TOOLS = {
+  claude: { cmd: "claude" },
+  pi: { cmd: "pi" },
+  codex: { cmd: "codex", name: "Codex" },
+  gemini: { cmd: "gemini", name: "Gemini" },
+};
+// 시험: 켤 명령 앞에 붙일 글(예: 'echo started:' → 진짜 도구를 켜지 않고 무엇을 켜려 했는지만 찍음)
+const NEW_TAB_PREFIX = process.env.PI_NEW_TAB_PREFIX ? `${process.env.PI_NEW_TAB_PREFIX} ` : "";
+
 // 앱이 보낼 수 있는 pi 명령은 모델·생각 깊이 지정만 허용(임의 입력 차단).
 const PI_COMMAND = new RegExp(`^/(model [A-Za-z0-9._/:-]+|thinking (${LEVELS})|new|reload|plan (on|off)|mode (auto|ask|plan|manual|acceptEdits))$`);   // plan: 계획 모드, mode: 권한 모드 칩
 
@@ -885,7 +898,8 @@ wss.on("connection", (ws, req) => {
   const pushWindows = () => {
     if (ws.readyState !== ws.OPEN) return;
     // 맥북 배터리는 이 메시지에 얹는다(새 종류의 메시지를 만들면 예전 앱이 그 글자를 터미널 화면에 그림). 값이 바뀌어도 다시 보냄
-    const json = JSON.stringify({ type: "windows", windows: forApp(listWindows()), ...(battery ? { battery } : {}) });
+    // 새 탭에서 고를 수 있는 도구(newTabTools)도 같은 까닭으로 여기에 얹는다
+    const json = JSON.stringify({ type: "windows", windows: forApp(listWindows()), newTabTools: Object.keys(NEW_TAB_TOOLS), ...(battery ? { battery } : {}) });
     if (json !== lastWindowsJson) {
       lastWindowsJson = json;
       ws.send(json);
@@ -1112,13 +1126,26 @@ wss.on("connection", (ws, req) => {
           return;
         }
         if (msg.type === "new-window") {
-          // 폰에서 새 창 열기: 셸을 띄운 뒤 pi 실행(pi 종료해도 창은 남음)
+          // 폰에서 새 탭 열기: 셸을 띄운 뒤 도구를 켠다(도구를 끝내도 탭은 남음).
+          // 도구를 고르는 앱(agent 를 보냄)은 고른 것을 보던 탭의 폴더에서(사용자 결정 11-18), 예전 앱(안 보냄)은 전처럼 홈에서 pi 를
+          const chosen = msg.agent !== undefined;
+          const tool = !chosen ? NEW_TAB_TOOLS.pi
+            : typeof msg.agent === "string" && Object.hasOwn(NEW_TAB_TOOLS, msg.agent) ? NEW_TAB_TOOLS[msg.agent] : null;
+          if (!tool) {
+            console.warn(`[pi-remote] 새 탭: 모르는 도구 무시(${String(msg.agent).slice(0, 40)})`);
+            return;
+          }
           try {
-            const id = execSync(
-              `${TMUX_BIN} new-window -P -F '#{window_id}' -t ${SESSION} -c "${process.env.HOME}"`,
-              { encoding: "utf8" }
-            ).trim();
-            execSync(`${TMUX_BIN} send-keys -t '${id}' pi Enter`);
+            let cwd = process.env.HOME;
+            if (chosen) {
+              const pane = activePaneId();
+              const dir = pane ? execFileSync(TMUX_BIN, ["display", "-p", "-t", pane, "#{pane_current_path}"], { encoding: "utf8", timeout: 3000 }).trim() : "";
+              if (dir && existsSync(dir)) cwd = dir;
+            }
+            const id = execFileSync(TMUX_BIN, ["new-window", "-P", "-F", "#{window_id}", "-t", SESSION, "-c", cwd, ...(tool.name ? ["-n", tool.name] : [])],
+              { encoding: "utf8" }).trim();
+            execFileSync(TMUX_BIN, ["send-keys", "-t", id, "-l", `${NEW_TAB_PREFIX}${tool.cmd}`]);
+            execFileSync(TMUX_BIN, ["send-keys", "-t", id, "Enter"]);
           } catch (e) {
             console.warn(`[pi-remote] 새 창 실패: ${e.message}`);
           }

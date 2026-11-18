@@ -28,6 +28,21 @@ struct TmuxWindow: Identifiable, Equatable {
     }
 }
 
+/// 새 탭에서 켤 수 있는 도구(사용자 결정 11-18: 열 때마다 고름). 이름은 맥 브리지(server/bridge.mjs 의 NEW_TAB_TOOLS)와 같다.
+/// Codex·Gemini CLI 는 맥 쪽 연결 프로그램이 없어 채팅 화면 없이 터미널 화면으로 쓴다
+enum TabTool: String, Identifiable {
+    case claude, pi, codex, gemini
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .claude: return "Claude Code"
+        case .pi: return "pi"
+        case .codex: return "Codex"
+        case .gemini: return "Gemini CLI"
+        }
+    }
+}
+
 /// 맥북의 배터리·충전 상태(맥 브리지가 1분마다 읽어 탭 목록 메시지에 얹어 보냄, server/battery.mjs). 배터리가 없는 맥이면 오지 않는다
 struct MacBattery: Equatable {
     let percent: Int
@@ -128,6 +143,8 @@ final class TerminalSession: NSObject, ObservableObject {
     /// 이보다 오래 걸린 작업이 끝났을 때만 알림(초, 맥 브리지 설정)
     @Published var pushDoneMinSec = 3600
     private var pushSubs = Set<AnyCancellable>()
+    /// 새 탭에서 고를 수 있는 도구(맥 브리지가 탭 목록과 함께 알려 줌). 비어 있으면 예전 브리지라 고르지 않고 연다
+    @Published var newTabTools: [TabTool] = []
     @Published var chatAvailable = false         // 대화 피드(채팅 화면) 사용 가능 여부
     @Published var chatWorking = false           // 대화 피드 기준 작업 중 여부
 
@@ -413,7 +430,10 @@ final class TerminalSession: NSObject, ObservableObject {
     /// 서랍의 '끝난 것 모두 닫기': 결과를 보낸 백그라운드 탭 가운데 쉬는 것만 닫는다(맥 브리지가 그때 목록으로 다시 가림)
     func closeFinishedBackground() { sendControl(["type": "close-finished-bg"]) }
 
-    /// 새 tmux 창을 열고 pi 를 실행.
+    /// 새 탭을 열고 고른 도구를 켠다(보던 탭의 폴더에서).
+    func newWindow(_ tool: TabTool) { sendControl(["type": "new-window", "agent": tool.rawValue]) }
+
+    /// 고를 수 있는 도구를 알려 주지 않는 예전 맥 브리지: 고르지 않고 연다(홈 폴더에서 pi)
     func newWindow() { sendControl(["type": "new-window"]) }
 
     // MARK: - 폰 알림
@@ -585,8 +605,11 @@ final class TerminalSession: NSObject, ObservableObject {
                 guard let percent = b["percent"] as? Int else { return nil }
                 return MacBattery(percent: percent, plugged: b["plugged"] as? Bool ?? false, low: b["low"] as? Bool ?? false)
             }
+            // 앱이 아는 이름만(브리지가 보낸 순서대로)
+            let tools = (obj["newTabTools"] as? [String] ?? []).compactMap(TabTool.init(rawValue:))
             DispatchQueue.main.async {
                 self.windows = wins
+                if self.newTabTools != tools { self.newTabTools = tools }
                 if self.macBattery != battery { self.macBattery = battery }
                 PushManager.shared.currentWindow = wins.first(where: \.active)?.index
                 self.chat.setWindow(wins.first(where: \.active)?.index)

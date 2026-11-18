@@ -279,8 +279,14 @@ struct TerminalScreen: View {
                     } label: {
                         Label(session.pushOnMac ? "알림" : "알림(맥 설정 없음)", systemImage: "bell")
                     }
-                    Button { session.newWindow() } label: {
-                        Label("새 창 열기", systemImage: "plus.square.on.square")
+                    if session.newTabTools.isEmpty {
+                        Button { session.newWindow() } label: {
+                            Label("새 창 열기", systemImage: "plus.square.on.square")
+                        }
+                    } else {
+                        Menu { NewTabChoices(session: session) } label: {
+                            Label("새 창 열기", systemImage: "plus.square.on.square")
+                        }
                     }
                     if let w = activeWindow {
                         Button { afterMenuCloses { startRename(w) } } label: {

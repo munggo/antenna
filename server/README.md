@@ -35,7 +35,7 @@ PI_TMUX_SESSION=antenna node bridge.mjs
 
 The bridge makes a certificate of its own the first time it starts (`~/.config/pi-remote/tls/`) and the pairing QR carries its fingerprint, which is the only certificate the app accepts. Plain `ws://` on the same port is accepted only when `PI_REMOTE_TLS_ONLY=1` is not set, for old builds of the app.
 
-Binary frames carry terminal bytes in both directions. Text frames carry JSON messages with a `type` field, for example `{"type":"resize","cols":100,"rows":30}` or `{"type":"new-window"}`.
+Binary frames carry terminal bytes in both directions. Text frames carry JSON messages with a `type` field, for example `{"type":"resize","cols":100,"rows":30}` or `{"type":"new-window","agent":"claude"}` (a new tab running one of `claude`, `pi`, `codex` or `gemini` in the folder of the tab the app was showing).
 
 Pairing uses `wss://<host>:<port>/pair` without a token: the phone sends `{"type":"pair","code":"…","name":"…"}` and gets `{"type":"paired","token":"…"}` once. The code comes from the pairing QR, lasts five minutes and works one time.
 

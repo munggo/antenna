@@ -2353,6 +2353,44 @@ final class PiRemoteUITests: XCTestCase {
         XCTAssertEqual(copiedText(), "짧은 질문입니다")
     }
 
+    /// ZZ. 새 탭에서 켤 도구 고르기(사용자 요청 11-18 '기본 창 띄울 때 선택토록 하자': Claude Code · pi · Codex · Gemini CLI).
+    ///     서랍의 + 와 위쪽 … 메뉴의 '새 창 열기' 둘 다 네 가지를 보여 주고, 고르면 새 탭이 열린다.
+    ///     맥에서 고른 도구가 보던 탭의 폴더에서 켜졌는지는 test/app.sh 가 확인(시험 브리지는 진짜 도구 대신 무엇을 켜려 했는지만 그 탭의 셸에 찍음)
+    func testZZ_NewTabTool() throws {
+        guard FileManager.default.fileExists(atPath: "/tmp/ptest/fold-win") else { throw XCTSkip("앱 화면 시험 준비 안 됨") }
+        relaunch(test: "")
+        openTab(0)   // 셸만 있는 탭(/tmp): 새 탭은 이 탭의 폴더에서 열려야 함
+        let grew = { (from: Int) -> Bool in
+            let more = self.expectation(for: NSPredicate(format: "value == %@", String(from + 1)), evaluatedWith: self.el("drawerButton"))
+            return XCTWaiter().wait(for: [more], timeout: 10) == .completed
+        }
+
+        // 서랍의 + : 누르면 네 가지가 뜨고, Codex 를 고르면 탭이 하나 는다
+        var count = tabCount()
+        openDrawer()
+        el("drawerNewTab").tap()
+        XCTAssertTrue(app.buttons["Codex"].waitForExistence(timeout: 5), "+ 를 누르면 켤 도구를 고르는 메뉴가 떠야 함")
+        for title in ["Claude Code", "pi", "Gemini CLI"] { XCTAssertTrue(app.buttons[title].exists, "메뉴에 \(title) 가 있어야 함") }
+        shot("zz-new-tab-menu")
+        app.buttons["Codex"].tap()
+        XCTAssertTrue(grew(count), "Codex 를 고르면 탭이 하나 늘어야 함(전 \(count)개, 지금 \(tabCount())개)")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Codex'")).firstMatch.waitForExistence(timeout: 5),
+                      "서랍에 Codex 탭이 보여야 함")
+        shot("zz-new-tab-codex")
+        closeDrawer()
+
+        // 위쪽 … 메뉴의 '새 창 열기'도 같은 네 가지: Gemini CLI 를 고른다
+        count = tabCount()
+        el("moreMenu").tap()
+        let open = app.buttons["새 창 열기"]
+        XCTAssertTrue(open.waitForExistence(timeout: 5), "… 메뉴에 '새 창 열기'")
+        open.tap()
+        let gemini = app.buttons["Gemini CLI"]
+        XCTAssertTrue(gemini.waitForExistence(timeout: 5), "'새 창 열기'를 누르면 켤 도구가 떠야 함")
+        gemini.tap()
+        XCTAssertTrue(grew(count), "Gemini CLI 를 고르면 탭이 하나 늘어야 함(전 \(count)개, 지금 \(tabCount())개)")
+    }
+
     /// 그 요소 아래에서 가장 가까운 '더 보기'·'접기' 버튼
     private func toggle(below e: XCUIElement) -> XCUIElement? {
         let y = e.frame.minY

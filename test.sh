@@ -146,6 +146,7 @@ if command -v tmux >/dev/null 2>&1; then
   run bg-drawer "서랍의 백그라운드 칸: 실행기·탭 목록·끝난 것 모두 닫기" "$NODE" server/test/bg-drawer.test.mjs
   run tasks "단축어로 시킨 일: 새 백그라운드 탭에서 시작·같은 요청은 한 번만·없는 폴더와 토큰 없는 접속은 거절" "$NODE" server/test/tasks.test.mjs
   run battery-bridge "맥북 배터리를 앱에 보내고, 낮으면 폰에 한 번 알림" "$NODE" server/test/battery-bridge.test.mjs
+  run new-tab "새 탭에서 고른 도구(Claude Code·pi·Codex·Gemini CLI)를 보던 탭의 폴더에서 켬, 예전 앱은 전처럼, 모르는 값은 무시" "$NODE" server/test/new-tab.test.mjs
   run install "설치 명령: 새 맥(가짜 홈)에서 설치·브리지·점검·짝짓기, 새 판을 받은 뒤 다시 돌리면 브리지 다시 시작" "$NODE" test/install.test.mjs
 else
   skip sudo-tab "tmux 가 없음"
@@ -162,6 +163,7 @@ else
   skip bg-drawer "tmux 가 없음"
   run tasks "단축어로 시킨 일: 요청 판정(판정만)" "$NODE" server/test/tasks.test.mjs
   skip battery-bridge "tmux 가 없음"
+  skip new-tab "tmux 가 없음"
   skip install "tmux 가 없음"
 fi
 

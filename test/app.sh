@@ -9,7 +9,8 @@
 #   XX Claude Code 탭의 컨텍스트 사용량(위쪽 고리의 사용률, 누르면 사용 중 토큰·자동 압축 지점, '지금 압축하기'가 맥에 /compact 로 가는지,
 #      맥이 압축하는 동안 '대화를 압축하는 중'이 보이고 끝나면 요약 줄·고리 '–') ·
 #   YY 긴 것 접기(화면 두 장을 넘는 답·내 메시지, 12줄을 넘는 '!' 명령 출력, 긴 코드 블록: '더 보기'·'접기', 접은 뒤의 자리,
-#      쓰는 중에 길어진 답은 접지 않는지, 접힌 코드도 복사는 전체인지. 대화는 test/fake-feed.mjs 가 줌)
+#      쓰는 중에 길어진 답은 접지 않는지, 접힌 코드도 복사는 전체인지. 대화는 test/fake-feed.mjs 가 줌) ·
+#   ZZ 새 탭에서 켤 도구 고르기(서랍의 + 를 누르면 Claude Code·pi·Codex·Gemini CLI, 고르면 보던 탭의 폴더에서 새 탭)
 # 쓰기: sh test/app.sh [시험 이름 일부…]   예) sh test/app.sh QQ     (sh test.sh --app 으로도 부름)
 # 하는 일: 시험용 tmux 세션과 시험 브리지(이 맥 안에서만 닿는 127.0.0.1)를 띄우고, 시뮬레이터를 켜서 시험한 뒤 모두 치운다.
 #          쓰는 tmux 세션(antenna)·쓰는 브리지·켜져 있는 다른 시뮬레이터는 건드리지 않는다.
@@ -73,7 +74,8 @@ mkdir -p "$D/conf"
 # UU: 맥북 배터리는 이 파일의 글을 pmset 출력으로 읽게 한다(1초마다). 화면 시험이 글을 바꿔 가며 '연결됨' 옆 표시를 본다
 printf "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1234567)\t94%%; discharging; 1:00 remaining present: true\n" > "$W/battery"
 # WW: 단축어 동작이 여는 새 탭에서는 진짜 Claude Code·pi 대신 바로 끝나는 명령을 켠다(PI_BG_*_CMD, 모델을 부르지 않음)
-tmux new-session -d -s "$B" -c "$REPO/server" "env PI_REMOTE_ENV=$D/conf/env PI_REMOTE_TOKEN=$TOKEN HOST=127.0.0.1 PORT=$PORT PI_TMUX_SESSION=$S PI_REMOTE_SESSION_DIR=$D/sessions PI_REMOTE_PUSH_FILE=$D/push.json PI_REMOTE_PUSH_DRYRUN=1 PI_REMOTE_FAKE_LOCKED_FILE=$D/locked PI_REMOTE_FAKE_BATTERY_FILE=$W/battery PI_REMOTE_BATTERY_SEC=1 PI_REMOTE_TABS_FILE=$D/tabs.json PI_REMOTE_USAGE_DIR=$D/usage PI_REMOTE_CRASH_LOG=$D/crash.log PI_BG_CLAUDE_CMD=true PI_BG_PI_CMD=true $NODE bridge.mjs > $D/bridge.log 2>&1"
+# ZZ: 앱에서 여는 새 탭도 진짜 도구를 켜지 않고, 무엇을 켜려 했는지만 그 탭의 셸에 찍는다(PI_NEW_TAB_PREFIX)
+tmux new-session -d -s "$B" -c "$REPO/server" "env PI_REMOTE_ENV=$D/conf/env PI_REMOTE_TOKEN=$TOKEN HOST=127.0.0.1 PORT=$PORT PI_TMUX_SESSION=$S PI_REMOTE_SESSION_DIR=$D/sessions PI_REMOTE_PUSH_FILE=$D/push.json PI_REMOTE_PUSH_DRYRUN=1 PI_REMOTE_FAKE_LOCKED_FILE=$D/locked PI_REMOTE_FAKE_BATTERY_FILE=$W/battery PI_REMOTE_BATTERY_SEC=1 PI_REMOTE_TABS_FILE=$D/tabs.json PI_REMOTE_USAGE_DIR=$D/usage PI_REMOTE_CRASH_LOG=$D/crash.log PI_BG_CLAUDE_CMD=true PI_BG_PI_CMD=true PI_NEW_TAB_PREFIX='echo started:' $NODE bridge.mjs > $D/bridge.log 2>&1"
 i=0
 while [ $i -lt 40 ] && ! nc -z 127.0.0.1 "$PORT" >/dev/null 2>&1; do sleep 0.5; i=$((i + 1)); done
 nc -z 127.0.0.1 "$PORT" >/dev/null 2>&1 || { echo "시험 브리지가 뜨지 않았어요:"; tail -5 "$D/bridge.log"; exit 1; }
@@ -151,7 +153,7 @@ xcrun simctl keychain "$SIM" reset
 echo $! > "$D/pb.pid"
 
 ONLY=""
-for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testWW_ShortcutTask testXX_ClaudeContext testYY_FoldLongMessages testB_RemoveAttachment; do
+for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testWW_ShortcutTask testXX_ClaudeContext testYY_FoldLongMessages testZZ_NewTabTool testB_RemoveAttachment; do
   if [ $# -eq 0 ]; then ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t"; continue; fi
   for want in "$@"; do case "$t" in *"$want"*) ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t" ;; esac; done
 done
@@ -204,6 +206,23 @@ case "$ONLY" in *testXX_ClaudeContext*)
     while [ $i -lt 10 ] && ! grep -q "/compact" "$FK/typed.txt" 2>/dev/null; do sleep 0.3; i=$((i + 1)); done
     if grep -q "/compact" "$FK/typed.txt" 2>/dev/null; then echo "통과  맥 쪽: '지금 압축하기'가 Claude Code 입력창에 /compact 로 감"
     else echo "실패  맥 쪽: /compact 가 Claude Code 입력창에 오지 않음"; RC=1; fi
+  fi ;;
+esac
+# ZZ 가 돌았으면 맥 쪽도 확인: 앱에서 고른 도구(서랍의 + 로 Codex, … 메뉴로 Gemini CLI)가 저마다 새 탭 하나에서,
+# 보던 탭의 폴더(/tmp)에서 켜졌는지
+case "$ONLY" in *testZZ_NewTabTool*)
+  if [ $RC -eq 0 ]; then
+    for tool in Codex:codex Gemini:gemini; do
+      ROWS=$(tmux list-windows -t "=$S" -F '#{window_name}|#{pane_current_path}|#{pane_id}' | grep "^${tool%%:*}|")
+      N=$(printf '%s\n' "$ROWS" | grep -c .)
+      PANE=$(printf '%s' "$ROWS" | head -1 | cut -d'|' -f3)
+      if [ "$N" = 1 ] && printf '%s' "$ROWS" | grep -qE '\|(/private)?/tmp\|' && tmux capture-pane -p -t "$PANE" | grep -q "^started: ${tool##*:}"; then
+        echo "통과  맥 쪽: 고른 도구(${tool%%:*})가 보던 탭의 폴더에서 새 탭 하나로 켜짐"
+      else
+        echo "실패  맥 쪽: ${tool%%:*} 탭 ${N}개: $ROWS"; RC=1
+        [ -n "$PANE" ] && tmux capture-pane -p -t "$PANE" | grep -v '^$' | tail -3 | sed -E 's/^/        /'
+      fi
+    done
   fi ;;
 esac
 # WW 가 돌았으면 맥 쪽도 확인: 단축어 동작이 시험 세션에 새 백그라운드 탭을 그 폴더에서 하나만 열었는지(시킨 쪽 shortcut)
