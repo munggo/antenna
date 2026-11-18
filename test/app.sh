@@ -10,7 +10,9 @@
 #      맥이 압축하는 동안 '대화를 압축하는 중'이 보이고 끝나면 요약 줄·고리 '–') ·
 #   YY 긴 것 접기(화면 두 장을 넘는 답·내 메시지, 12줄을 넘는 '!' 명령 출력, 긴 코드 블록: '더 보기'·'접기', 접은 뒤의 자리,
 #      쓰는 중에 길어진 답은 접지 않는지, 접힌 코드도 복사는 전체인지. 대화는 test/fake-feed.mjs 가 줌) ·
-#   ZZ 새 탭에서 켤 도구 고르기(서랍의 + 를 누르면 Claude Code·pi·Codex·Gemini CLI, 고르면 보던 탭의 폴더에서 새 탭)
+#   ZZ 새 탭에서 켤 도구 고르기(서랍의 + 를 누르면 Claude Code·pi·Codex·Gemini CLI, 고르면 보던 탭의 폴더에서 새 탭) ·
+#   AAA 서랍의 이번 주 사용량 고리(모델별 주간 한도가 있으면 두 겹: 바깥은 모든 모델·안쪽은 모델별, 이름 아래 'Fable 74%'.
+#       없으면 한 겹. 여럿이면 가장 많이 쓴 것. 사용량 화면의 모델별 막대. 색과 모양은 /tmp/usage-rings-*.png 로 봄)
 # 쓰기: sh test/app.sh [시험 이름 일부…]   예) sh test/app.sh QQ     (sh test.sh --app 으로도 부름)
 # 하는 일: 시험용 tmux 세션과 시험 브리지(이 맥 안에서만 닿는 127.0.0.1)를 띄우고, 시뮬레이터를 켜서 시험한 뒤 모두 치운다.
 #          쓰는 tmux 세션(antenna)·쓰는 브리지·켜져 있는 다른 시뮬레이터는 건드리지 않는다.
@@ -53,7 +55,7 @@ cleanup() {
   xcrun simctl uninstall "$SIM" "$ID" >/dev/null 2>&1   # 시험이 깐 앱은 남기지 않는다
   [ "$WAS_BOOTED" = 0 ] && xcrun simctl shutdown "$SIM" 2>/dev/null
   rm -rf "$D" "$W/secret-win" "$W/secret-win2" "$W/secret-cancel-flag" "$W/secret-got" "$W/pair-hosts-ok" "$W/pair-code-link" "$W/bg-wins" "$W/battery" "$W/shortcut-ok" \
-    "$W/fold-win" "$W/fold-arrive" "$W/fold-grow" "$W/pb-ask" "$W/pb-out" "$W/pb-out.tmp"
+    "$W/fold-win" "$W/fold-arrive" "$W/fold-grow" "$W/pb-ask" "$W/pb-out" "$W/pb-out.tmp" "$W/usage.json" "$W/accounts.json"
   rm -f "$HOME/.cache/pi-remote/notify-$S.sock"
 }
 trap cleanup EXIT
@@ -75,7 +77,12 @@ mkdir -p "$D/conf"
 printf "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1234567)\t94%%; discharging; 1:00 remaining present: true\n" > "$W/battery"
 # WW: 단축어 동작이 여는 새 탭에서는 진짜 Claude Code·pi 대신 바로 끝나는 명령을 켠다(PI_BG_*_CMD, 모델을 부르지 않음)
 # ZZ: 앱에서 여는 새 탭도 진짜 도구를 켜지 않고, 무엇을 켜려 했는지만 그 탭의 셸에 찍는다(PI_NEW_TAB_PREFIX)
-tmux new-session -d -s "$B" -c "$REPO/server" "env PI_REMOTE_ENV=$D/conf/env PI_REMOTE_TOKEN=$TOKEN HOST=127.0.0.1 PORT=$PORT PI_TMUX_SESSION=$S PI_REMOTE_SESSION_DIR=$D/sessions PI_REMOTE_PUSH_FILE=$D/push.json PI_REMOTE_PUSH_DRYRUN=1 PI_REMOTE_FAKE_LOCKED_FILE=$D/locked PI_REMOTE_FAKE_BATTERY_FILE=$W/battery PI_REMOTE_BATTERY_SEC=1 PI_REMOTE_TABS_FILE=$D/tabs.json PI_REMOTE_USAGE_DIR=$D/usage PI_REMOTE_CRASH_LOG=$D/crash.log PI_BG_CLAUDE_CMD=true PI_BG_PI_CMD=true PI_NEW_TAB_PREFIX='echo started:' $NODE bridge.mjs > $D/bridge.log 2>&1"
+# AAA: 사용량은 Anthropic 에 묻지 않고 두 파일에서 읽는다(PI_REMOTE_FAKE_USAGE_FILE: 사용량 조회 응답, PI_ACCOUNTS_CACHE: 회사 계정 값).
+#      처음 값은 개인 43%·Fable 74%, 회사 6%. 화면 시험이 값을 바꿔 가며 서랍의 고리를 본다
+"$NODE" -e 'const fs = require("fs"); const now = Date.now(); const lim = (percent, model) => ({ kind: model ? "weekly_scoped" : "weekly_all", group: "weekly", percent, severity: "normal", resets_at: new Date(now + 5 * 86400e3).toISOString(), scope: model ? { model: { display_name: model } } : null });
+fs.writeFileSync(process.argv[1], JSON.stringify({ limits: [lim(43), lim(74, "Fable")] }));
+fs.writeFileSync(process.argv[2], JSON.stringify({ "anthropic-work": { "7d": { util: 0.06, reset: Math.floor(now / 1000) + 3 * 86400, at: now } } }));' "$W/usage.json" "$W/accounts.json"
+tmux new-session -d -s "$B" -c "$REPO/server" "env PI_REMOTE_ENV=$D/conf/env PI_REMOTE_TOKEN=$TOKEN HOST=127.0.0.1 PORT=$PORT PI_TMUX_SESSION=$S PI_REMOTE_SESSION_DIR=$D/sessions PI_REMOTE_PUSH_FILE=$D/push.json PI_REMOTE_PUSH_DRYRUN=1 PI_REMOTE_FAKE_LOCKED_FILE=$D/locked PI_REMOTE_FAKE_BATTERY_FILE=$W/battery PI_REMOTE_BATTERY_SEC=1 PI_REMOTE_TABS_FILE=$D/tabs.json PI_REMOTE_USAGE_DIR=$D/usage PI_REMOTE_FAKE_USAGE_FILE=$W/usage.json PI_ACCOUNTS_CACHE=$W/accounts.json PI_REMOTE_CRASH_LOG=$D/crash.log PI_BG_CLAUDE_CMD=true PI_BG_PI_CMD=true PI_NEW_TAB_PREFIX='echo started:' $NODE bridge.mjs > $D/bridge.log 2>&1"
 i=0
 while [ $i -lt 40 ] && ! nc -z 127.0.0.1 "$PORT" >/dev/null 2>&1; do sleep 0.5; i=$((i + 1)); done
 nc -z 127.0.0.1 "$PORT" >/dev/null 2>&1 || { echo "시험 브리지가 뜨지 않았어요:"; tail -5 "$D/bridge.log"; exit 1; }
@@ -153,7 +160,7 @@ xcrun simctl keychain "$SIM" reset
 echo $! > "$D/pb.pid"
 
 ONLY=""
-for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testWW_ShortcutTask testXX_ClaudeContext testYY_FoldLongMessages testZZ_NewTabTool testB_RemoveAttachment; do
+for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testWW_ShortcutTask testXX_ClaudeContext testYY_FoldLongMessages testZZ_NewTabTool testAAA_UsageRings testB_RemoveAttachment; do
   if [ $# -eq 0 ]; then ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t"; continue; fi
   for want in "$@"; do case "$t" in *"$want"*) ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t" ;; esac; done
 done

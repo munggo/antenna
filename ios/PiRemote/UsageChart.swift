@@ -53,9 +53,30 @@ struct DailyBar: Identifiable {
     var day: Date { UsageFormat.dayFormatter.date(from: date) ?? Date() }
 }
 
+extension UsageInfo.Limit {
+    /// 모델별 주간 한도면 그 모델 이름(week:Fable → Fable, 회사 계정의 work:7d:oi → Oi). 모든 모델 한도·세션이면 nil
+    var weekModel: String? {
+        guard let key else { return nil }
+        for p in ["week:", "work:7d:"] where key.hasPrefix(p) {
+            let m = key.dropFirst(p.count)
+            return m.isEmpty ? nil : m.prefix(1).uppercased() + m.dropFirst()
+        }
+        return nil
+    }
+}
+
 extension UsageInfo {
+    /// 모델별 주간 한도를 그리는 색(서랍 고리의 안쪽 고리·사용량 화면의 막대). 계정 색(주황·청록)과 따로
+    static let modelColor = Theme.purple
+    /// 모델별 주간 한도 가운데 가장 많이 쓴 것(먼저 차는 것). outer(바깥 고리로 그리는 한도)와 같은 것은 뺀다
+    static func modelWeek(_ limits: [Limit]?, outer: Limit?) -> Limit? {
+        (limits ?? []).filter { $0.weekModel != nil && $0.key != outer?.key }.max { $0.percent < $1.percent }
+    }
+
     /// 모든 모델 주간 한도(없으면 첫 주간 한도)
     var weekLimit: Limit? { limits?.first { $0.key == "week" } ?? limits?.first { !$0.session } }
+    /// 모델별 주간 한도(계정을 나눠 주지 않는 예전 브리지: 회사 계정 것은 빼고)
+    var modelWeekLimit: Limit? { Self.modelWeek(limits?.filter { $0.key?.hasPrefix("work:") != true }, outer: weekLimit) }
     /// 최근 7일 주간 % 기록
     var weekPoints: [UsagePoint] { Self.points(history) }
     static func points(_ history: [[Double?]]?) -> [UsagePoint] {
@@ -180,59 +201,89 @@ struct DailyUsageChart: View {
     }
 }
 
-/// 주간 사용률 원형 고리(가운데 %). 90% 넘으면 빨강
+/// 주간 사용률 원형 고리(가운데 %). 90% 넘으면 빨강.
+/// inner 가 있으면 두 겹: 바깥은 모든 모델, 안쪽은 모델별 주간 한도(예: Fable)를 각자 자기 한도에 대한 %로 그린다
 struct UsageRing: View {
     let percent: Double?
     let color: Color
+    var inner: Double? = nil
     var size: CGFloat = 58
 
-    var body: some View {
-        let p = min(max((percent ?? 0) / 100, 0), 1)
-        let tint = (percent ?? 0) >= 90 ? Theme.red : color
+    /// 12시에서 시계 방향으로 차는 고리 한 겹
+    private func arc(_ percent: Double, _ color: Color, width: CGFloat) -> some View {
         ZStack {
-            Circle().stroke(Theme.muted.opacity(0.22), lineWidth: 6)
+            Circle().stroke(Theme.muted.opacity(0.22), lineWidth: width)
             Circle()
-                .trim(from: 0, to: p)
-                .stroke(tint, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                .trim(from: 0, to: min(max(percent / 100, 0), 1))
+                .stroke(percent >= 90 ? Theme.red : color, style: StrokeStyle(lineWidth: width, lineCap: .round))
                 .rotationEffect(.degrees(-90))
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            arc(percent ?? 0, color, width: 6)
+            if let inner {
+                // 바깥 고리(굵기 6) 안쪽 가장자리에서 2pt 띄움: 3 + 2 + 안쪽 굵기의 반
+                arc(inner, UsageInfo.modelColor, width: 4.5).padding(7.25)
+            }
             Text(percent.map { "\(Int($0.rounded()))%" } ?? "–")
-                .font(.system(size: size * 0.26, weight: .semibold, design: .rounded))
+                .font(.system(size: size * (inner == nil ? 0.26 : 0.24), weight: .semibold, design: .rounded))
                 .foregroundColor(Theme.text)
+                .lineLimit(1)
                 .minimumScaleFactor(0.7)
+                .frame(maxWidth: inner == nil ? nil : size - 24)   // 안쪽 고리 안에 들어가게('100%'는 줄어듦)
         }
         .frame(width: size, height: size)
         .accessibilityIdentifier("usageRing")
     }
 }
 
-/// 서랍 아래 작은 카드: 계정별 이번 주 사용률 원형 고리 · 초기화 시각(회사는 'N시간 전 기준'). 누르면 사용량 화면
+/// 서랍 아래 작은 카드: 계정별 이번 주 사용률 원형 고리 · 초기화 시각(회사는 'N시간 전 기준'). 누르면 사용량 화면.
+/// 모델별 주간 한도(예: Fable)가 있는 계정은 고리가 두 겹이고, 이름 아래에 'Fable 74%' 한 줄이 붙는다
 struct UsageMiniCard: View {
     let usage: UsageInfo?
     let onOpen: () -> Void
 
     private struct Cell: Identifiable {
         let label: String; let color: Color; let percent: Double?; let note: String?
+        let model: UsageInfo.Limit?
         var id: String { label }
     }
     private var cells: [Cell] {
         if let a = usage?.accounts, !a.isEmpty {
             return a.map { Cell(label: $0.label, color: $0.color, percent: $0.weekLimit?.percent,
-                                note: $0.staleText ?? UsageFormat.reset($0.weekLimit?.resetsAt)) }
+                                note: $0.staleText ?? UsageFormat.reset($0.weekLimit?.resetsAt), model: $0.modelWeekLimit) }
         }
-        return [Cell(label: "이번 주", color: Theme.accent, percent: usage?.weekLimit?.percent, note: UsageFormat.reset(usage?.weekLimit?.resetsAt))]
+        return [Cell(label: "이번 주", color: Theme.accent, percent: usage?.weekLimit?.percent,
+                     note: UsageFormat.reset(usage?.weekLimit?.resetsAt), model: usage?.modelWeekLimit)]
     }
 
     var body: some View {
+        let cells = cells
+        let anyModel = cells.contains { $0.model != nil }
         Button(action: onOpen) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("이번 주 사용량").font(.system(size: Typo.caption)).foregroundColor(Theme.muted)
                 HStack(alignment: .top, spacing: 0) {
                     ForEach(cells) { c in
                         VStack(spacing: 6) {
-                            UsageRing(percent: c.percent, color: c.color)
+                            UsageRing(percent: c.percent, color: c.color, inner: c.model?.percent)
                             HStack(spacing: 4) {
                                 Circle().fill(c.color).frame(width: 6, height: 6)
                                 Text(c.label).font(.system(size: Typo.caption + 1, weight: .medium)).foregroundColor(Theme.text)
+                            }
+                            if let m = c.model {
+                                HStack(spacing: 4) {
+                                    Circle().fill(m.percent >= 90 ? Theme.red : UsageInfo.modelColor).frame(width: 6, height: 6)
+                                    Text("\(m.weekModel ?? "") \(Int(m.percent.rounded()))%")
+                                        .font(.system(size: Typo.caption))
+                                        .foregroundColor(m.percent >= 90 ? Theme.red : Theme.text)
+                                        .lineLimit(1)
+                                }
+                            } else if anyModel {
+                                // 다른 계정에만 모델별 한도가 있을 때: 초기화 글의 줄이 어긋나지 않게 자리만
+                                Text(" ").font(.system(size: Typo.caption)).accessibilityHidden(true)
                             }
                             if let n = c.note {
                                 Text(n.replacingOccurrences(of: " 초기화", with: "\n초기화"))

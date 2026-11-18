@@ -2391,6 +2391,111 @@ final class PiRemoteUITests: XCTestCase {
         XCTAssertTrue(grew(count), "Gemini CLI 를 고르면 탭이 하나 늘어야 함(전 \(count)개, 지금 \(tabCount())개)")
     }
 
+    /// AAA. 서랍의 이번 주 사용량 고리(11-18 사용자 '전체와 Fable 의 색을 구분해서'). 모델별 주간 한도가 있는 계정은 고리가 두 겹
+    ///      (바깥: 모든 모델, 안쪽: 모델별)이고 이름 아래에 'Fable 74%'가 붙는다. 없으면 전처럼 한 겹.
+    ///      값은 시험 브리지가 /tmp/ptest/usage.json(사용량 조회 응답)·accounts.json(회사 계정 값)에서 읽는다(test/app.sh):
+    ///      ① 개인 43%·Fable 74%, 회사 6%  ② 사용량 화면의 계정 카드에 모델별 막대  ③ 모델별 한도가 없어지면 한 겹(글도 없음)
+    ///      ④ 모델별 한도가 여럿이면 가장 많이 쓴 것 하나(Fable 95%), 회사 계정에 적힌 모델별 값(Oi 31%)
+    ///      ⑤ 둘 다 100%  ⑥ 모델별 한도를 아직 안 씀(0%)
+    ///      고리 모양과 색(모델별은 보라, 90%를 넘으면 빨강)은 사진으로 본다(/tmp/usage-rings-*.png)
+    func testAAA_UsageRings() throws {
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: "/tmp/ptest/usage.json"), "시험용 사용량 값이 없음(test/app.sh 가 준비)")
+        defer { setUsage(week: 43, models: [("Fable", 74)]) }   // 뒤에 도는 시험을 위해 처음 값으로
+        setUsage(week: 43, models: [("Fable", 74)])
+        relaunch(test: "")
+        let card = el("usageMiniCard")
+        func shows(_ format: String, _ what: String) {
+            let e = expectation(for: NSPredicate(format: format), evaluatedWith: card)
+            XCTAssertEqual(XCTWaiter().wait(for: [e], timeout: 15), .completed, "\(what) (카드의 글: \(card.label))")
+        }
+        /// 서랍의 카드를 눌러 사용량 화면을 연다
+        func openSheet() {
+            card.tap()
+            XCTAssertTrue(waitGone(el("drawer"), 5), "카드를 누르면 서랍이 닫혀야 함")
+            XCTAssertTrue(el("usageRefresh").waitForExistence(timeout: 10), "사용량 화면이 떠야 함")
+        }
+        func closeSheet() {
+            app.buttons["닫기"].tap()
+            XCTAssertTrue(waitGone(el("usageRefresh"), 5), "사용량 화면이 닫혀야 함")
+        }
+
+        // ① 모든 모델 43% · Fable 74%, 회사 6%
+        openDrawer()
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "서랍 아래 사용량 카드가 보여야 함")
+        shows("label CONTAINS '개인' AND label CONTAINS '43%' AND label CONTAINS 'Fable 74%'", "개인 계정에 모든 모델 43%와 Fable 74%가 보여야 함")
+        shows("label CONTAINS '회사' AND label CONTAINS '6%'", "회사 계정 6%가 보여야 함")
+        XCTAssertEqual(card.label.components(separatedBy: "Fable").count - 1, 1, "모델별 글은 그 한도가 있는 계정에만 한 번(카드의 글: \(card.label))")
+        shot("usage-rings-two")
+
+        // ② 사용량 화면: 계정 카드에 모든 모델 막대와 모델별 막대
+        openSheet()
+        XCTAssertTrue(app.staticTexts["주간 한도 · Fable"].waitForExistence(timeout: 5), "사용량 화면에 Fable 막대가 보여야 함")
+        XCTAssertTrue(app.staticTexts["74% 사용"].exists && app.staticTexts["43% 사용"].exists, "막대마다 제 한도의 %")
+        shot("usage-sheet-model")
+
+        // ③ 모델별 한도가 없는 응답으로 바뀌면: 막대도, 서랍의 모델별 글도 없어진다(전과 같은 한 겹 고리)
+        setUsage(week: 12)
+        el("usageRefresh").tap()
+        XCTAssertTrue(waitGone(app.staticTexts["주간 한도 · Fable"], 10), "모델별 한도가 없으면 그 막대도 없어야 함")
+        closeSheet()
+        openDrawer()
+        shows("label CONTAINS '12%' AND NOT (label CONTAINS 'Fable')", "모델별 한도가 없으면 전처럼 %와 계정 이름만")
+        shot("usage-rings-one")
+
+        // ④ 모델별 한도가 여럿(Opus 30% · Fable 95%), 회사 계정에도 모델별 값(Oi 31%)
+        setUsage(week: 50, models: [("Opus", 30), ("Fable", 95)], work: ["7d": 0.06, "7d:oi": 0.31])
+        openSheet()
+        el("usageRefresh").tap()
+        XCTAssertTrue(app.staticTexts["주간 한도 · Fable"].waitForExistence(timeout: 10), "새로 고치면 모델별 막대가 다시 보여야 함")
+        XCTAssertTrue(app.staticTexts["주간 한도 · Opus"].exists, "사용량 화면에는 모델별 한도가 모두 보여야 함")
+        XCTAssertTrue(app.staticTexts["주간 한도 · Oi"].waitForExistence(timeout: 5), "회사 계정의 모델별 값도 막대로 보여야 함")
+        app.swipeUp()   // 화면 크게
+        sleep(1)
+        shot("usage-sheet-many")
+        closeSheet()
+        openDrawer()
+        shows("label CONTAINS '50%' AND label CONTAINS 'Fable 95%' AND NOT (label CONTAINS 'Opus')", "서랍 고리에는 가장 많이 쓴 모델별 한도 하나")
+        shows("label CONTAINS 'Oi 31%'", "회사 계정에도 모델별 값이 보여야 함")
+        shot("usage-rings-red")
+
+        /// 값을 바꾼 뒤 사용량 화면에서 새로 고치고 서랍으로 돌아온다
+        func refresh() {
+            openSheet()
+            el("usageRefresh").tap()
+            sleep(2)
+            closeSheet()
+            openDrawer()
+        }
+        // ⑤ 둘 다 꽉 참: 가운데 '100%'가 안쪽 고리 안에 들어가는지는 사진으로
+        setUsage(week: 100, models: [("Fable", 100)])
+        refresh()
+        shows("label CONTAINS '100%' AND label CONTAINS 'Fable 100%'", "꽉 찬 값도 그대로 보여야 함")
+        shot("usage-rings-full")
+
+        // ⑥ 모델별 한도는 있는데 아직 안 씀: 빈 안쪽 고리와 'Fable 0%'
+        setUsage(week: 3, models: [("Fable", 0)])
+        refresh()
+        shows("label CONTAINS '3%' AND label CONTAINS 'Fable 0%'", "안 쓴 모델별 한도도 보여야 함")
+        shot("usage-rings-zero")
+    }
+
+    /// 시험 브리지가 읽는 사용량 값 바꾸기(test/app.sh 의 PI_REMOTE_FAKE_USAGE_FILE·PI_ACCOUNTS_CACHE).
+    /// week: 모든 모델 주간 %, models: 모델별 주간 %, work: 회사 계정 값(공유 파일의 구분 → 사용률 0~1)
+    private func setUsage(week: Int, models: [(String, Int)] = [], work: [String: Double] = ["7d": 0.06]) {
+        let now = Date().timeIntervalSince1970
+        let reset = ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: now + 5 * 86400))
+        var limits: [[String: Any]] = [["kind": "weekly_all", "group": "weekly", "percent": week, "severity": "normal", "resets_at": reset]]
+        for (name, percent) in models {
+            limits.append(["kind": "weekly_scoped", "group": "weekly", "percent": percent, "severity": "normal", "resets_at": reset,
+                           "scope": ["model": ["display_name": name]]])
+        }
+        let claims = work.mapValues { ["util": $0, "reset": Int(now) + 3 * 86400, "at": Int(now * 1000)] as [String: Any] }
+        let files: [(String, [String: Any])] = [("/tmp/ptest/usage.json", ["limits": limits]), ("/tmp/ptest/accounts.json", ["anthropic-work": claims])]
+        for (path, obj) in files {
+            try? JSONSerialization.data(withJSONObject: obj).write(to: URL(fileURLWithPath: path), options: .atomic)
+        }
+    }
+
     /// 그 요소 아래에서 가장 가까운 '더 보기'·'접기' 버튼
     private func toggle(below e: XCUIElement) -> XCUIElement? {
         let y = e.frame.minY

@@ -43,6 +43,8 @@ struct AccountUsage: Decodable, Equatable, Identifiable {
     var id: String { key }
     var color: Color { key == "work" ? Theme.teal : Theme.accent }
     var weekLimit: UsageInfo.Limit? { limits?.first { $0.key == "week" || $0.key == "work:7d" } ?? limits?.first { !$0.session } }
+    /// 모델별 주간 한도(예: Fable) 가운데 가장 많이 쓴 것. 없으면 nil
+    var modelWeekLimit: UsageInfo.Limit? { UsageInfo.modelWeek(limits, outer: weekLimit) }
     var weekPoints: [UsagePoint] { UsageInfo.points(history) }
     /// '3시간 전 기준'(회사, 10분 넘었을 때)
     var staleText: String? {
@@ -105,6 +107,7 @@ struct UsageSheet: View {
                         Image(systemName: "arrow.clockwise")
                     }
                     .disabled(session.usageLoading)
+                    .accessibilityIdentifier("usageRefresh")
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("닫기") { dismiss() }
@@ -133,7 +136,8 @@ struct UsageSheet: View {
                 UsageBar(title: l.label,
                          percent: l.percent,
                          caption: Self.resetText(l),
-                         alert: l.severity != "normal" || l.percent >= 90)
+                         alert: l.severity != "normal" || l.percent >= 90,
+                         color: l.weekModel == nil ? Theme.accent : UsageInfo.modelColor)
             }
         }
     }
@@ -155,7 +159,9 @@ struct UsageSheet: View {
                     .font(.system(size: 15)).foregroundColor(Theme.muted)
             }
             ForEach(Array(limits.enumerated()), id: \.offset) { _, l in
-                UsageBar(title: l.label, percent: l.percent, caption: Self.resetText(l), alert: l.severity != "normal" || l.percent >= 90, color: a.color)
+                // 모델별 주간 한도(예: Fable)는 서랍 고리의 안쪽 고리와 같은 색으로
+                UsageBar(title: l.label, percent: l.percent, caption: Self.resetText(l), alert: l.severity != "normal" || l.percent >= 90,
+                         color: l.weekModel == nil ? a.color : UsageInfo.modelColor)
             }
         }
         .padding(14)

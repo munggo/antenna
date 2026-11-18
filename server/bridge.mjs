@@ -275,6 +275,9 @@ function readPiStatus() {
 // pi 가 로그인한 Anthropic 토큰(~/.pi/agent/auth.json)으로 사용량을 조회한다.
 // 토큰은 읽기만 하고(갱신은 pi 가 담당) 폰으로는 절대 보내지 않는다. 조회는 1분간 저장.
 const AUTH_FILE = `${process.env.HOME}/.pi/agent/auth.json`;
+// 시험용: 사용량 조회 응답을 이 파일의 JSON 으로 대신한다(Anthropic 에 묻지 않고 로그인 정보도 읽지 않음).
+// 파일이 없거나 깨졌으면 조회가 안 된 것으로 본다(공유 파일 값으로 대신하는 길)
+const FAKE_USAGE_FILE = process.env.PI_REMOTE_FAKE_USAGE_FILE || "";
 const USAGE_TTL_MS = 60_000;
 let usageCache = null; // { at, data }
 let planCache = null; // { at, plan }
@@ -333,7 +336,7 @@ function sharedUsage() {
 
 async function fetchUsage(force = false) {
   if (!force && usageCache && Date.now() - usageCache.at < USAGE_TTL_MS) return usageCache.data;
-  const { token, error } = anthropicToken();
+  const { token, error } = FAKE_USAGE_FILE ? { token: "" } : anthropicToken();
   if (error) {
     const data = sharedUsage();
     if (!data) return { error: "아직 사용량 값이 없어요. 맥에서 Claude Code 나 pi 를 한 번 쓰면 보여요" };
@@ -341,8 +344,8 @@ async function fetchUsage(force = false) {
     return data;
   }
   try {
-    const u = await anthropicGet("/api/oauth/usage", token);
-    if (!planCache || Date.now() - planCache.at > 3600_000) {
+    const u = FAKE_USAGE_FILE ? JSON.parse(readFileSync(FAKE_USAGE_FILE, "utf8")) : await anthropicGet("/api/oauth/usage", token);
+    if (!FAKE_USAGE_FILE && (!planCache || Date.now() - planCache.at > 3600_000)) {
       try {
         planCache = { at: Date.now(), plan: planLabel((await anthropicGet("/api/oauth/profile", token)).organization) };
       } catch {
