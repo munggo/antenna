@@ -193,7 +193,9 @@ You are notified when an agent asks a question or needs an approval, and when a 
 
 ## Usage
 
-The usage screen shows your Claude subscription limits. The bridge reads them with pi's login (`~/.pi/agent/auth.json`). If that is not available it falls back to the values recorded in `~/.cache/pi-remote/claude-accounts.json`, which the pi extension `claude-accounts` writes.
+The usage screen shows your Claude subscription limits. The bridge reads them with pi's login (`~/.pi/agent/auth.json`). When that login is about to expire the bridge refreshes it the same way pi does, so the lookup keeps working even if you have not used pi for a while. Per-model limits (e.g. Fable) are only available from this lookup; when there is one, the ring in the drawer becomes a double ring. Without pi's login the bridge falls back to the values recorded in `~/.cache/pi-remote/claude-accounts.json`, which the pi extension `claude-accounts` writes.
+
+If you use two accounts (see "Two Claude accounts" below) and the second one runs on a token from `claude setup-token`, that token cannot look up usage. To see the second account's limits too, store a lookup-only login once: `node deploy/usage-login.mjs work` (open the printed address, approve with the second account and paste the code; it is saved to `~/.config/pi-remote/usage-auth.json`, readable by you only; `status` and `logout` are also available).
 
 If you use only Claude Code, nothing records those values yet, so the screen says there is no data. A small status line helper for this is not included in this repository yet.
 
@@ -267,7 +269,7 @@ If you have two Claude subscriptions (say personal and work), Antenna can pick o
 
   When a limit makes it switch accounts, the feed quits Claude Code and resumes the same conversation with `claude-as.sh`, so the right account is used even in a shell opened before you changed the shell function. If the account is still unchanged after the restart, it stops switching for 6 hours and notifies your phone.
 - For pi, install the extension: `sh pi-extension/install.sh --with claude-accounts`.
-- Switching by limit needs each account's usage, and for now only the pi extension `claude-accounts` records it (`~/.cache/pi-remote/claude-accounts.json`). On a Mac with Claude Code only, choosing by folder is all that works.
+- Switching by limit needs each account's usage, and for now only the pi extension `claude-accounts` records it (`~/.cache/pi-remote/claude-accounts.json`). On a Mac with Claude Code only, choosing by folder is all that works. If you store a lookup-only login for the second account (see "Usage" above), the bridge records that account's values in this file.
 
 ### Keeping the Mac on an OpenVPN server
 

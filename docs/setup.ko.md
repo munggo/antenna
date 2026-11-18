@@ -193,7 +193,9 @@ cp ios/Local.xcconfig.example ios/Local.xcconfig
 
 ## 사용량
 
-사용량 화면은 Claude 구독 한도를 보여 준다. 브리지는 pi 의 로그인(`~/.pi/agent/auth.json`)으로 값을 읽는다. 그것이 없으면 `~/.cache/pi-remote/claude-accounts.json` 에 적힌 값을 쓰는데, 이 파일은 pi 확장 `claude-accounts` 가 적는다.
+사용량 화면은 Claude 구독 한도를 보여 준다. 브리지는 pi 의 로그인(`~/.pi/agent/auth.json`)으로 값을 읽는다. 그 로그인의 만료가 가까우면 pi 가 쓰는 방식 그대로 스스로 갱신하므로, pi 를 한동안 쓰지 않아도 조회가 이어진다. 모델별 한도(예: Fable)는 이 조회로만 알 수 있고, 있으면 서랍의 고리가 두 겹으로 보인다. pi 의 로그인이 없으면 `~/.cache/pi-remote/claude-accounts.json` 에 적힌 값을 쓰는데, 이 파일은 pi 확장 `claude-accounts` 가 적는다.
+
+계정을 둘 쓰고(아래 'Claude 계정 둘') 둘째 계정의 토큰이 `claude setup-token` 으로 만든 것이면, 그 토큰은 사용량을 조회할 수 없다. 둘째 계정의 한도까지 보려면 조회 전용 로그인을 한 번 받아 둔다: `node deploy/usage-login.mjs work`(찍히는 주소를 열어 둘째 계정으로 승인하고 코드를 붙여넣는다. `~/.config/pi-remote/usage-auth.json` 에 본인만 읽게 저장된다. `status`·`logout` 도 있다).
 
 Claude Code 만 쓰면 아직 그 값을 적어 주는 것이 없어서, 화면에 값이 없다고 나온다. 이를 위한 작은 상태 줄 도우미는 아직 이 저장소에 들어 있지 않다.
 
@@ -267,7 +269,7 @@ Claude 구독이 둘이면(예: 개인과 회사) 폴더에 따라 하나를 고
 
   한도 때문에 계정을 바꿀 때는 연결부가 Claude Code 를 끄고 `claude-as.sh` 로 같은 대화를 다시 켠다. 셸 함수를 고치기 전에 열어 둔 셸에서도 맞는 계정으로 켜진다. 다시 켠 뒤에도 계정이 그대로면 6시간 동안 다시 바꾸지 않고 폰에 알린다.
 - pi: 확장을 깐다. `sh pi-extension/install.sh --with claude-accounts`
-- 한도에 따라 바꾸려면 계정별 사용량이 있어야 하는데, 지금은 pi 확장 `claude-accounts` 만 그 값을 적는다(`~/.cache/pi-remote/claude-accounts.json`). Claude Code 만 쓰는 맥에서는 폴더에 따라 고르는 것까지만 된다.
+- 한도에 따라 바꾸려면 계정별 사용량이 있어야 하는데, 지금은 pi 확장 `claude-accounts` 만 그 값을 적는다(`~/.cache/pi-remote/claude-accounts.json`). Claude Code 만 쓰는 맥에서는 폴더에 따라 고르는 것까지만 된다. 둘째 계정에 조회 전용 로그인을 받아 두면(위 '사용량') 브리지가 둘째 계정의 값은 이 파일에 적는다.
 
 ### 맥을 OpenVPN 서버에 늘 붙여 두기
 
