@@ -983,6 +983,9 @@ export function runFeed(pane) {
   const bgJobs = new Map();     // 작업 번호 → { id, kind: shell|agent|monitor, title, output, startedAt }
   const bgStarting = new Map(); // 도구 호출 번호 → { kind, title } (시작 결과를 기다림)
   const bgStopping = new Map(); // 멈춤 도구(TaskStop 등) 호출 번호 → 작업 번호
+  // Claude Code 가 감시를 끝내며 보내는 이벤트 글: [Monitor expired after 30m with 1 event delivered. …](시간 제한), [Monitor timed out …],
+  // [Monitor stopped — too much output …]. 끝 상태(<status>)가 없는 알림으로 온다(2.1.326 실행 파일과 실제 기록에서 확인, 11-18)
+  const MONITOR_ENDED = /<event>\s*\[Monitor (expired after|timed out|stopped)\b/;
   const trackJobs = (o) => {
     if (o.isSidechain) return;
     const c = o.message?.content;
@@ -1015,7 +1018,10 @@ export function runFeed(pane) {
           // 끝까지 기다린 하위 에이전트(뒤에서 돌지 않은 호출)는 넣지 않음. 모델은 결과의 resolvedModel(실제로 답한 모델과 같음, 11-16 확인)
           const inBackground = s.kind !== "agent" || s.bg || r.isAsync === true;
           if (id && !b.is_error && inBackground) {
-            bgJobs.set(id, { id, ...s, output, startedAt: Date.parse(o.timestamp ?? "") || Date.now(), ...(s.kind === "agent" ? { model: String(r.resolvedModel ?? "") } : {}) });
+            const startedAt = Date.parse(o.timestamp ?? "") || Date.now();
+            // 감시의 시간 제한(결과의 timeoutMs. 계속 도는 감시는 0): 그때가 지나면 Claude Code 가 감시를 끝낸다
+            bgJobs.set(id, { id, ...s, output, startedAt, ...(s.kind === "agent" ? { model: String(r.resolvedModel ?? "") } : {}),
+              ...(s.kind === "monitor" && Number(r.timeoutMs) > 0 ? { expiresAt: startedAt + Number(r.timeoutMs) } : {}) });
           }
         }
         const stop = bgStopping.get(b.tool_use_id);
@@ -1026,7 +1032,8 @@ export function runFeed(pane) {
       }
     }
     // 끝 알림(<task-notification> … <task-id>X</task-id> … <status>completed</status>): 대기열 줄·사람 줄·첨부 줄 어디에 적히든.
-    // 감시는 이벤트마다 알림이 올 수 있어, 끝 상태가 적힌 알림만 끝으로 본다
+    // 감시는 이벤트마다 알림이 올 수 있어, 끝 상태가 적힌 알림만 끝으로 본다. 다만 시간 제한이 지났거나 출력이 너무 많아 Claude Code 가
+    // 감시를 끝낼 때는 끝 상태 없이 이벤트 알림 하나만 온다(MONITOR_ENDED): 그 글로 시작하는 이벤트도 끝으로 본다
     const note = o.type === "queue-operation" ? o.content
       : o.type === "user" && o.origin?.kind === "task-notification" ? textOf(c)
       : o.type === "attachment" && o.attachment?.type === "queued_command" ? o.attachment.prompt : null;
@@ -1034,7 +1041,8 @@ export function runFeed(pane) {
       for (const m of note.matchAll(/<task-notification>([\s\S]*?)<\/task-notification>/g)) {
         const id = m[1].match(/<task-id>([^<]+)<\/task-id>/)?.[1];
         const status = m[1].match(/<status>([^<]+)<\/status>/)?.[1] ?? "";
-        if (id && status && !/^(running|in_progress|event)$/i.test(status)) bgJobs.delete(id);
+        const ended = status ? !/^(running|in_progress|event)$/i.test(status) : MONITOR_ENDED.test(m[1]);
+        if (id && ended) bgJobs.delete(id);
       }
     }
   };
@@ -1644,12 +1652,15 @@ export function runFeed(pane) {
       parentThinking: tmux("show-options", "-w", "-v", "-t", pane, "@ai_thinking") ?? "", envEffort: process.env.CLAUDE_CODE_EFFORT_LEVEL });
     return { agentType: j.type, model: j.model ? prettyModel(j.model) : "", thinking: j.thinking };
   };
-  /** 지금 도는 작업(시작 순). 셸은 이 칸 Claude Code 가 띄운 셸이 출력 파일을 열고 있어야, 에이전트·감시는 Claude Code 를 켠 뒤에 시작했어야 */
+  /** 시간 제한이 지난 감시: 끝났다는 알림을 못 읽었어도 끝난 것으로 본다(제한이 없는 감시·에이전트는 늘 아님) */
+  const expired = (j) => Boolean(j.expiresAt) && Date.now() > j.expiresAt;
+  /** 지금 도는 작업(시작 순). 셸은 이 칸 Claude Code 가 띄운 셸이 출력 파일을 열고 있어야, 에이전트·감시는 Claude Code 를 켠 뒤에 시작했어야
+   *  (감시는 시간 제한도 남아 있어야) */
   const jobList = () => {
     const since = claudeStartedAt();
     const out = [];
     for (const j of bgJobs.values()) {
-      if (j.kind === "shell" ? !shellGroups(j.output).size : since && j.startedAt < since) continue;
+      if (j.kind === "shell" ? !shellGroups(j.output).size : (since && j.startedAt < since) || expired(j)) continue;
       out.push({ id: j.id, kind: j.kind, title: j.title.slice(0, 120), startedAt: j.startedAt, ...(j.kind === "shell" ? { tail: tailOf(j.output) } : {}),
         ...(j.kind === "agent" ? agentInfo(j) : {}) });
     }
@@ -1661,7 +1672,7 @@ export function runFeed(pane) {
     const tracked = [...bgJobs.values()].filter((j) => j.kind !== "shell");
     if (!tracked.length) return {};
     const since = claudeStartedAt();
-    const live = tracked.filter((j) => !(since && j.startedAt < since));
+    const live = tracked.filter((j) => !(since && j.startedAt < since) && !expired(j));
     return { 에이전트: live.filter((j) => j.kind === "agent").length, 감시: live.filter((j) => j.kind === "monitor").length };
   };
   /** 뒤에서 도는 하위 에이전트(jobList 와 같은 조건) → 맥 화면 한 줄에 쓸 [{ type, model, thinking }] */
@@ -1713,7 +1724,7 @@ export function runFeed(pane) {
   /** 작업 종료: 셸은 바로 종료하고, 에이전트·감시는 Claude 에게 TaskStop 으로 종료해 달라고 보냄(사용자 결정 11-14). 끝나면 새 목록을 보냄 */
   const killJob = async (id, sock) => {
     const j = bgJobs.get(String(id ?? ""));
-    if (!j) write(sock, { t: "notice", text: "그 작업은 이미 끝났어요" });
+    if (!j || expired(j)) write(sock, { t: "notice", text: "그 작업은 이미 끝났어요" });
     else if (j.kind === "shell") {
       const err = await killShell(j);
       write(sock, { t: "notice", text: err ?? `'${j.title.slice(0, 40)}' 작업을 종료했어요` });

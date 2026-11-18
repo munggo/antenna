@@ -7,6 +7,8 @@
 // 6) 하위 에이전트의 종류·모델·생각 깊이(요즘 판은 run_in_background 없이 결과의 isAsync·resolvedModel, 깊이는 문서 순서),
 //    끝까지 기다린 하위 에이전트는 넣지 않음, 맥 화면 한 줄(@ai_bg_line): 이 칸이 맡긴 아직 일하는 백그라운드 탭과 에이전트
 // 7) 서랍의 수(@ai_jobs): 화면에서 센 것에 대화 기록으로 아는 에이전트·감시 수를 합쳐, 눌러서 보는 목록과 같은 수
+// 8) 감시의 시간 제한: 제한이 지나 끝난 감시는 끝 상태 없이 이벤트 알림 하나('[Monitor expired after …]')만 온다(11-18 사용자 보고:
+//    끝난 감시가 '6시간째'로 남아 보임). 그 알림이나 제한 시각으로 빼고, 제한이 남은 감시·계속 도는 감시는 그대로 둠
 // 시험 세션(bgjobstest)·가짜 홈을 만들고 끝나면 지운다. 쓰는 tmux 세션과 쓰는 연결부는 건드리지 않는다.
 // 실행: node claude-remote/test/bg-jobs.test.mjs
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -88,6 +90,21 @@ result("ta7", "다 했어요", { status: "completed", agentId: "aag7", resolvedM
 agentCall("ta8", "aag8", { description: "정의에 깊이", subagent_type: "reviewer" }, "claude-haiku-5-5", -37_000);
 call("tm1", "Monitor", { command: "tail -f x", description: "빌드 지켜보기" }, -30_000);
 result("tm1", "Monitor started (task bmo1)", { taskId: "bmo1" }, -30_000);
+// 8) 요즘 판의 감시: 시작 결과에 제한(timeoutMs)과 계속 도는지(persistent)가 오고, 알림은 끝 상태 없이 이벤트로 온다
+const monitor = (k, description, r, ms) => {
+  call(`tm${k}`, "Monitor", { command: "tail -f x", description }, ms);
+  result(`tm${k}`, `Monitor started (task bmo${k}, expires in 30m unless the source ends first)`, { taskId: `bmo${k}`, ...r }, ms);
+};
+const eventNote = (id, title, event) => put({ type: "queue-operation", operation: "enqueue",
+  content: `<task-notification>\n<task-id>${id}</task-id>\n<summary>Monitor event: "${title}"</summary>\n<event>${event}</event>\n</task-notification>` });
+monitor(2, "제한으로 끝난 감시", { timeoutMs: 1_800_000, persistent: false }, -29_000);
+eventNote("bmo2", "제한으로 끝난 감시", "[Monitor expired after 30m with 1 event delivered. Re-arm it if you still need the watch.]");
+monitor(3, "알림 없이 제한이 지난 감시", { timeoutMs: 10_000, persistent: false }, -28_000);
+monitor(4, "출력이 많아 멈춘 감시", { timeoutMs: 1_800_000, persistent: false }, -27_000);
+eventNote("bmo4", "출력이 많아 멈춘 감시", "[Monitor stopped — too much output (40 events suppressed over 12s). Restart with a more selective source.]");
+monitor(5, "제한이 남은 감시", { timeoutMs: 1_800_000, persistent: false }, -26_000);
+eventNote("bmo5", "제한이 남은 감시", "로그: Monitor expired after 3 retries");   // 지켜보던 명령이 찍은 줄(끝 문구로 시작하지 않음): 끝이 아님
+monitor(6, "계속 도는 감시", { timeoutMs: 0, persistent: true }, -25_000);
 call("tb2", "Bash", { command: "ls", description: "끝난 셸", run_in_background: true });
 result("tb2", bgText("bsh2", `${ROOT}/bsh2.output`), { backgroundTaskId: "bsh2" });
 note("bsh2", "completed");
@@ -122,13 +139,20 @@ try {
   await sleep(1200);
   const list = (await ask()) ?? [];
   const ids = list.map((j) => j.id).join(",");
-  ok(ids === "bsh1,aag1,aag3,aag4,aag5,aag6,aag8,bmo1", `1) 목록은 도는 셸·에이전트·감시만, 시작 순(${ids})`);
+  ok(ids === "bsh1,aag1,aag3,aag4,aag5,aag6,aag8,bmo1,bmo5,bmo6", `1) 목록은 도는 셸·에이전트·감시만, 시작 순(${ids})`);
   const s1 = list.find((j) => j.id === "bsh1");
   ok(s1?.kind === "shell" && s1.title === "긴 시험 돌리기" && /진행 2/.test(s1.tail ?? ""), `1) 셸: 이름은 설명, 최근 출력(${JSON.stringify(s1?.tail)})`);
   const a1 = list.find((j) => j.id === "aag1");
   ok(a1?.kind === "agent" && a1.title === "엔진 조사" && !("tail" in a1) && a1.startedAt < Date.now() - 30_000, "1) 에이전트: 이름·시작한 때(출력은 없음)");
   ok(list.find((j) => j.id === "bmo1")?.kind === "monitor", "1) 감시: 이벤트 알림으로는 빼지 않음");
   ok(!/bsh2|aag2|bsh3/.test(ids), "1) 끝 알림·멈춤 도구로 끝난 것, 출력 파일을 연 프로세스가 없는 셸은 뺌");
+
+  // 8) 감시의 시간 제한
+  ok(!/bmo2/.test(ids), "8) 제한으로 끝났다는 이벤트 알림을 받은 감시는 뺌(끝 상태가 없는 알림)");
+  ok(!/bmo3/.test(ids), "8) 알림을 못 읽었어도 제한 시각이 지난 감시는 뺌");
+  ok(!/bmo4/.test(ids), "8) 출력이 너무 많아 멈췄다는 이벤트 알림을 받은 감시는 뺌");
+  ok(/bmo5/.test(ids), "8) 제한이 남은 감시는 그대로(지켜보던 명령이 찍은 비슷한 글로는 빼지 않음)");
+  ok(/bmo6/.test(ids), "8) 계속 도는 감시(제한 0)는 그대로");
 
   // 6) 하위 에이전트의 종류·모델·생각 깊이
   const info = (id) => { const j = list.find((x) => x.id === id) ?? {}; return `${j.agentType}|${j.model}|${j.thinking}`; };
@@ -161,15 +185,15 @@ try {
   ok(["에이전트 general-purpose Opus 5.5 매우 높음", "에이전트 Explore Haiku 5.5 · ", "에이전트 Explore Haiku 5.5 낮음", "에이전트 fork Opus 5.5 매우 높음", "에이전트 reviewer Haiku 5.5 최대"].every((s) => bgl.includes(s)),
     `6) 에이전트마다 종류·모델·깊이(${bgl})`);
 
-  // 7) 서랍의 수(@ai_jobs): 화면 모드 줄에서 센 것(셸 1·에이전트 2)에 대화 기록으로 아는 수(에이전트 6·감시 1)를 합침.
+  // 7) 서랍의 수(@ai_jobs): 화면 모드 줄에서 센 것(셸 1·에이전트 2)에 대화 기록으로 아는 수(에이전트 6·감시 3)를 합침.
   //    11-17 사용자 보고: 요즘 Claude Code 는 에이전트 수를 모드 줄에 쓰지 않아 서랍에 '백그라운드 작업'이 안 보였다(목록에는 있는데 수는 없음)
   const jobsOpt = await waitFor(() => { const v = tm("show-options", "-w", "-v", "-t", pane, "@ai_jobs") ?? ""; return /감시/.test(v) ? v : ""; }, 5000)
     || (tm("show-options", "-w", "-v", "-t", pane, "@ai_jobs") ?? "");
-  ok(jobsOpt === "셸 1개 · 에이전트 6개 · 감시 1개", `7) 서랍의 수는 종류마다 화면과 대화 기록 가운데 큰 쪽(${jobsOpt})`);
+  ok(jobsOpt === "셸 1개 · 에이전트 6개 · 감시 3개", `7) 서랍의 수는 종류마다 화면과 대화 기록 가운데 큰 쪽, 끝난 감시는 세지 않음(${jobsOpt})`);
   const shownSum = [...jobsOpt.matchAll(/(\d+)개/g)].reduce((s, m) => s + Number(m[1]), 0);
   ok(shownSum === list.length, `7) 서랍의 수(${shownSum})가 눌러서 보는 목록의 수(${list.length})와 같음`);
-  const lineEnd = (await waitFor(() => (/ · 셸 1 · 감시 1$/.test(lineNow()) ? lineNow() : ""), 5000)) || lineNow();
-  ok(/ · 셸 1 · 감시 1$/.test(lineEnd), `7) 맥 화면 한 줄 끝에 셸·감시 수(${lineEnd.slice(-24)})`);
+  const lineEnd = (await waitFor(() => (/ · 셸 1 · 감시 3$/.test(lineNow()) ? lineNow() : ""), 5000)) || lineNow();
+  ok(/ · 셸 1 · 감시 3$/.test(lineEnd), `7) 맥 화면 한 줄 끝에 셸·감시 수(${lineEnd.slice(-24)})`);
 
   // 2) 셸 종료
   ok(alive(shellPid) && alive(sleeper) && alive(outsider.pid), "2) 종료 전: 셸·그 안 명령·칸 밖 프로세스가 돎");
@@ -203,12 +227,21 @@ try {
   // 안내 뒤에 새 목록도 옴(다음 단계가 이 목록을 제 답으로 받지 않게 끝까지 기다림)
   ok(Boolean(await waitFor(() => notices.some((t) => /이미 끝났어요/.test(t)) && jobs, 4000)), "4) 없는 작업은 '이미 끝났어요'");
 
+  // 8) 제한이 지난 감시를 종료하려 하면: 이미 끝난 작업(Claude 에게 종료해 달라는 글을 보내지 않음)
+  notices.length = 0;
+  jobs = null;
+  const typedBefore = existsSync(TYPED) ? readFileSync(TYPED, "utf8") : "";
+  cmd({ cmd: "bg-job-kill", id: "bmo3" });
+  ok(Boolean(await waitFor(() => notices.some((t) => /이미 끝났어요/.test(t)) && jobs, 4000)), `8) 제한이 지난 감시를 종료하려 하면 '이미 끝났어요'(${notices.join(" / ")})`);
+  await sleep(500);
+  ok((existsSync(TYPED) ? readFileSync(TYPED, "utf8") : "") === typedBefore, "8) 이미 끝난 감시는 Claude 에게 종료해 달라고 보내지 않음");
+
   // 5) Claude Code 를 켜기 전에 시작한 에이전트·감시는 뺌(세션 파일의 켠 때)
   mkdirSync(`${HOME}/.claude/sessions`, { recursive: true });
   const sess = `${HOME}/.claude/sessions/${tm("display", "-p", "-t", pane, "#{pane_pid}")}.json`;
   writeFileSync(sess, JSON.stringify({ sessionId: "s", startedAt: T0 - 35_000 }));   // 에이전트(T0-40초) 뒤, 감시(T0-30초) 앞
   const ids5 = ((await ask()) ?? []).map((j) => j.id).join(",");
-  ok(ids5 === "bmo1", `5) 켜기 전에 시작한 에이전트는 빼고 그 뒤 감시만(${ids5})`);
+  ok(ids5 === "bmo1,bmo5,bmo6", `5) 켜기 전에 시작한 에이전트는 빼고 그 뒤 감시만(${ids5})`);
 } finally {
   c.destroy();
   feed.kill();
