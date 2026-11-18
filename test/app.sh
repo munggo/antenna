@@ -16,7 +16,9 @@
 #       없으면 한 겹. 여럿이면 가장 많이 쓴 것. 사용량 화면의 모델별 막대. 회사 계정의 Fable 값과, 한도에 걸렸다 풀린 것.
 #       색과 모양은 /tmp/usage-rings-*.png 로 봄) ·
 #   AAB '작업 중' 줄의 점 세 개가 그 줄 안에서 깜빡이기만 하는지(작업 중인 탭을 열 때, 열어 둔 채 작업이 시작될 때,
-#       긴 답을 펼친 뒤. 화면 사진을 여러 장 찍어 점이 줄 밖에 찍히는지 봄. '작업 중'은 /tmp/ptest/fold-busy 로 만듦)
+#       긴 답을 펼친 뒤. 화면 사진을 여러 장 찍어 점이 줄 밖에 찍히는지 봄. '작업 중'은 /tmp/ptest/fold-busy 로 만듦) ·
+#   AAC Claude Code 탭의 계정 칩(지금 계정, 고르면 확인 창 → 맥에 set-account, '개인→회사' 진행 표시 → 회사·고정 표시,
+#       취소하면 보내지 않음, pi 탭에는 칩 없음. 맥 쪽은 test/fake-feed.mjs --account 가 흉내)
 # 쓰기: sh test/app.sh [시험 이름 일부…]   예) sh test/app.sh QQ     (sh test.sh --app 으로도 부름)
 # 하는 일: 시험용 tmux 세션과 시험 브리지(이 맥 안에서만 닿는 127.0.0.1)를 띄우고, 시뮬레이터를 켜서 시험한 뒤 모두 치운다.
 #          쓰는 tmux 세션(antenna)·쓰는 브리지·켜져 있는 다른 시뮬레이터는 건드리지 않는다.
@@ -52,6 +54,8 @@ cleanup() {
   [ -f "$D/fake/shell.pid" ] && kill -9 -"$(cat "$D/fake/shell.pid")" 2>/dev/null   # 그 가짜가 뒤에서 돌린 셸(시험이 못 껐을 때)
   [ -f "$D/fold.pid" ] && kill "$(cat "$D/fold.pid")" 2>/dev/null                    # YY 의 가짜 대화 피드(끝나며 제 소켓을 지움)
   [ -f "$D/fold.sock" ] && rm -f "$(cat "$D/fold.sock")"
+  [ -f "$D/acct.pid" ] && kill "$(cat "$D/acct.pid")" 2>/dev/null                    # AAC 의 계정 시험 가짜 피드
+  [ -f "$D/acct.sock" ] && rm -f "$(cat "$D/acct.sock")"
   [ -f "$D/pb.pid" ] && kill "$(cat "$D/pb.pid")" 2>/dev/null                        # 복사한 글을 떠 주는 도우미
   tmux kill-session -t "=$B" 2>/dev/null
   tmux kill-session -t "=$S" 2>/dev/null
@@ -59,7 +63,7 @@ cleanup() {
   xcrun simctl uninstall "$SIM" "$ID" >/dev/null 2>&1   # 시험이 깐 앱은 남기지 않는다
   [ "$WAS_BOOTED" = 0 ] && xcrun simctl shutdown "$SIM" 2>/dev/null
   rm -rf "$D" "$W/secret-win" "$W/secret-win2" "$W/secret-cancel-flag" "$W/secret-got" "$W/pair-hosts-ok" "$W/pair-code-link" "$W/bg-wins" "$W/battery" "$W/shortcut-ok" \
-    "$W/fold-win" "$W/fold-arrive" "$W/fold-link" "$W/fold-grow" "$W/fold-busy" "$W/pb-ask" "$W/pb-out" "$W/pb-out.tmp" "$W/usage.json" "$W/accounts.json"
+    "$W/fold-win" "$W/fold-arrive" "$W/fold-link" "$W/fold-grow" "$W/fold-busy" "$W/acct-win" "$W/acct-cmds" "$W/pb-ask" "$W/pb-out" "$W/pb-out.tmp" "$W/usage.json" "$W/accounts.json"
   rm -f "$HOME/.cache/pi-remote/notify-$S.sock"
 }
 trap cleanup EXIT
@@ -137,6 +141,13 @@ echo "$HOME/.cache/pi-remote/feed/$(printf '%s' "$FOLD_PANE" | tr -d '%').sock" 
 "$NODE" "$REPO/test/fake-feed.mjs" "$FOLD_PANE" "$W" > "$D/fold.log" 2>&1 &
 echo $! > "$D/fold.pid"
 echo "$FOLD" > "$W/fold-win"
+# AAC: Claude Code 탭의 계정 칩. 가짜 피드가 Claude Code 탭처럼 굴며 탭 옵션에 계정을 적고, 앱이 고른 것을 /tmp/ptest/acct-cmds 에 적음
+ACCT=$(bgwin '계정시험')
+ACCT_PANE=$(tmux display -p -t "$S:$ACCT" '#{pane_id}')
+echo "$HOME/.cache/pi-remote/feed/$(printf '%s' "$ACCT_PANE" | tr -d '%').sock" > "$D/acct.sock"
+"$NODE" "$REPO/test/fake-feed.mjs" "$ACCT_PANE" "$W" --account > "$D/acct.log" 2>&1 &
+echo $! > "$D/acct.pid"
+echo "$ACCT" > "$W/acct-win"
 touch "$W/pair-hosts-ok"   # PP: 시험 브리지가 127.0.0.1 에만 열려 있다는 표시
 touch "$W/shortcut-ok"     # WW: 시험 브리지가 새 탭에서 진짜 도구를 켜지 않는다는 표시(이 준비 없이 돌리면 건너뜀)
 # RR: 짝짓기 링크(한 번 쓰는 코드 + 시험 브리지 인증서의 지문). 맥의 짝짓기 명령이 QR 에 담는 것과 같은 모양
@@ -164,7 +175,7 @@ xcrun simctl keychain "$SIM" reset
 echo $! > "$D/pb.pid"
 
 ONLY=""
-for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testWW_ShortcutTask testXX_ClaudeContext testYY_FoldLongMessages testZZ_NewTabTool testAAA_UsageRings testAAB_WorkingDotsStay testB_RemoveAttachment; do
+for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testWW_ShortcutTask testXX_ClaudeContext testYY_FoldLongMessages testZZ_NewTabTool testAAA_UsageRings testAAB_WorkingDotsStay testAAC_AccountChip testB_RemoveAttachment; do
   if [ $# -eq 0 ]; then ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t"; continue; fi
   for want in "$@"; do case "$t" in *"$want"*) ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t" ;; esac; done
 done

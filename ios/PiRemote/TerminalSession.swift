@@ -20,6 +20,8 @@ struct TmuxWindow: Identifiable, Equatable {
     /// 이 탭의 모델(예: "Opus 5.5")과 생각 깊이(high 등). 모르면 "". 서랍의 백그라운드 탭 줄에 보임
     var model: String = ""
     var thinking: String = ""
+    /// Claude Code 탭의 계정(맥 연결부가 적음, 11-18). Claude Code 탭이 아니거나 모르면 nil
+    var account: TabAccount? = nil
     var id: Int { index }
 
     /// '끝난 것 모두 닫기'로 닫을 탭: 결과를 보냈고, 다시 일하거나 묻지 않으며, 뒤에서 도는 일도 없음(맥 브리지 server/windows.mjs 와 같은 규칙)
@@ -53,6 +55,21 @@ struct MacBattery: Equatable {
 }
 
 /// 백그라운드 탭 정보(맥 브리지가 탭 옵션에서 읽어 탭 목록과 함께 보냄)
+/// Claude Code 탭의 계정(사용자 결정 11-18: 탭마다 고르기 · 일하는 중이면 끝나면 바꾸기 · 고른 계정도 한도 95% 면 자동으로 넘김).
+/// 값은 work | personal. 맥 브리지 server/windows.mjs 의 account 와 같은 모양
+struct TabAccount: Equatable {
+    /// 지금 이 탭의 Claude Code 가 쓰는 계정
+    let now: String
+    /// 앱에서 고른 계정(빈 값이면 자동: 폴더 기본·한도 기준)
+    let pin: String
+    /// 바꿀 계정(빈 값이면 바꿀 일 없음)
+    let next: String
+    /// wait: 하던 일이 끝나기를 기다림 | switch: 인수인계 문서를 받고 다시 켜는 중 | ""
+    let phase: String
+
+    static func name(_ a: String) -> String { a == "work" ? "회사" : "개인" }
+}
+
 struct BackgroundInfo: Equatable {
     /// 시킨 쪽: user(맥에서 /bgtab) | ai(AI 가 맡김) | phone(폰에서 '백그라운드로 보내기') | shortcut(단축어 동작)
     let by: String
@@ -501,6 +518,8 @@ final class TerminalSession: NSObject, ObservableObject {
     /// 계획 모드 켜기·끄기(맥 pi 의 /plan on|off)
     /// 권한 모드: auto | ask | plan
     func setPermMode(_ m: String) { sendControl(["type": "pi-command", "text": "/mode \(m)"]) }
+    /// 지금 보는 Claude Code 탭의 계정 고르기: work | personal | auto. 맥 연결부가 일이 끝나면 인수인계 문서를 받아 바꿔 켬
+    func setAccount(_ a: String) { sendControl(["type": "set-account", "account": a]) }
 
     /// 내 메시지 직전으로 되감기(글은 입력창으로 돌아옴)
     func rewind(id: String, text: String) { sendControl(["type": "rewind", "id": id, "text": text]) }
@@ -599,7 +618,12 @@ final class TerminalSession: NSObject, ObservableObject {
                                   bg: bg,
                                   jobs: d["jobs"] as? String ?? "",
                                   model: d["model"] as? String ?? "",
-                                  thinking: d["thinking"] as? String ?? "")
+                                  thinking: d["thinking"] as? String ?? "",
+                                  account: (d["account"] as? [String: Any]).flatMap { a -> TabAccount? in
+                                      guard let now = a["now"] as? String, !now.isEmpty else { return nil }
+                                      return TabAccount(now: now, pin: a["pin"] as? String ?? "", next: a["next"] as? String ?? "",
+                                                        phase: a["phase"] as? String ?? "")
+                                  })
             }
             let battery = (obj["battery"] as? [String: Any]).flatMap { b -> MacBattery? in
                 guard let percent = b["percent"] as? Int else { return nil }

@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { desiredAccount, homeAccount } from "./claude-account.mjs";
+import { baseAccount, desiredAccount, hasWorkToken } from "./claude-account.mjs";
 import { bgInfo, bgLine, bgTabsFrom, prettyModel } from "./bg-launch.mjs";
 
 // ── 코드의 판: 연결부를 고쳐 설치해도 돌던 것은 옛 코드로 남아, 탭마다 다른 판이 돌았다(2026-11) ──
@@ -177,6 +177,45 @@ export function relaunchArgs(argsStr, mode) {
   return out;
 }
 const SUBCOMMANDS = new Set(["mcp", "config", "doctor", "update", "install", "migrate-installer", "setup-token", "plugin", "agents", "auth", "remote-control", "ultrareview"]);
+
+// ── 계정 전환 때 인수인계(사용자 결정 11-18) ──
+// 같은 대화를 다른 계정으로 이어 켜면(--resume) 문제가 생겨, 대화를 비우고 새로 켠다. 그 전에 지금 세션이 인수인계 문서를 쓰고,
+// 새 세션이 그 문서를 읽고 이어 간다
+/** 지금 세션에 보낼 인수인계 요청(한 번에 붙여 넣음). pending: 멈추느라 답하지 못한 사용자 글(입력창에 되돌아온 것) */
+export function handoffAsk(reason, pending = "") {
+  const tail = pending
+    ? ["", "사용자가 방금 보낸 요청이 있었는데, 답하기 전에 멈춰서 이 대화에 들어가지 않았을 수 있습니다. 문서의 '다음에 할 일' 맨 앞에 이 요청을 넣으세요:", pending]
+    : [];
+  return [
+    `[계정 전환] ${reason} 곧 이 대화를 비우고 다른 계정으로 Claude Code 를 새로 켭니다. 새 세션은 이 대화를 모르고, 지금 쓰는 인수인계 문서만 보고 일을 이어받습니다.`,
+    "하던 일은 여기서 멈추세요. 도구는 쓰지 말고 인수인계 문서 전문만 답으로 쓰세요(답이 그대로 파일로 저장됩니다). 첫 줄은 '# 인수인계' 로 시작하세요.",
+    "넣을 것:",
+    "- 사용자의 원래 요청과 목표, 사용자가 정한 결정·지시(되도록 사용자 말 그대로)",
+    "- 지금까지 한 일: 바꾼 파일 경로, 실행한 명령과 결과, 커밋·푸시·보낸 메시지처럼 바깥에 남긴 일",
+    "- 멈춘 지점: 하던 단계, 끝나지 않은 일, 아직 확인하지 않은 것",
+    "- 다음에 할 일(순서대로)과 주의할 점",
+    "- 사용자 답을 기다리던 중이었다면 그 질문과 선택지",
+    ...tail,
+  ].join("\n");
+}
+/** 저장할 문서: 받은 문서 끝에 답하지 못한 사용자 글을 그대로 덧붙임(모델이 빠뜨려도 새 세션이 보게) */
+export function handoffWithPending(doc, pending = "") {
+  if (!pending) return doc;
+  return `${doc.trimEnd()}\n\n## 멈추느라 답하지 못한 사용자 요청(연결부가 덧붙임)\n\n${pending.trim()}\n`;
+}
+/** 답에서 인수인계 문서 꺼내기: 줄 맨 앞의 '# 인수인계' 부터 끝까지. 없으면(한도 오류 글 등) null */
+export function handoffDoc(answer) {
+  const s = String(answer ?? "");
+  const i = s.search(/^# 인수인계/m);
+  return i < 0 ? null : `${s.slice(i).trim()}\n`;
+}
+/** 새로 켠 세션에 넣을 글(한 줄). 문서를 못 받았으면 앞 대화 기록 파일을 읽게 함(사용자 결정 11-18) */
+export function handoffResume({ reason, docPath, transcript }) {
+  const head = `[계정 전환] ${reason} 앞 세션을 끝내고 이 계정으로 새로 켰습니다.`;
+  const tail = "하던 일이 남았으면 이어서 하고, 사용자 답을 기다리던 중이었으면 무엇을 기다리는지 짧게 알리고 기다리세요.";
+  if (docPath) return `${head} 앞 세션이 남긴 인수인계 문서 ${docPath} 를 먼저 읽으세요. ${tail}`;
+  return `${head} 앞 세션이 인수인계 문서를 남기지 못했습니다. 앞 대화 기록 파일 ${transcript} (한 줄에 JSON 하나)을 끝에서부터 읽어 사용자의 요청과 하던 일을 파악하세요. ${tail}`;
+}
 
 /** 입력창 아래의 모드 줄('⏵⏵ auto mode on · 1 shell · ↓ to manage' 등) */
 const MODE_LINE = /⏸ manual mode on|⏵⏵ accept edits on|⏸ plan mode on|⏵⏵ auto mode on|bypass permissions on|\? for shortcuts/;
@@ -481,12 +520,24 @@ export function readStart(size, offset, max = MAX_READ_BYTES) {
 
 /** 맥 Claude Code 입력창이 비었는지(화면 글). 안내 문구 'Try "…"' 만 있으면 빈 것, 여러 줄로 쓰는 중이면 안 빈 것 */
 export function inputEmpty(screen) {
+  const t = inputLine(screen);
+  return t !== null && (t === "" || /^Try ".*"$/.test(t));
+}
+/** 입력창의 마지막 줄 글(❯ 뒤, 앞뒤 빈칸 뺌). 입력창이 안 보이면 null */
+export function inputLine(screen) {
   const ls = String(screen ?? "").split("\n");
   let i = ls.length - 1;
   while (i >= 0 && !/^❯/.test(ls[i])) i--;
-  if (i < 0 || !/^─/.test(ls[i + 1] ?? "")) return false;
-  const t = ls[i].replace(/^❯\s?/, "").trim();
-  return t === "" || /^Try ".*"$/.test(t);
+  if (i < 0 || !/^─/.test(ls[i + 1] ?? "")) return null;
+  return ls[i].replace(/^❯\s?/, "").trim();
+}
+/** 답이 나오기 전에 Esc 로 멈추면 Claude Code 가 방금 보낸 글을 입력창에 되돌려 놓는다(11-18 확인).
+ *  입력창 글(shown)이 그 마지막 사람 글(last)인지: 붙여 넣은 글 자리표시이거나, 빈칸을 고른 뒤 앞부분이 같음 */
+export function restoredPrompt(shown, last) {
+  const s = String(shown ?? "").trim();
+  const l = String(last ?? "").replace(/\s+/g, " ").trim();
+  if (!s || !l) return false;
+  return /^\[Pasted text #\d+/.test(s) || l.startsWith(s.replace(/\s+/g, " ").slice(0, 40));
 }
 
 export { prettyModel };   // 모델 이름 줄이기는 pi 확장도 쓰도록 bg-launch.mjs 로 옮김(시험이 여기서 불러 씀)
@@ -750,6 +801,14 @@ export function createConverter() {
     lastAssistant,
     /** 마지막 답의 글(도구를 부르기 전의 진행 설명은 빼고): 작업이 끝났을 때 알림·백그라운드 보고에 씀 */
     lastAnswerText: () => (lastAssistant()?.blocks ?? []).filter((b) => b.type === "text" && !b.update).map((b) => b.text).join("\n"),
+    /** 마지막 사람 글(계정 전환 때 입력창에 되돌아온 글인지 견줌) */
+    lastPrompt: () => {
+      for (let i = order.length - 1; i >= 0; i--) {
+        const m = byId.get(order[i]);
+        if (m.role === "user") return m.text ?? "";
+      }
+      return "";
+    },
     /** 단계 상세(pi 피드와 같은 모양) */
     detail: (o) => {
       if (o.kind === "thinking") {
@@ -1487,7 +1546,9 @@ export function runFeed(pane) {
       const durationSec = workSince ? (Date.now() - workSince) / 1000 : 0;
       pushTodos();
       const bg = QUESTION_END.test(tail) ? null : bgInfo(pane);
-      if (bg) {
+      if (switching) {
+        setStatus(viewing() ? "" : "yourturn");   // 계정 전환 중의 인수인계 답: 폰 알림 없음(전환 안내가 따로 감)
+      } else if (bg) {
         // 다른 탭이 시킨 백그라운드 일(/bgtab)·단축어로 시킨 일: 시간과 상관없이 알림 + (시킨 탭이 있으면) 그 탭에 결과 요약
         setStatus(viewing() ? "" : "yourturn");
         notifyPhone("done", `백그라운드 작업이 끝났어요: ${bg.name}`, ls[0] ?? "결과를 확인해 주세요", { durationSec, background: true });
@@ -1740,8 +1801,13 @@ export function runFeed(pane) {
 
   const onCommand = (o, sock) => {
     if (o?.cmd !== "hook" && o?.cmd !== "detail" && o?.cmd !== "toolimage" && o?.cmd !== "bg-jobs") lastActivity = Date.now();
+    // 계정 전환 중(인수인계·비우기·다시 켜기)에 넣은 글은 비워질 대화나 셸에 들어가므로 받지 않음
+    if (switching && ["send", "slash", "set-model", "set-thinking", "compact", "set-account"].includes(o?.cmd)) {
+      return void write(sock, { t: "notice", text: "계정을 바꾸는 중이라 지금은 보낼 수 없어요. 다시 켜진 뒤 보내 주세요" });
+    }
     switch (o?.cmd) {
       case "hook": return onHook(o.event);
+      case "set-account": return pickAccount(String(o.account ?? ""), sock);
       case "bg-jobs": return void write(sock, jobsReply());
       case "bg-job-kill": return void killJob(o.id, sock);
       case "bg-result": {
@@ -1908,8 +1974,10 @@ export function runFeed(pane) {
   setTimeout(tidyName, 2000);
 
   // ── 계정 자동 전환(pi 처럼, 사용자 결정 11-12): 폴더 기본 계정이 95% 넘으면 다른 계정, 초기화되면 돌아옴 ──
-  // 셸에서 켠 Claude Code 만. 쉬는 동안(작업·확인 창·카드 없음, 입력창 빔, 1분 넘게 활동 없음) /exit 로 끄고
-  // 그 셸에 'claude-as.sh <계정> --resume <대화> [켤 때 옵션] --permission-mode <지금 모드>' 를 넣음.
+  // 셸에서 켠 Claude Code 만. 순서(사용자 결정 11-18): 일하는 중이면 멈춤 → 지금 세션에게 인수인계 문서를 받아 저장 → /clear →
+  // /exit → 그 셸에 'claude-as.sh <계정> [켤 때 옵션] --permission-mode <지금 모드>'(같은 대화를 이어 켜지 않음) → 새 세션에 문서를 읽고 이어 가라는 글.
+  // 기본 계정을 떠날 때(95% 넘음)는 일하는 중이어도 바로 시작(남은 5%로 문서를 써야 함). 돌아올 때는 예전처럼 쉴 때(1분 넘게 조용)만.
+  // 어느 쪽이든 확인 창·질문 카드·돌고 있는 명령·뒤에서 도는 작업·입력창의 글이 있으면 기다린다.
   // 셸 함수 claude() 에 맡기지 않는다: 셸이 켜질 때 읽혀서, 함수를 고치기 전에 켠 셸에는 예전 정의가 남는다
   // (11-15: 11-11 에 켠 셸이 늘 개인으로 켜, 1분마다 끄고 켜기를 되풀이). claude-as.sh 가 없으면(예전 설치) 셸 함수로
   const SWITCH_TICK_MS = Number(process.env.PI_REMOTE_ACCOUNT_TICK_SEC ?? 30) * 1000;
@@ -1995,42 +2063,170 @@ export function runFeed(pane) {
     }
     return false;
   };
-  const switchAccount = async (want, proc) => {
-    const back = want === homeAccount(proc.cwd || process.cwd());
+  // 인수인계 문서를 기다리는 최대 시간(사용자 결정 11-18: 10분). 넘으면 못 받은 것으로 보고 앞 대화 기록으로 이어 감
+  const HANDOFF_WAIT_MS = Number(process.env.PI_REMOTE_HANDOFF_WAIT_SEC ?? 600) * 1000;
+  /** 답이 끝난 화면: 일하는 표시·확인 창이 없고 모드 줄이 보임(입력창은 보지 않음: 그사이 맥에서 쓰는 글이 있어도 답은 끝남) */
+  const doneScreen = () => {
+    const s = screenNow();
+    return !screenBusy(s) && !/Esc to cancel/.test(s) && !!shownMode(s);
+  };
+  /** 쉬는 화면: 답이 끝났고 입력창도 빔(글을 넣어도 되는 때) */
+  const idleScreen = () => doneScreen() && inputEmpty(screenNow());
+  /** '/명령'을 쓰고, 정확히 그 글만 들어갔는지 본 뒤 Enter(그사이 맥에서 글을 쓰기 시작했으면 지우고 false) */
+  const typeSlash = async (cmd) => {
+    tmux("send-keys", "-t", pane, "-l", cmd);
+    await sleepMs(500);
+    const line = screenNow().split("\n").filter((l) => /^❯/.test(l)).pop() ?? "";
+    if (line.replace(/^❯\s?/, "").trim() !== cmd) {
+      for (let i = 0; i < cmd.length; i++) tmux("send-keys", "-t", pane, "BSpace");
+      return false;
+    }
+    tmux("send-keys", "-t", pane, "Enter");
+    return true;
+  };
+  /** 입력창에 글을 넣고 Claude Code 가 받았는지(일하는 표시·새 답) 확인. 막 켜져 Enter 가 먹지 않았으면 Enter 를 다시 */
+  const submit = async (text) => {
+    const before = conv.lastAnswerText();
+    if (!paste(text)) return false;
+    for (let k = 0; k < 4; k++) {
+      if (await waitFor(() => screenBusy(screenNow()) || conv.lastAnswerText() !== before, 5000)) return true;
+      tmux("send-keys", "-t", pane, "Enter");
+    }
+    return false;
+  };
+  /** 인수인계 문서 저장: <작업 폴더>/.work/handoff/<시각>.md(작업 파일 자리, 사용자 규칙 11-18). 그 폴더에 쓸 수 없으면 ~/.cache/pi-remote/handoff.
+   *  git 에 잡히지 않게 handoff 폴더에 모든 것을 빼는 .gitignore 를 둠 */
+  const saveHandoff = (cwd, doc) => {
+    const d = new Date();
+    const p2 = (n) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+    for (const at of [join(cwd, ".work", "handoff"), `${HOME}/.cache/pi-remote/handoff`]) {
+      try {
+        mkdirSync(at, { recursive: true });
+        if (!existsSync(join(at, ".gitignore"))) writeFileSync(join(at, ".gitignore"), "*\n");
+        const p = join(at, `${stamp}.md`);
+        writeFileSync(p, doc);
+        return p;
+      } catch {
+        /* 다음 자리 */
+      }
+    }
+    return null;
+  };
+  // ── 앱에서 탭마다 계정 고르기(사용자 결정 11-18) ──
+  // 고른 계정은 tmux 탭 옵션 @ai_account_pin(work | personal, 없으면 자동: 폴더 기본·한도). 고른 계정도 한도 95% 면 다른 계정으로 넘김.
+  // 앱이 보는 상태도 탭 옵션에 적는다(브리지가 탭 목록에 실음): @ai_account(지금 계정) · @ai_account_next(바꿀 계정) ·
+  // @ai_account_phase(wait: 작업이 끝나기를 기다림 | switch: 바꾸는 중)
+  const accountPin = () => {
+    const v = String(tmux("show-options", "-w", "-v", "-t", pane, "@ai_account_pin") ?? "").trim();
+    return v === "work" || v === "personal" ? v : "";
+  };
+  const shownAccount = {};   // 마지막으로 적은 값(같은 값은 다시 적지 않음)
+  const showAccount = (key, value) => {
+    if (shownAccount[key] === value) return;
+    shownAccount[key] = value;
+    if (value) tmux("set-option", "-w", "-t", pane, key, value);
+    else tmux("set-option", "-w", "-u", "-t", pane, key);
+  };
+  // 앱에서 고른 때(0 이면 아님): 이 요청은 쉬는 즉시(1분 조용하기를 기다리지 않고, 쉬는 때 설정도 무시) 바꾼다. 한 번 시도하면 지움
+  let manualAt = 0;
+
+  const switchAccount = async (want, proc, { pin = "", manual = false } = {}) => {
+    const back = want === baseAccount(proc.cwd || process.cwd(), pin);
     const name = want === "work" ? "회사" : "개인";
+    const other = want === "work" ? "개인" : "회사";
     const args = relaunchArgs(proc.args, permMode);
     const sid = transcript ? basename(transcript).replace(/\.jsonl$/, "") : proc.sessionId;
     if (!args || !/^[0-9a-f-]{36}$/i.test(sid)) {
       pauseSwitch(6 * 3600_000);
-      broadcast({ t: "notice", text: `${name} 계정으로 바꿔야 하는데, 켤 때 옵션을 알 수 없어 그대로 둬요. 맥에서 나갔다가 claude --continue 로 다시 켜 주세요` });
+      broadcast({ t: "notice", text: `${name} 계정으로 바꿔야 하는데, 켤 때 옵션을 알 수 없어 그대로 둬요. 맥에서 /clear 하고 나갔다가 claude 로 다시 켜 주세요` });
       return;
     }
-    // 이어 켤 대화: 켜고 아무것도 묻지 않은 세션은 기록 파일이 아직 없어 --resume 이 'No conversation found' 로 바로 끝나고
-    // Claude Code 가 꺼진 채 남았다(11-15 시험). 그때는 잃을 대화가 없으니 같은 옵션으로 새로 켬
-    const resume = convExists(sid);
+    // 이어 받을 대화: 켜고 아무것도 묻지 않은 세션은 기록 파일이 아직 없음 → 인수인계·비우기 없이 바로 바꿈
+    const hasConv = convExists(sid);
+    const prevTranscript = transcript;
+    const reason = manual ? (pin ? `앱에서 ${name} 계정을 골라` : `앱에서 자동으로 되돌려 ${name} 계정으로 바꾸려고`)
+      : back ? (pin ? `고른 계정(${name})의 한도가 풀려` : `기본 계정(${name})의 한도가 풀려`)
+      : pin ? `고른 ${other} 계정 사용 한도가 95%를 넘어` : `${other} 계정 사용 한도가 95%를 넘어`;
+    let docPath = null;
+    const docNote = () => (docPath ? ` 인수인계 문서: ${docPath}` : "");
     switching = true;
+    showAccount("@ai_account_next", want);
+    showAccount("@ai_account_phase", "switch");
     try {
-      // 1) /exit 를 쓰고, 정확히 그 글만 들어갔는지 본 뒤 Enter(그사이 맥에서 글을 쓰기 시작했으면 지우고 그만둠)
-      tmux("send-keys", "-t", pane, "-l", "/exit");
-      await sleepMs(500);
-      const line = screenNow().split("\n").filter((l) => /^❯/.test(l)).pop() ?? "";
-      if (line.replace(/^❯\s?/, "").trim() !== "/exit") {
-        for (let i = 0; i < 5; i++) tmux("send-keys", "-t", pane, "BSpace");
+      if (hasConv) {
+        // 0) 일하는 중이면 Esc 로 멈춤(사용자 결정 11-18: 남은 5%로 문서를 써야 하므로 답이 끝나기를 기다리지 않음)
+        let pending = "";
+        if (!doneScreen()) {
+          tmux("send-keys", "-t", pane, "Escape");
+          await waitFor(doneScreen, 30_000);
+          // 답이 나오기 전에 멈췄으면 방금 보낸 글이 입력창에 되돌아옴(11-18 확인) → 그 글은 인수인계로 넘기고 입력창을 비움
+          await sleepMs(500);
+          readNew(false);
+          const shown = inputLine(screenNow());
+          if (!inputEmpty(screenNow()) && restoredPrompt(shown, conv.lastPrompt())) {
+            pending = conv.lastPrompt();
+            tmux("send-keys", "-t", pane, "C-u");
+          }
+        }
+        if (!(await waitFor(idleScreen, 30_000))) {
+          pauseSwitch(5 * 60_000);
+          return;
+        }
+        // 1) 인수인계 문서: 답으로 받아 이 연결부가 저장(권한 확인 창에 막히지 않게). 답이 끝나 화면이 3초 쉬면 끝으로 봄.
+        //    첫 줄 '# 인수인계' 가 없으면(한도 오류 글 등) 못 받은 것
+        broadcast({ t: "notice", text: `${reason} 하던 일을 멈추고 인수인계 문서를 받고 있어요(최대 ${Math.round(HANDOFF_WAIT_MS / 60_000)}분)` });
+        const before = conv.lastAnswerText();
+        let doc = null;
+        if (await submit(handoffAsk(reason, pending))) {
+          let still = 0;
+          for (const end = Date.now() + HANDOFF_WAIT_MS; Date.now() < end; ) {
+            await sleepMs(1000);
+            readNew(false);
+            const text = conv.lastAnswerText();
+            still = text && text !== before && doneScreen() ? still + 1 : 0;
+            if (still >= 3) {
+              doc = handoffDoc(text);
+              break;
+            }
+          }
+        }
+        if (!doneScreen()) {
+          tmux("send-keys", "-t", pane, "Escape");   // 시간 안에 다 쓰지 못함 → 멈춤
+          await waitFor(doneScreen, 30_000);
+          // 답이 나오기 전이었으면(예: 한도가 다 차 재시도만 함) 인수인계 요청 글이 입력창에 되돌아옴 → 우리가 넣은 글이니 지움
+          await sleepMs(500);
+          readNew(false);
+          if (!inputEmpty(screenNow()) && restoredPrompt(inputLine(screenNow()), conv.lastPrompt())) tmux("send-keys", "-t", pane, "C-u");
+        }
+        if (doc) docPath = saveHandoff(proc.cwd || process.cwd(), handoffWithPending(doc, pending));
+        logHook(`계정 전환 인수인계: ${docPath ?? "받지 못함"}`);
+        // 2) 대화 비우기(사용자가 정한 순서: /clear → 종료 → 계정 변경 → 다시 실행)
+        if (!(await typeSlash("/clear"))) {
+          pauseSwitch(5 * 60_000);
+          if (docPath) broadcast({ t: "notice", text: `계정을 바꾸려다 맥 입력창에 글이 있어 멈췄어요. 5분 뒤 다시 해 볼게요.${docNote()}` });
+          return;
+        }
+        await sleepMs(1000);
+        await waitFor(idleScreen, 15_000);
+      }
+      // 3) /exit
+      if (!(await typeSlash("/exit"))) {
         pauseSwitch(5 * 60_000);
+        if (docPath) broadcast({ t: "notice", text: `계정을 바꾸려다 맥 입력창에 글이 있어 멈췄어요. 5분 뒤 다시 해 볼게요.${docNote()}` });
         return;
       }
-      tmux("send-keys", "-t", pane, "Enter");
       if (!(await waitFor(() => SHELL_RE.test(paneCmd()), 15_000))) {
         if (/Esc to cancel/.test(screenNow())) tmux("send-keys", "-t", pane, "Escape");
         pauseSwitch(30 * 60_000);
-        broadcast({ t: "notice", text: `${name} 계정으로 바꾸려고 Claude Code 를 끄지 못했어요. 30분 뒤 다시 해 볼게요` });
+        broadcast({ t: "notice", text: `${name} 계정으로 바꾸려고 Claude Code 를 끄지 못했어요. 30분 뒤 다시 해 볼게요.${docNote()}` });
         return;
       }
       await sleepMs(400);
-      // 2) 같은 대화로, 정한 계정으로 다시 켬(claude-as.sh). 셸이 막 돌아왔을 때 첫 글자가 사라질 수 있어
+      // 4) 정한 계정으로 새 대화로 켬(claude-as.sh). 셸이 막 돌아왔을 때 첫 글자가 사라질 수 있어
       //    줄을 비우고 친 뒤 화면에 그대로 들어갔는지 보고 Enter(다르면 3번까지 다시)
       const as = claudeAs();
-      const cmd = [...(as ? [as, want] : ["claude"]), ...(resume ? ["--resume", sid] : []), ...args].join(" ");
+      const cmd = [...(as ? [as, want] : ["claude"]), ...args].join(" ");
       let typed = false;
       for (let k = 0; k < 3 && !typed; k++) {
         tmux("send-keys", "-t", pane, "C-u");
@@ -2042,8 +2238,8 @@ export function runFeed(pane) {
       if (!typed) {
         tmux("send-keys", "-t", pane, "C-u");
         pauseSwitch(6 * 3600_000);   // Claude Code 가 꺼진 채 남는 실패라 다시 켜도 한동안 시도하지 않음
-        broadcast({ t: "notice", text: `Claude Code 를 끈 뒤 셸에 다시 켜는 명령을 넣지 못했어요. 맥에서 claude --continue 로 다시 켜 주세요` });
-        notifyPhone("error", "Claude Code 계정 전환 실패", `'${tabName()}' 탭의 Claude Code 가 꺼졌어요. claude --continue 로 다시 켜 주세요(6시간 동안 다시 시도하지 않아요)`);
+        broadcast({ t: "notice", text: `Claude Code 를 끈 뒤 셸에 다시 켜는 명령을 넣지 못했어요. 맥에서 claude 로 다시 켜 주세요.${docNote()}` });
+        notifyPhone("error", "Claude Code 계정 전환 실패", `'${tabName()}' 탭의 Claude Code 가 꺼졌어요. claude 로 다시 켜 주세요(6시간 동안 다시 시도하지 않아요).${docNote()}`);
         return;
       }
       tmux("send-keys", "-t", pane, "Enter");
@@ -2062,26 +2258,36 @@ export function runFeed(pane) {
         }, 10_000);
       }
       const wrong = !!now && now.account !== want;
-      const other = want === "work" ? "개인" : "회사";
+      const how = !hasConv ? "" : docPath ? "(인수인계 문서로 이어 감)" : "(인수인계 문서를 받지 못해 앞 대화 기록으로 이어 감)";
       let text;
-      if (!up) text = `${name} 계정으로 다시 켜는 데 실패했어요. claude --continue 로 다시 켜 주세요(6시간 동안 다시 바꾸지 않아요)`;
-      else if (wrong) text = `${name} 계정으로 다시 켰는데 ${other} 계정으로 켜졌어요. 6시간 동안 다시 바꾸지 않아요`;
-      else if (back) text = `한도가 풀려 ${name} 계정으로 돌아왔어요${resume ? "(같은 대화)" : ""}`;
-      else text = `${other} 계정 사용량이 95%를 넘어 ${name} 계정으로 다시 켰어요${resume ? "(같은 대화)" : ""}`;
+      if (!up) text = `${name} 계정으로 다시 켜는 데 실패했어요. claude 로 다시 켜 주세요(6시간 동안 다시 바꾸지 않아요).${docNote()}`;
+      else if (wrong) text = `${name} 계정으로 다시 켰는데 ${other} 계정으로 켜졌어요. 6시간 동안 다시 바꾸지 않아요${how}`;
+      else if (manual) text = `앱에서 고른 대로 ${name} 계정으로 다시 켰어요${how}`;
+      else if (back) text = `한도가 풀려 ${pin ? "고른 " : ""}${name} 계정으로 돌아왔어요${how}`;
+      else text = `${pin ? "고른 " : ""}${other} 계정 사용량이 95%를 넘어 ${name} 계정으로 다시 켰어요${how}`;
       broadcast({ t: "notice", text });
       if (!up || wrong) {
         pauseSwitch(6 * 3600_000);
         notifyPhone("error", "Claude Code 계정 전환 실패", `'${tabName()}' 탭: ${text}`);
+      } else if (pin && !manual && !back) {
+        // 앱에서 직접 고른 계정을 한도 때문에 떠남: 고른 것과 달라졌으니 폰에도 알림(사용자 결정 11-18)
+        notifyPhone("account", "Claude Code 계정을 바꿨어요", `'${tabName()}' 탭: ${text}`);
+      }
+      // 5) 새 세션에 인수인계 문서(못 받았으면 앞 대화 기록)를 읽고 이어 가라는 글. 계정이 틀리게 켜졌어도 대화는 이미 비웠으니 넣음
+      if (up && hasConv) {
+        if (!(await waitFor(idleScreen, 20_000)) || !(await submit(handoffResume({ reason, docPath, transcript: prevTranscript })))) {
+          broadcast({ t: "notice", text: `새 세션에 이어 갈 글을 넣지 못했어요. 맥에서 인수인계 문서를 읽게 해 주세요.${docNote() || ` 앞 대화 기록: ${prevTranscript}`}` });
+        }
       }
     } finally {
       switching = false;
       lastActivity = Date.now();
+      showAccount("@ai_account_next", "");
+      showAccount("@ai_account_phase", "");
     }
   };
-  setInterval(() => {
-    // 압축하는 중에도 끄지 않음: 쉬다가 하는 압축은 작업 중이 아닌 채로 1~2분 돈다(끄면 그 압축이 버려짐)
-    if (switching || Date.now() < switchPausedUntil || working || compactSince || approvals.size || questions.size) return;
-    if (Date.now() - lastActivity < SWITCH_IDLE_MS) return;
+  const accountTick = () => {
+    if (switching) return;
     let proc;
     try {
       proc = claudeProc();
@@ -2089,14 +2295,65 @@ export function runFeed(pane) {
       return;
     }
     if (!proc) return;
-    const want = desiredAccount(proc.cwd || process.cwd(), conv.model() ?? "");
-    if (want === proc.account) return;
+    showAccount("@ai_account", proc.account);
+    const pin = accountPin();
+    const cwd = proc.cwd || process.cwd();
+    const want = desiredAccount(cwd, conv.model() ?? "", pin);
+    if (want === proc.account) {
+      manualAt = 0;
+      showAccount("@ai_account_next", "");
+      showAccount("@ai_account_phase", "");
+      return;
+    }
+    showAccount("@ai_account_next", want);
+    showAccount("@ai_account_phase", "wait");
+    const manual = manualAt > 0;
+    // 압축하는 중에도 끄지 않음: 쉬다가 하는 압축은 작업 중이 아닌 채로 1~2분 돈다(끄면 그 압축이 버려짐)
+    if ((!manual && Date.now() < switchPausedUntil) || compactSince || approvals.size || questions.size) return;
+    if (!working && !manual && Date.now() - lastActivity < SWITCH_IDLE_MS) return;
     const scr = screenNow();
+    // 일하는 중에는 돌아올 곳(고른 계정·폴더 기본)을 떠날 때(95% 넘음)만 멈추고 바꿈(사용자 결정 11-18).
+    // 돌아올 때와 앱에서 고른 때는 하던 일이 끝날 때까지 기다림(사용자 결정 11-18: '끝나면 바꾸기').
+    // 글을 막 보낸 순간에는 '글을 받음' 훅이 아직 안 와 working 이 거짓일 수 있어 화면의 작업 표시도 본다
+    // (11-19 시험: 그 순간 고른 요청이 쉬는 것으로 보고 인수인계 없이 꺼서 쓰던 답이 사라짐)
+    if ((manual || want === baseAccount(cwd, pin)) && (working || screenBusy(scr))) return;
     if (/Esc to cancel/.test(scr) || !readMode() || !inputEmpty(scr)) return;
     // 뒤에서 도는 작업(셸·초안)이 있으면 끝날 때까지 기다림: 끄면 그 작업이 같이 죽는다(11-13 회사 탭의 23:33 대기 같은 것)
     if (backgroundShown(scr) || runsCommand(proc.pid)) return;
-    void switchAccount(want, proc);
-  }, SWITCH_TICK_MS);
+    manualAt = 0;   // 앱 요청은 한 번만 서두름: 실패하면 평소처럼 쉬는 때를 따름(실패한 전환을 되풀이하지 않게)
+    void switchAccount(want, proc, { pin, manual });
+  };
+  setInterval(accountTick, SWITCH_TICK_MS);
+  setTimeout(accountTick, 3000);   // 켜자마자 앱에 지금 계정을 알림
+  /** 앱에서 이 탭의 계정을 고름(account: work | personal | auto) */
+  const pickAccount = (account, sock) => {
+    const pin = account === "work" || account === "personal" ? account : "";
+    if (pin === "work" && !hasWorkToken()) return void write(sock, { t: "notice", text: "이 맥에 회사 계정 토큰이 없어 회사 계정을 고를 수 없어요" });
+    if (pin) tmux("set-option", "-w", "-t", pane, "@ai_account_pin", pin);
+    else tmux("set-option", "-w", "-u", "-t", pane, "@ai_account_pin");
+    let proc = null;
+    try {
+      proc = claudeProc();
+    } catch {
+      proc = null;
+    }
+    if (!proc) return void write(sock, { t: "notice", text: "셸에서 켠 Claude Code 가 아니라 계정을 바꿀 수 없어요. 고른 계정은 다음에 켤 때부터 써요" });
+    const want = desiredAccount(proc.cwd || process.cwd(), conv.model() ?? "", pin);
+    const name = (a) => (a === "work" ? "회사" : "개인");
+    let text;
+    if (want === proc.account) {
+      text = pin ? `이미 ${name(want)} 계정이에요. 이 탭은 앞으로 ${name(want)} 계정을 써요(한도가 95%를 넘으면 다른 계정으로 넘어가요)` : "이 탭은 다시 자동(폴더·한도 기준)으로 계정을 골라요. 지금 계정 그대로예요";
+    } else {
+      manualAt = Date.now();
+      switchPausedUntil = 0;   // 직접 고른 것이니 실패 뒤 쉬는 때도 무시
+      const why = pin === want ? "" : pin ? `(고른 ${name(pin)} 계정이 한도 95%를 넘어 ${name(want)} 계정으로) ` : "(자동: 폴더·한도 기준) ";
+      text = working || screenBusy(screenNow()) || questions.size || approvals.size
+        ? `${why}지금 일이 끝나면 ${name(want)} 계정으로 바꿔요. 인수인계 문서를 쓰게 한 뒤 대화를 비우고 새로 켜요`
+        : `${why}곧 ${name(want)} 계정으로 바꿔요. 인수인계 문서를 쓰게 한 뒤 대화를 비우고 새로 켜요`;
+    }
+    broadcast({ t: "notice", text });
+    accountTick();
+  };
 
   // ── 새 판으로 스스로 바꾸기 ──
   // 설치된 파일이 바뀌었으면, 쉬는 틈(작업·확인 창·질문·받아 둔 글 없음, 한동안 조용함)에 새 연결부를 띄운다.

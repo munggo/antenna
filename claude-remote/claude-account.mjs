@@ -49,11 +49,17 @@ export function usageFor(usage, provider, modelId = "", now = Date.now()) {
   return best;
 }
 
-/** 계정 고르기(순수 함수) */
-export function decideAccount({ cwd, modelId = "", usage = {}, hasWork = true, now = Date.now(), workDirs = WORK_DIRS }) {
+/** 앱에서 이 탭에 고른 계정(work | personal)이 있으면 그것, 없으면 폴더 기본 계정. 한도가 풀리면 돌아올 곳 */
+export function baseAccount(cwd, pin = "", workDirs = WORK_DIRS) {
+  return pin === "work" || pin === "personal" ? pin : homeAccount(cwd, workDirs);
+}
+
+/** 계정 고르기(순수 함수). pin: 앱에서 이 탭에 직접 고른 계정(없으면 폴더 기본).
+ *  고른 계정도 한도가 95% 이상이면 다른 계정으로 넘긴다(사용자 결정 11-18: 한도 때문에 일이 멈추지 않게) */
+export function decideAccount({ cwd, modelId = "", usage = {}, hasWork = true, now = Date.now(), workDirs = WORK_DIRS, pin = "" }) {
   const over = (a) => usageFor(usage, KEY[a], modelId, now).util >= THRESHOLD;
   const ok = (a) => (a === "work" ? hasWork : true) && !over(a);
-  const home = homeAccount(cwd, workDirs);
+  const home = baseAccount(cwd, pin, workDirs);
   if (ok(home)) return home;
   const other = home === "work" ? "personal" : "work";
   if (ok(other)) return other;
@@ -78,7 +84,7 @@ export function hasWorkToken() {
   }
 }
 
-export const desiredAccount = (cwd, modelId = "") => decideAccount({ cwd, modelId, usage: readUsage(), hasWork: hasWorkToken() });
+export const desiredAccount = (cwd, modelId = "", pin = "") => decideAccount({ cwd, modelId, usage: readUsage(), hasWork: hasWorkToken(), pin });
 
 // 직접 실행했을 때만(경로는 바로가기를 풀어서 견줌: 홈·설치 폴더가 바로가기여도 되게)
 const isMain = (() => {

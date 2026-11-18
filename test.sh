@@ -107,6 +107,7 @@ run screen-dialog "훅 없이 묻는 Claude Code 창(피드백 초안·명령 �
 run bg-line "백그라운드 일의 모델·생각 깊이(맥 화면 한 줄·하위 에이전트 깊이)" "$NODE" claude-remote/test/bg-line-cases.mjs
 run windows "탭 목록: 백그라운드 탭·뒤에서 도는 일·끝난 것 고르기" "$NODE" server/test/windows.test.mjs
 run seen-hook "탭을 고르면 '끝났어요'가 지워지는지(pi 없이도, 따로 띄운 tmux 서버에서)" "$NODE" server/test/seen-hook.test.mjs
+run tmux-env "브리지가 띄운 tmux 서버에 브리지 설정(PORT·암호화만·알림 키 등)이 새지 않는지(따로 띄운 tmux 서버에서)" "$NODE" server/test/tmux-env.test.mjs
 run switch "계정 전환 때 다시 켤 옵션" "$NODE" claude-remote/test/switch-cases.mjs
 run vpn-guard "VPN 지킴이(선택 기능): 설정 읽기·터널 지키기" "$NODE" test/vpn-guard.test.mjs
 run qr "짝짓기 QR: 그리기·짝짓기 명령·다시 읽기" "$NODE" test/qr.test.mjs

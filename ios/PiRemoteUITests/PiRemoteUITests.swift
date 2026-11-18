@@ -2613,6 +2613,75 @@ final class PiRemoteUITests: XCTestCase {
         }
     }
 
+    /// AAC. Claude Code 탭의 계정 칩(사용자 결정 11-18: 탭마다 자동·개인·회사. 바꾸면 맥이 인수인계 문서를 받고 그 계정으로 새로 켬,
+    ///      일하는 중이면 끝난 뒤). 맥 쪽은 test/fake-feed.mjs --account 가 흉내: 고른 것을 /tmp/ptest/acct-cmds 에 적고
+    ///      기다림 → 바꾸는 중 → 그 계정으로 탭 옵션을 바꿈(브리지가 탭 목록에 실어 보냄)
+    ///      ① pi 탭에는 칩 없음  ② 처음엔 '개인'  ③ 회사를 고르면 확인 창(인수인계 안내) → 바꾸기 → 맥에 work, '개인→회사' → '회사'(고정 표시)
+    ///      ④ 자동으로 되돌리기는 확인 창에서 취소하면 보내지 않음  ⑤ 이미 고른 계정을 다시 고르면 보내지 않음
+    func testAAC_AccountChip() throws {
+        guard let text = try? String(contentsOfFile: "/tmp/ptest/acct-win", encoding: .utf8),
+              let win = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw XCTSkip("계정 시험 탭 준비 안 됨") }
+        let cmds = "/tmp/ptest/acct-cmds"
+        try? FileManager.default.removeItem(atPath: cmds)
+        let sent = { (try? String(contentsOfFile: cmds, encoding: .utf8)) ?? "" }
+        let chip = el("accountChip")
+        let value = { (chip.value as? String) ?? "" }
+        relaunch(test: "")
+
+        // ① pi 탭(접기 시험의 가짜 대화)에는 계정 칩이 없다
+        if let f = try? String(contentsOfFile: "/tmp/ptest/fold-win", encoding: .utf8), let fw = Int(f.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            openTab(fw)
+            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '긴 답의 첫 문단'")).firstMatch.waitForExistence(timeout: 20), "접기 시험 대화가 보여야 함")
+            XCTAssertFalse(chip.exists, "pi 탭에는 계정 칩이 없어야 함")
+        }
+
+        // ② Claude Code 탭: 지금 계정(개인), 고르지 않음
+        openTab(win)
+        XCTAssertTrue(app.staticTexts["계정 시험 답입니다."].waitForExistence(timeout: 20), "계정 시험 대화가 보여야 함")
+        XCTAssertTrue(chip.waitForExistence(timeout: 15), "Claude Code 탭에는 계정 칩")
+        XCTAssertEqual(value(), "personal|||", "처음: 개인, 고르지 않음")
+        XCTAssertTrue(chip.label.contains("개인"), "칩 글: \(chip.label)")
+        shot("aac-start")
+
+        // ③ 회사를 고름 → 확인 창 → 바꾸기 → 맥에 work, 진행 표시 → 회사(고정)
+        chip.tap()
+        XCTAssertTrue(el("account-work").waitForExistence(timeout: 5), "메뉴에 회사")
+        XCTAssertTrue(el("account-auto").exists && el("account-personal").exists, "메뉴에 자동·개인")
+        el("account-work").tap()
+        XCTAssertTrue(app.staticTexts["회사 계정으로 바꿀까요?"].waitForExistence(timeout: 5), "확인 창")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '인수인계 문서'")).firstMatch.exists, "확인 창에 인수인계 안내")
+        shot("aac-confirm")
+        XCTAssertEqual(sent(), "", "확인하기 전에는 보내지 않음")
+        el("accountConfirm").tap()
+        let gotWork = expectation(for: NSPredicate(format: "value == 'personal|work|work|wait' OR value == 'personal|work|work|switch'"), evaluatedWith: chip)
+        XCTAssertEqual(XCTWaiter().wait(for: [gotWork], timeout: 10), .completed, "칩이 '바꿀 예정'으로(지금 \(value()))")
+        XCTAssertEqual(sent(), "work\n", "맥에 회사 계정 고르기를 보냄")
+        XCTAssertTrue(chip.label.contains("개인→회사"), "진행 중 칩 글: \(chip.label)")
+        shot("aac-moving")
+        let done = expectation(for: NSPredicate(format: "value == 'work|work||'"), evaluatedWith: chip)
+        XCTAssertEqual(XCTWaiter().wait(for: [done], timeout: 15), .completed, "칩이 '회사'로(지금 \(value()))")
+        XCTAssertTrue(chip.label.contains("회사") && !chip.label.contains("→"), "끝난 칩 글: \(chip.label)")
+        shot("aac-work")
+
+        // ④ 자동으로 되돌리기: 확인 창에서 취소하면 보내지 않음
+        chip.tap()
+        XCTAssertTrue(el("account-auto").waitForExistence(timeout: 5))
+        el("account-auto").tap()
+        XCTAssertTrue(app.staticTexts["계정을 자동으로 되돌릴까요?"].waitForExistence(timeout: 5), "자동으로 되돌릴 때도 확인 창")
+        app.buttons["취소"].tap()
+        sleep(2)
+        XCTAssertEqual(sent(), "work\n", "취소하면 보내지 않음")
+        XCTAssertEqual(value(), "work|work||", "취소하면 그대로")
+
+        // ⑤ 이미 고른 회사를 다시 고르면 아무것도 하지 않음
+        chip.tap()
+        XCTAssertTrue(el("account-work").waitForExistence(timeout: 5))
+        el("account-work").tap()
+        sleep(2)
+        XCTAssertFalse(app.staticTexts["회사 계정으로 바꿀까요?"].exists, "같은 것을 고르면 확인 창 없음")
+        XCTAssertEqual(sent(), "work\n", "같은 것을 고르면 보내지 않음")
+    }
+
     /// 화면 사진에서 대화 왼쪽 가장자리('작업 중' 점 세 개의 가로 자리)에 보이는 강조색(주황) 점의 세로 범위(pt). 안 보이면 nil.
     /// 점은 차례로 흐려졌다 진해지므로 흐린 순간의 점은 잡히지 않을 수 있다
     private func accentDotsY(_ image: UIImage, in area: CGRect) -> ClosedRange<CGFloat>? {

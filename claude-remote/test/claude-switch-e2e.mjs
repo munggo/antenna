@@ -1,4 +1,5 @@
 // Claude Code 계정 자동 전환 실제 시험: 시험 tmux 세션(pitest)의 셸에서 Claude Code(Haiku)를 켜고, 시험용 사용량 파일을 바꿔 가며 확인.
+// 전환 순서(사용자 결정 11-18): 인수인계 문서 → /clear → /exit → 다른 계정으로 새 대화 → 문서를 읽고 이어 감. 두 계정을 조금씩 씀.
 // 토큰은 값을 읽지 않고 '있음/없음'만 봄. 실행: node claude-remote/test/claude-switch-e2e.mjs (포트 8799, 세션 pitest 를 만들고 끝나면 지움)
 import { createRequire } from "node:module";
 import { execFileSync, spawn } from "node:child_process";
@@ -27,9 +28,14 @@ const proc = (w) => {
   for (const pid of [shell, ...pids]) {
     const f = `${process.env.HOME}/.claude/sessions/${pid}.json`;
     if (!existsSync(f)) continue;
-    const env = execFileSync("ps", ["eww", "-o", "command=", "-p", pid], { encoding: "utf8" });
-    return { pid, work: /(^|\s)CLAUDE_CODE_OAUTH_TOKEN=\S/.test(env), args: execFileSync("ps", ["-ww", "-o", "args=", "-p", pid], { encoding: "utf8" }).trim(),
-      sid: JSON.parse(readFileSync(f, "utf8")).sessionId };
+    // 보는 사이에 Claude Code 가 꺼지면 세션 파일·프로세스가 사라짐(계정을 바꾸려고 끄는 중) → 다음 후보
+    try {
+      const sid = JSON.parse(readFileSync(f, "utf8")).sessionId;
+      const env = execFileSync("ps", ["eww", "-o", "command=", "-p", pid], { encoding: "utf8" });
+      return { pid, work: /(^|\s)CLAUDE_CODE_OAUTH_TOKEN=\S/.test(env), args: execFileSync("ps", ["-ww", "-o", "args=", "-p", pid], { encoding: "utf8" }).trim(), sid };
+    } catch {
+      continue;
+    }
   }
   return null;
 };
@@ -48,6 +54,27 @@ const ask = async (w, t) => {
     if (!input.includes(head) || /esc to interrupt/i.test(scr(w))) return;
   }
 };
+// 대화 기록 파일의 줄들(대화 번호로 찾음)과 줄의 글
+const rows = (sid) => {
+  const dir = `${process.env.HOME}/.claude/projects`;
+  for (const d of execFileSync("ls", [dir], { encoding: "utf8" }).split("\n").filter(Boolean)) {
+    const f = `${dir}/${d}/${sid}.jsonl`;
+    if (existsSync(f)) return readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return {}; } });
+  }
+  return [];
+};
+const text = (r) => { const c = r?.message?.content; return typeof c === "string" ? c : Array.isArray(c) ? c.map((b) => b?.text ?? "").join(" ") : ""; };
+// 대화 기록 파일에서: 그 질문 뒤에 온 답에 word 가 있는지(화면 글보다 정확)
+const answeredAfter = (sid, question, word) => {
+  const rs = rows(sid);
+  const qi = rs.findIndex((r) => r.type === "user" && text(r).includes(question));
+  return qi >= 0 && rs.slice(qi + 1).some((r) => r.type === "assistant" && new RegExp(word, "i").test(text(r)));
+};
+// 일을 마치고 쉬는 화면이 될 때까지(다시 켠 세션은 이어 가기 글을 받아 한동안 일함)
+const settle = (w) => waitFor(() => !/esc to interrupt/i.test(scr(w)) && /(⏸|⏵⏵) [a-z ]+ on/.test(scr(w)), 120000, 1000);
+const HANDOFF_DIR = `${DIR}/.work/handoff`;
+const handoffs = () => (existsSync(HANDOFF_DIR) ? execFileSync("ls", [HANDOFF_DIR], { encoding: "utf8" }).split("\n").filter((f) => f.endsWith(".md")).map((f) => `${HANDOFF_DIR}/${f}`) : []);
+const paneLog = (w) => `${process.env.HOME}/.cache/pi-remote/feed/${tm("display", "-p", "-t", `${S}:${w}`, "#{pane_id}").trim().replace(/\W/g, "")}.hooks.log`;
 const trust = async (w) => {
   for (let i = 0; i < 40; i++) {
     const s = scr(w);
@@ -100,33 +127,41 @@ const pong = await waitFor(() => /⏺ pong/i.test(tail(1, 8)) && !/esc to interr
 if (!pong) dump(1);
 ok(pong, "대화 한 번(pong)");
 
-// 2) 개인 97% → 쉬는 동안 회사로 다시 켬
+// 2) 개인 97% → 쉬는 동안: 인수인계 문서를 받고 /clear → 끄고 → 회사 계정으로 새 대화로 켜고 → 문서를 읽고 이어 감(사용자 결정 11-18)
 setPersonal(0.97);
 const t0 = Date.now();
-const switched = await waitFor(() => { const q = proc(1); return q && q.work && q.pid !== p.pid ? q : null; }, 60000);
+ok(await waitFor(() => ev.some((e) => e.t === "notice" && /인수인계 문서를 받고 있어요/.test(e.text)), 60000), "2) 폰에 안내(인수인계 문서를 받고 있어요)");
+// 전환 중에 폰에서 보낸 글은 비워질 대화에 넣지 않고 안내만
+ws.send(JSON.stringify({ type: "pi-send", text: "phone words during switch", mode: "auto" }));
+ok(await waitFor(() => ev.some((e) => e.t === "notice" && /계정을 바꾸는 중이라 지금은 보낼 수 없어요/.test(e.text)), 10000), "2) 전환 중 폰 글은 받지 않음(안내)");
+const switched = await waitFor(() => { const q = proc(1); return q && q.work && q.pid !== p.pid ? q : null; }, 180000);
 ok(Boolean(switched), `2) 개인 97% → 회사 계정으로 다시 켜짐(${Math.round((Date.now() - t0) / 1000)}초)`);
 p = switched ?? proc(1);
-ok(p && p.args.includes(`--resume ${sid0}`), "2) 같은 대화로(--resume 같은 번호)");
-ok(p && p.args.includes("--model haiku") && p.args.includes(`--settings ${HOOKS}`) && p.args.includes("--permission-mode manual"), `2) 켤 때 옵션·권한 모드 유지(${p?.args.replace(/^\S+\s/, "").replace(/--resume \S+/, "--resume …")})`);
+ok(p && !p.args.includes("--resume"), "2) 같은 대화를 이어 켜지 않음(--resume 없음)");
+ok(p && p.args.includes("--model haiku") && p.args.includes(`--settings ${HOOKS}`) && p.args.includes("--permission-mode manual"), `2) 켤 때 옵션·권한 모드 유지(${p?.args.replace(/^\S+\s/, "")})`);
 ok(await waitFor(() => modeLine(1).includes("manual mode"), 20000), "2) 맥 화면 권한 모드 = 매번 묻기");
-ok(await waitFor(() => ev.some((e) => e.t === "notice" && /회사 계정으로 다시 켰어요/.test(e.text)), 10000), "2) 폰에 안내(회사 계정으로 다시 켰어요)");
-await ask(1, "What single word did you reply with just before? Answer with that word only.");
-// 대화 기록 파일에서: 그 질문 뒤에 온 답에 pong 이 있는지(화면 글보다 정확)
-const answeredAfter = (sid, question, word) => {
-  const dir = `${process.env.HOME}/.claude/projects`;
-  for (const d of execFileSync("ls", [dir], { encoding: "utf8" }).split("\n").filter(Boolean)) {
-    const f = `${dir}/${d}/${sid}.jsonl`;
-    if (!existsSync(f)) continue;
-    const rows = readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return {}; } });
-    const text = (r) => { const c = r?.message?.content; return typeof c === "string" ? c : Array.isArray(c) ? c.map((b) => b?.text ?? "").join(" ") : ""; };
-    const qi = rows.findIndex((r) => r.type === "user" && text(r).includes(question));
-    return qi >= 0 && rows.slice(qi + 1).some((r) => r.type === "assistant" && new RegExp(word, "i").test(text(r)));
-  }
-  return false;
-};
-const remembered = await waitFor(() => answeredAfter(sid0, "What single word did you reply with just before", "pong"), 60000);
+const docs = handoffs();
+const doc = docs.length ? readFileSync(docs[0], "utf8") : "";
+ok(docs.length === 1 && /^# 인수인계/.test(doc), `2) 인수인계 문서 저장(${docs[0] ?? "없음"})`);
+if (doc) console.log(doc.split("\n").slice(0, 12).map((l) => "     | " + l.slice(0, 110)).join("\n"));
+ok(/pong/i.test(doc), "2) 문서에 앞 대화(pong)가 담김");
+ok(readFileSync(`${HANDOFF_DIR}/.gitignore`, "utf8") === "*\n", "2) 문서 폴더는 git 에서 뺌(.gitignore)");
+const old = rows(sid0);
+ok(old.some((r) => r.type === "user" && text(r).includes("[계정 전환]")) && old.some((r) => r.type === "assistant" && /^# 인수인계/m.test(text(r))), "2) 앞 세션이 인수인계 요청을 받고 문서를 답함");
+ok(!old.some((r) => text(r).includes("phone words during switch")), "2) 폰 글이 앞 대화에 들어가지 않음");
+const log1 = readFileSync(paneLog(1), "utf8").split("\n");
+const iDoc = log1.findIndex((l) => l.includes("계정 전환 인수인계: /"));
+ok(iDoc >= 0 && log1.slice(iDoc + 1).some((l) => /SessionStart .*clear/.test(l)), "2) 문서를 받은 뒤 /clear 를 거침(연결부 훅 기록)");
+// 문서 경로는 연결부가 실제 경로로 적음(/tmp → /private/tmp)이라 파일 이름으로 견줌
+ok(p && p.sid !== sid0 && Boolean(await waitFor(() => rows(p.sid).some((r) => r.type === "user" && text(r).includes(`/.work/handoff/${(docs[0] ?? "").split("/").pop()} 를 먼저 읽으세요`)), 30000)),
+  "2) 새 대화에 이어 가기 글(문서 경로)");
+ok(await waitFor(() => ev.some((e) => e.t === "notice" && /회사 계정으로 다시 켰어요\(인수인계 문서로 이어 감\)/.test(e.text)), 10000), "2) 폰에 안내(회사 계정으로 다시 켰어요, 문서로 이어 감)");
+await settle(1);
+await ask(1, "According to the handoff document, what single word did you reply with in the previous session? Answer with that word only.");
+const remembered = await waitFor(() => answeredAfter(p.sid, "According to the handoff document", "pong"), 60000);
 if (!remembered) dump(1, 18);
-ok(remembered, "2) 다시 켠 뒤에도 앞 대화를 기억(pong)");
+ok(remembered, "2) 새 세션이 문서로 앞 대화를 앎(pong)");
+await settle(1);
 
 // 3) 다시 50% → 입력창에 글이 있으면 그대로, 지우면 개인으로 돌아옴
 setPersonal(0.5);
@@ -137,19 +172,22 @@ const kept = proc(1)?.work === true && proc(1)?.pid === pidBefore && /❯\s+draf
 if (!kept) { console.log(`     프로세스 같음: ${proc(1)?.pid === pidBefore}, 회사: ${proc(1)?.work}`); dump(1); }
 ok(kept, "3) 입력창에 쓰던 글이 있으면 다시 켜지 않음(글도 그대로)");
 for (let i = 0; i < 11; i++) tm("send-keys", "-t", `${S}:1`, "BSpace");
-const back = await waitFor(() => { const q = proc(1); return q && !q.work ? q : null; }, 40000);
+const back = await waitFor(() => { const q = proc(1); return q && !q.work ? q : null; }, 180000);
 ok(Boolean(back), "3) 글을 지우면 개인 계정으로 돌아옴");
-ok(await waitFor(() => ev.some((e) => e.t === "notice" && /개인 계정으로 돌아왔어요/.test(e.text)), 10000), "3) 폰에 안내(개인 계정으로 돌아왔어요)");
+ok(back && !back.args.includes("--resume"), "3) 돌아올 때도 같은 대화를 이어 켜지 않음");
+ok(await waitFor(() => ev.some((e) => e.t === "notice" && /개인 계정으로 돌아왔어요\(인수인계 문서로 이어 감\)/.test(e.text)), 10000), "3) 폰에 안내(개인 계정으로 돌아왔어요, 문서로 이어 감)");
+ok(handoffs().length === 2, `3) 인수인계 문서 하나 더(${handoffs().length}개)`);
 await waitFor(() => modeLine(1).includes("manual mode"), 20000);
+await settle(1);
 
-// 4) 확인 창이 떠 있으면 그대로, 거부한 뒤 쉬면 바꿈
+// 4) 확인 창이 떠 있으면 그대로, 거부한 뒤 바꿈
 await ask(1, "Use the Bash tool to run exactly: touch /tmp/cctest/switch.txt");
 ok(await waitFor(() => /Esc to cancel/.test(scr(1)), 60000), "4) 확인 창 뜸");
 setPersonal(0.97);
 await sleep(15000);
 ok(proc(1)?.work === false && /Esc to cancel/.test(scr(1)), "4) 확인 창이 떠 있는 동안은 다시 켜지 않음");
 tm("send-keys", "-t", `${S}:1`, "Escape");
-ok(Boolean(await waitFor(() => { const q = proc(1); return q && q.work ? q : null; }, 60000)), "4) 거부한 뒤 쉬면 회사 계정으로 다시 켬");
+ok(Boolean(await waitFor(() => { const q = proc(1); return q && q.work ? q : null; }, 180000)), "4) 거부한 뒤 회사 계정으로 다시 켬");
 ok(!existsSync("/tmp/cctest/switch.txt"), "4) 거부한 명령은 실행되지 않음");
 
 // 5) 셸 없이 바로 켠 Claude Code 는 건드리지 않음(끄면 탭이 닫히므로)
@@ -177,11 +215,12 @@ ok(await waitFor(() => /⏺ pong/i.test(tail(3, 8)) && !/esc to interrupt/i.test
 const ev6 = since();
 ws.send(JSON.stringify({ type: "select-window", index: 3 }));
 setPersonal(0.97);
-const o1 = await waitFor(() => { const q = proc(3); return q && q.pid !== o0?.pid ? q : null; }, 60000);
+const o1 = await waitFor(() => { const q = proc(3); return q && q.pid !== o0?.pid ? q : null; }, 180000);
 if (!o1) { console.log("     안내:", JSON.stringify(ev6().filter((e) => e.t === "notice").map((e) => e.text))); dump(3, 16); }
 ok(o1?.work === true, `6) 셸 함수가 예전 것이어도 회사 계정으로 다시 켬(${o1 ? (o1.work ? "회사" : "개인") : "다시 켜지 않음"})`);
-ok(o1 && o0 && o1.args.includes(`--resume ${o0.sid}`), "6) 같은 대화로(--resume 같은 번호)");
-ok(await waitFor(() => ev6().some((e) => e.t === "notice" && /회사 계정으로 다시 켰어요\(같은 대화\)/.test(e.text)), 10000), "6) 폰에 안내(회사 계정으로 다시 켰어요)");
+ok(o1 && o0 && !o1.args.includes("--resume") && o1.sid !== o0.sid, "6) 새 대화로(--resume 없음)");
+ok(await waitFor(() => ev6().some((e) => e.t === "notice" && /회사 계정으로 다시 켰어요\(인수인계 문서로 이어 감\)/.test(e.text)), 10000), "6) 폰에 안내(회사 계정으로 다시 켰어요, 문서로 이어 감)");
+await settle(3);
 await sleep(15000);
 ok(o1 && proc(3)?.pid === o1.pid, "6) 다시 켠 뒤 그대로(끄고 켜기를 되풀이하지 않음)");
 
@@ -212,6 +251,92 @@ ok(await waitFor(() => ev7().some((e) => e.t === "notice" && /회사 계정으�
 ok(await waitFor(() => /알림\(시험·안 보냄\) error 탭 4 · Claude Code 계정 전환 실패/.test(readFileSync(BOUT, "utf8")), 10000), "7) 폰 알림(계정 전환 실패)");
 await sleep(15000);
 ok(r1 && proc(4)?.pid === r1.pid, "7) 다시 시도하지 않음(15초 동안 같은 프로세스)");
+// 8) 기본 계정이 95%를 넘으면 일하는 중이어도 바로 멈추고 인수인계(사용자 결정 11-18: 남은 5%로 문서를 써야 함).
+//    다른 창이 덩달아 바뀌지 않게 이 창만 따로 사용량 파일을 씀. 1초마다 보고, 쉴 때 바꾸기는 일어나지 않게(일하는 중 경로만)
+const ACCT8 = "/tmp/cctest-acct8.json";
+const setPersonal8 = (util) => writeFileSync(ACCT8, JSON.stringify({ anthropic: { "7d": { util, reset: fut, at: Date.now() } } }));
+const BUSY_ENVS = ["-e", "PI_REMOTE_ACCOUNT_TICK_SEC=1", "-e", "PI_REMOTE_SWITCH_IDLE_SEC=9999"];
+setPersonal8(0.5);
+tm("new-window", "-t", S, "-c", DIR, "-e", `PI_ACCOUNTS_CACHE=${ACCT8}`, ...BUSY_ENVS);
+await sleep(3000);
+tm("send-keys", "-t", `${S}:5`, "C-u"); await sleep(300);
+paste(5, `claude ${FLAGS}`);
+ok(await trust(5), "8) 셸에서 claude 켬");
+const w0 = proc(5);
+ok(w0 && !w0.work, "8) 개인 계정으로 켜짐");
+const ev8 = since();
+ws.send(JSON.stringify({ type: "select-window", index: 5 }));
+await ask(5, "Write a 1500-word short story about a lighthouse keeper named Ilsu. Do not use any tools.");
+// 답이 화면에 나오기 시작한 뒤에 넘김(그 전에 멈추는 경우는 10번)
+ok(await waitFor(() => /esc to interrupt/i.test(scr(5)) && scr(5).split("\n").some((l) => /^⏺ \S/.test(l)), 60000, 300), "8) 일하는 중(답이 나오는 중)");
+setPersonal8(0.97);
+const w1 = await waitFor(() => { const q = proc(5); return q && q.pid !== w0?.pid ? q : null; }, 180000);
+if (!w1) { console.log("     안내:", JSON.stringify(ev8().filter((e) => e.t === "notice").map((e) => e.text))); dump(5, 16); }
+ok(w1?.work === true, `8) 일하는 중에도 회사 계정으로 다시 켬(${w1 ? (w1.work ? "회사" : "개인") : "다시 켜지 않음"})`);
+const r8 = rows(w0?.sid);
+const iInt = r8.findIndex((r) => r.type === "user" && /^\[Request interrupted by user/.test(text(r)));
+const iAsk = r8.findIndex((r) => r.type === "user" && text(r).includes("[계정 전환]"));
+ok(iInt >= 0 && iAsk > iInt, `8) 하던 답을 멈춘 뒤(중단 기록 ${iInt}번째 줄) 인수인계를 요청(${iAsk}번째 줄)`);
+ok(await waitFor(() => ev8().some((e) => e.t === "notice" && /회사 계정으로 다시 켰어요\(인수인계 문서로 이어 감\)/.test(e.text)), 15000), "8) 폰에 안내(문서로 이어 감)");
+ok(Boolean(await waitFor(() => rows(w1?.sid).some((r) => r.type === "user" && text(r).includes("[계정 전환]")), 30000)), "8) 새 대화에 이어 가기 글");
+
+// 9) 인수인계 문서를 시간 안에 못 받으면(여기서는 기다리는 시간 2초) 그래도 바꾸고, 새 세션이 앞 대화 기록 파일을 읽게 함(사용자 결정 11-18)
+const ACCT9 = "/tmp/cctest-acct9.json";
+const setPersonal9 = (util) => writeFileSync(ACCT9, JSON.stringify({ anthropic: { "7d": { util, reset: fut, at: Date.now() } } }));
+setPersonal9(0.5);
+tm("new-window", "-t", S, "-c", DIR, "-e", `PI_ACCOUNTS_CACHE=${ACCT9}`, "-e", "PI_REMOTE_ACCOUNT_TICK_SEC=3", "-e", "PI_REMOTE_SWITCH_IDLE_SEC=5", "-e", "PI_REMOTE_HANDOFF_WAIT_SEC=2");
+await sleep(3000);
+tm("send-keys", "-t", `${S}:6`, "C-u"); await sleep(300);
+paste(6, `claude ${FLAGS}`);
+ok(await trust(6), "9) 셸에서 claude 켬(인수인계 기다림 2초)");
+const x0 = proc(6);
+await ask(6, "Reply with exactly one word: pong");
+ok(await waitFor(() => /⏺ pong/i.test(tail(6, 8)) && !/esc to interrupt/i.test(scr(6)), 60000), "9) 대화 한 번(pong)");
+const docsBefore = handoffs().length;
+const ev9 = since();
+ws.send(JSON.stringify({ type: "select-window", index: 6 }));
+setPersonal9(0.97);
+const x1 = await waitFor(() => { const q = proc(6); return q && q.pid !== x0?.pid ? q : null; }, 180000);
+if (!x1) { console.log("     안내:", JSON.stringify(ev9().filter((e) => e.t === "notice").map((e) => e.text))); dump(6, 16); }
+ok(x1?.work === true, `9) 문서 없이도 회사 계정으로 다시 켬(${x1 ? (x1.work ? "회사" : "개인") : "다시 켜지 않음"})`);
+ok(handoffs().length === docsBefore, "9) 문서를 저장하지 않음");
+ok(await waitFor(() => ev9().some((e) => e.t === "notice" && /회사 계정으로 다시 켰어요\(인수인계 문서를 받지 못해 앞 대화 기록으로 이어 감\)/.test(e.text)), 15000), "9) 폰에 안내(앞 대화 기록으로 이어 감)");
+ok(Boolean(await waitFor(() => rows(x1?.sid).some((r) => r.type === "user" && text(r).includes("인수인계 문서를 남기지 못했습니다") && text(r).includes(`${x0?.sid}.jsonl`)), 30000)),
+  "9) 새 대화에 앞 대화 기록 파일 경로를 줌");
+
+// 10) 글을 보내자마자 95%를 넘어 답이 나오기 전에 멈추면, Claude Code 가 그 글을 입력창에 되돌려 놓음(11-18 확인).
+//     입력창을 비우고 그 글을 인수인계로 넘겨야 함(남겨 두면 '입력창에 글이 있음'으로 전환이 멈춤)
+const ACCT10 = "/tmp/cctest-acct10.json";
+const setPersonal10 = (util) => writeFileSync(ACCT10, JSON.stringify({ anthropic: { "7d": { util, reset: fut, at: Date.now() } } }));
+setPersonal10(0.5);
+tm("new-window", "-t", S, "-c", DIR, "-e", `PI_ACCOUNTS_CACHE=${ACCT10}`, ...BUSY_ENVS);
+await sleep(3000);
+tm("send-keys", "-t", `${S}:7`, "C-u"); await sleep(300);
+paste(7, `claude ${FLAGS}`);
+ok(await trust(7), "10) 셸에서 claude 켬");
+const y0 = proc(7);
+const ev10 = since();
+ws.send(JSON.stringify({ type: "select-window", index: 7 }));
+setPersonal10(0.97);
+// Enter 는 한 번만(ask 는 입력창에 글이 남으면 Enter 를 다시 눌러, 되돌아온 글을 다시 보내 버림)
+await sleep(2000);
+tm("send-keys", "-t", `${S}:7`, "-l", "Write a 1500-word short story about a sailor named Mina. Do not use any tools.");
+await sleep(600);
+tm("send-keys", "-t", `${S}:7`, "Enter");
+const y1 = await waitFor(() => { const q = proc(7); return q && q.pid !== y0?.pid ? q : null; }, 180000);
+if (!y1) { console.log("     안내:", JSON.stringify(ev10().filter((e) => e.t === "notice").map((e) => e.text))); dump(7, 16); }
+ok(y1?.work === true, `10) 회사 계정으로 다시 켬(${y1 ? (y1.work ? "회사" : "개인") : "다시 켜지 않음"})`);
+// 되돌아왔는지: 앞 대화에서 그 글 뒤, 인수인계 요청 전에 답·중단 기록이 없음
+const r10 = rows(y0?.sid);
+const iMina = r10.findIndex((r) => r.type === "user" && text(r).includes("sailor named Mina"));
+const iAsk10 = r10.findIndex((r) => r.type === "user" && text(r).includes("[계정 전환]"));
+const restored = iMina >= 0 && iAsk10 > iMina && !r10.slice(iMina + 1, iAsk10).some((r) => r.type === "assistant" || /^\[Request interrupted/.test(text(r)));
+ok(restored, `10) 답이 나오기 전에 멈춤(그 글 ${iMina}번째 줄, 인수인계 요청 ${iAsk10}번째 줄)`);
+const doc10 = handoffs().map((f) => readFileSync(f, "utf8")).find((d) => d.includes("sailor named Mina")) ?? "";
+ok(/## 멈추느라 답하지 못한 사용자 요청/.test(doc10), "10) 되돌아온 글을 인수인계 문서에 넘김");
+ok(Boolean(await waitFor(() => rows(y1?.sid).some((r) => r.type === "user" && text(r).includes("[계정 전환]")), 30000)), "10) 새 대화에 이어 가기 글");
+ok(await waitFor(() => ev10().some((e) => e.t === "notice" && /회사 계정으로 다시 켰어요\(인수인계 문서로 이어 감\)/.test(e.text)), 15000), "10) 폰에 안내(문서로 이어 감)");
+
 const [pane3, pane4] = [3, 4].map((w) => tm("display", "-p", "-t", `${S}:${w}`, "#{pane_id}").trim().replace(/\W/g, ""));
 
 ws.close();
@@ -219,6 +344,9 @@ bridge.kill();
 execFileSync("sh", [`${REPO}/claude-remote/test/stop-test-feeds.sh`, S], { stdio: "ignore" });
 tm("kill-session", "-t", S);
 rmSync(ACCT, { force: true });
+rmSync(ACCT8, { force: true });
+rmSync(ACCT9, { force: true });
+rmSync(ACCT10, { force: true });
 for (const p of [pane3, pane4]) if (p) rmSync(`${process.env.HOME}/.cache/pi-remote/feed/${p}.switch-pause`, { force: true });
 console.log(fail ? `실패 ${fail}개` : "모두 통과");
 process.exit(fail ? 1 : 0);

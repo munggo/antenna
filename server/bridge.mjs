@@ -1211,6 +1211,18 @@ wss.on("connection", (ws, req) => {
           pushWindows();
           return;
         }
+        if (msg.type === "set-account") {
+          // Claude Code 탭의 계정 고르기(앱 칩, 사용자 결정 11-18): 그 탭의 연결부가 고른 값을 탭 옵션에 적고,
+          // 일이 끝나면 인수인계 문서를 받아 그 계정으로 새로 켠다(claude-remote/claude-feed.mjs 의 pickAccount)
+          const account = ["work", "personal", "auto"].includes(msg.account) ? msg.account : null;
+          if (account && feed && feedOn && feedAgent === "claude") {
+            feed.write(`${JSON.stringify({ cmd: "set-account", account })}\n`);
+            setTimeout(pushWindows, 900);
+          } else {
+            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: "Claude Code 탭에서만 계정을 고를 수 있어요" } }));
+          }
+          return;
+        }
         if (msg.type === "pi-command" && typeof msg.text === "string") {
           // 모델·생각 깊이 메뉴 선택 → 명령을 붙여넣기로 입력 후 Enter
           if (PI_COMMAND.test(msg.text)) {

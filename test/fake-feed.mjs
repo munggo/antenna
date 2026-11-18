@@ -5,13 +5,18 @@
 //   <신호 폴더>/fold-link   가 생기면 링크가 든 긴 답을 보낸다(접힌 답의 링크 시험)
 //   <신호 폴더>/fold-grow   가 생기면 답 하나를 조금씩 키워 가며 보낸다(쓰는 중인 답)
 //   <신호 폴더>/fold-busy   가 있는 동안은 '작업 중'인 탭으로 보인다(새로 붙는 앱이 받는 처음 대화에도). 없어지면 쉬는 중으로
+// --account 를 붙이면 계정 고르기 시험(AAC)용 Claude Code 탭 흉내: 짧은 대화만 주고, 탭 옵션에 계정(개인)을 적고,
+//   앱이 보낸 {cmd:"set-account"} 를 <신호 폴더>/acct-cmds 에 한 줄씩 적은 뒤 맥 연결부처럼 상태를 바꿔 준다
+//   (고른 계정이 지금과 다르면 기다림 → 바꾸는 중 → 그 계정. 자동이면 이 탭의 기본인 개인으로)
 // 소켓 자리는 진짜 피드와 같은 ~/.cache/pi-remote/feed/<칸 번호>.sock (시험 세션의 칸이라 쓰는 탭과 겹치지 않음). 끝날 때 지운다.
 // 작성: 서문교
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 
 const [pane, signals] = process.argv.slice(2);
-if (!pane || !signals) { console.error("쓰기: node fake-feed.mjs <칸 id> <신호 폴더>"); process.exit(2); }
+if (!pane || !signals) { console.error("쓰기: node fake-feed.mjs <칸 id> <신호 폴더> [--account]"); process.exit(2); }
+const ACCOUNT = process.argv.includes("--account");
 const dir = `${process.env.HOME}/.cache/pi-remote/feed`;
 const sock = `${dir}/${pane.replace(/\W/g, "")}.sock`;
 mkdirSync(dir, { recursive: true });
@@ -29,7 +34,7 @@ const linked = (name, n) => paras(name, n).split("\n\n").map((p, i) =>
   i === 1 ? "https://example.com/fold-visible"
     : i >= 4 && i < n - 1 ? Array.from({ length: 6 }, () => `https://example.com/fold-hidden-${i + 1}`).join(" ") : p).join("\n\n");
 
-const messages = [
+const messages = ACCOUNT ? [user("u1", "계정 시험 질문입니다"), answer("a1", "계정 시험 답입니다.")] : [
   user("u1", "짧은 질문입니다"),
   answer("a1", "짧은 답입니다."),
   user("u2", Array.from({ length: 80 }, (_, i) => `붙여 넣은 글 ${i + 1}번째 줄`).join("\n")),
@@ -43,12 +48,55 @@ const messages = [
 const clients = new Set();
 const send = (o) => { for (const c of clients) c.write(`${JSON.stringify(o)}\n`); };
 let busySince = 0;   // 0 이 아니면 '작업 중'(그때부터 일한 것으로)
-const snapshot = () => ({ t: "snapshot", v: 3, messages, truncated: 0, working: busySince > 0, since: busySince || null, queue: [], canSend: true, notice: null, context: null, compacting: false });
+const snapshot = () => ({ t: "snapshot", v: 3, messages, truncated: 0, working: busySince > 0, since: busySince || null, queue: [], canSend: true, notice: null, context: null, compacting: false,
+  ...(ACCOUNT ? { agent: "claude" } : {}) });
+
+// 계정 시험: 맥 연결부처럼 탭 옵션에 계정 상태를 적는다(브리지가 탭 목록에 실어 앱에 보냄)
+const tmuxSet = (key, value) => {
+  try {
+    execFileSync("tmux", value ? ["set-option", "-w", "-t", pane, key, value] : ["set-option", "-w", "-u", "-t", pane, key], { stdio: "ignore" });
+  } catch { /* 시험 세션이 이미 닫힘 */ }
+};
+let accountNow = "personal";
+const pickAccount = (account) => {
+  appendFileSync(`${signals}/acct-cmds`, `${account}\n`);
+  const pin = account === "work" || account === "personal" ? account : "";
+  tmuxSet("@ai_account_pin", pin);
+  const want = pin || "personal";
+  if (want === accountNow) return;
+  tmuxSet("@ai_account_next", want);
+  tmuxSet("@ai_account_phase", "wait");
+  setTimeout(() => tmuxSet("@ai_account_phase", "switch"), 2500);
+  setTimeout(() => {
+    accountNow = want;
+    tmuxSet("@ai_account", want);
+    tmuxSet("@ai_account_next", "");
+    tmuxSet("@ai_account_phase", "");
+  }, 5000);
+};
+if (ACCOUNT) {
+  for (const k of ["@ai_account_pin", "@ai_account_next", "@ai_account_phase"]) tmuxSet(k, "");
+  tmuxSet("@ai_account", accountNow);
+}
+
 const server = createServer((c) => {
   clients.add(c);
   c.on("error", () => {});
   c.on("close", () => clients.delete(c));
-  c.on("data", () => {});   // 앱이 보내는 요청(명령 목록 등)은 답하지 않는다
+  let buf = "";
+  c.on("data", (d) => {   // 앱이 보내는 요청: 계정 시험의 계정 고르기만 받고, 나머지(명령 목록 등)는 답하지 않는다
+    if (!ACCOUNT) return;
+    buf += d;
+    let i;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i);
+      buf = buf.slice(i + 1);
+      try {
+        const o = JSON.parse(line);
+        if (o.cmd === "set-account") pickAccount(String(o.account ?? ""));
+      } catch { /* 줄 단위 JSON 이 아님 */ }
+    }
+  });
   c.write(`${JSON.stringify(snapshot())}\n`);
 });
 server.listen(sock);
@@ -59,6 +107,7 @@ const upsert = (m) => {
   send({ t: "upsert", message: m });
 };
 const once = (name, run) => {
+  if (ACCOUNT) return;   // 계정 시험 탭은 접기 시험 신호를 받지 않음
   const t = setInterval(() => {
     if (!existsSync(`${signals}/${name}`)) return;
     clearInterval(t);
@@ -91,7 +140,7 @@ once("fold-grow", () => {
 
 // '작업 중'인 탭 흉내: 신호 파일이 생기고 없어질 때마다 붙어 있는 앱에 알린다(1분 넘게 일한 것처럼)
 setInterval(() => {
-  const busy = existsSync(`${signals}/fold-busy`);
+  const busy = !ACCOUNT && existsSync(`${signals}/fold-busy`);
   if (busy === busySince > 0) return;
   busySince = busy ? Date.now() - 65_000 : 0;
   send(busy ? { t: "working", value: true, since: busySince } : { t: "working", value: false });

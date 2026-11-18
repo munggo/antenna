@@ -10,7 +10,7 @@ const SCRIPT = new URL("../claude-account.mjs", import.meta.url).pathname;
 const WD = mkdtempSync(join(tmpdir(), "acc-wd-"));
 process.env.PI_REMOTE_WORK_DIRS_FILE = join(WD, "work-dirs");
 writeFileSync(process.env.PI_REMOTE_WORK_DIRS_FILE, "# 회사 폴더\n~/works/company   # 물결표는 홈\n\n/opt/company\n");
-const { decideAccount, homeAccount, readWorkDirs } = await import(SCRIPT);
+const { baseAccount, decideAccount, homeAccount, readWorkDirs } = await import(SCRIPT);
 const H = process.env.HOME;
 const P = `${H}/works/personal/x`, W = `${H}/works/company/x`;
 const now = Date.now();
@@ -40,6 +40,17 @@ ok(d(W, { "anthropic-work": { "7d": c(0.97) } }) === "personal", "회사 폴더,
 ok(d(W, {}, { hasWork: false }) === "personal", "회사 토큰 없음 → 개인");
 ok(d(P, { anthropic: { "7d": c(0.97) } }, { hasWork: false }) === "personal", "개인 97% 인데 회사 토큰 없음 → 개인");
 ok(d(P, { anthropic: { "7d": { util: "x" } } }) === "personal", "값이 숫자가 아니면 무시");
+
+// 앱에서 탭에 고른 계정(pin, 사용자 결정 11-18: 고른 계정도 95% 면 자동으로 넘김)
+ok(d(P, {}, { pin: "work" }) === "work" && d(W, {}, { pin: "personal" }) === "personal", "고른 계정이 폴더 기본보다 먼저");
+ok(d(P, {}, { pin: "" }) === "personal" && d(W, {}, { pin: "auto" }) === "work" && d(P, {}, { pin: "x" }) === "personal", "고르지 않음·모르는 값 → 폴더 기본");
+ok(d(P, { "anthropic-work": { "7d": c(0.96) } }, { pin: "work" }) === "personal", "고른 회사 계정이 96% → 개인으로 넘김");
+ok(d(W, { anthropic: { "7d": c(0.95) } }, { pin: "personal" }) === "work", "고른 개인 계정이 95%(경계) → 회사로 넘김");
+ok(d(P, { "anthropic-work": { "7d": c(0.99, past) } }, { pin: "work" }) === "work", "고른 계정의 한도가 초기화되면 고른 계정으로 돌아옴");
+ok(d(P, { anthropic: { "7d": c(0.97) }, "anthropic-work": { "7d": c(0.97) } }, { pin: "work" }) === "work", "둘 다 넘음 → 고른 계정");
+ok(d(W, {}, { pin: "work", hasWork: false }) === "personal", "회사를 골랐는데 회사 토큰 없음 → 개인");
+ok(d(P, { anthropic: { "7d": c(0.97) } }, { pin: "personal" }) === d(P, { anthropic: { "7d": c(0.97) } }), "폴더 기본과 같은 계정을 고르면 판단도 같음");
+ok(baseAccount(P, "work") === "work" && baseAccount(W, "") === "work" && baseAccount(P, "") === "personal", "돌아올 곳: 고른 계정, 없으면 폴더 기본");
 
 // 명령줄: 공유 파일 경로를 바꿔서
 const dir = mkdtempSync(join(tmpdir(), "acct-"));

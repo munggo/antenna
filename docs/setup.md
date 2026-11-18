@@ -267,7 +267,15 @@ If you have two Claude subscriptions (say personal and work), Antenna can pick o
   }
   ```
 
-  When a limit makes it switch accounts, the feed quits Claude Code and resumes the same conversation with `claude-as.sh`, so the right account is used even in a shell opened before you changed the shell function. If the account is still unchanged after the restart, it stops switching for 6 hours and notifies your phone.
+  When a limit makes it switch accounts, it does not resume the same conversation under the other account (that causes problems). The feed switches in this order:
+  1. When the default account passes 95%, it stops the current work with Esc even mid-task (the remaining usage is needed to write the handoff). Switching back to the default account waits until the session is idle. Either way it waits while a permission prompt, question, running command, background job or text in the input box is present.
+  2. It asks the current session for a handoff document as its answer and saves it to `<working folder>/.work/handoff/<time>.md` (with a `.gitignore` in that folder so git ignores it). If no document arrives within 10 minutes (for example, the limit is already used up), it goes on without one.
+  3. `/clear` → `/exit` → starts a new conversation with `claude-as.sh`.
+  4. It tells the new session to read the handoff document (or, without one, the previous transcript file) and carry on.
+
+  Messages sent from the phone during the switch are not typed in; the phone gets a notice instead. The right account is used even in a shell opened before you changed the shell function. If the account is still unchanged after the restart, it stops switching for 6 hours and notifies your phone.
+
+  You can also pick the account per tab in the app. Tap the account chip in a Claude Code tab's input bar (it shows the current account) and choose auto, personal or work. The tab is then restarted on that account in the same way; if it is working, the switch waits until the current task is done (meanwhile the chip shows, for example, "개인→회사", personal to work). The picked account becomes that tab's default: when it passes 95% the tab moves to the other account (with a phone notification) and comes back when the limit resets. Choosing auto goes back to picking by folder and limits. The choice stays with that tab (tmux window); tabs restored after a reboot start on auto.
 - For pi, install the extension: `sh pi-extension/install.sh --with claude-accounts`.
 - Switching by limit needs each account's usage, and for now only the pi extension `claude-accounts` records it (`~/.cache/pi-remote/claude-accounts.json`). On a Mac with Claude Code only, choosing by folder is all that works. If you store a lookup-only login for the second account (see "Usage" above), the bridge records that account's values in this file.
 

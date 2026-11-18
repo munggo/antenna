@@ -10,7 +10,8 @@ const FIELDS = WINDOW_FORMAT.split(":::").map((f) => f.slice(2, -1));
 const line = (o) => FIELDS.map((f) => String(o[f] ?? "")).join(":::");
 const out = [
   line({ window_id: "@1", window_index: 0, window_name: "메인 작업", window_active: 1, pane_id: "%1" }),
-  line({ window_id: "@2", window_index: 1, window_name: "bg 테스트 고치기", pane_id: "%2", "@pi_status": "working", "@bg_by": "user", "@bg_started": 1000, "@bg_from": "%1", "@ai_model": "Opus 5.5", "@ai_thinking": "high" }),
+  line({ window_id: "@2", window_index: 1, window_name: "bg 테스트 고치기", pane_id: "%2", "@pi_status": "working", "@bg_by": "user", "@bg_started": 1000, "@bg_from": "%1", "@ai_model": "Opus 5.5", "@ai_thinking": "high",
+    "@ai_account": "personal", "@ai_account_pin": "work", "@ai_account_next": "work", "@ai_account_phase": "wait" }),
   line({ window_id: "@3", window_index: 2, window_name: "bg 문서 정리", pane_id: "%3", "@pi_status": "yourturn", "@bg_by": "ai", "@bg_started": 1000, "@bg_done": 2000, "@bg_from": "%1" }),
   line({ window_id: "@4", window_index: 3, window_name: "bg 예전 탭", pane_id: "%4", "@bg_by": "phone", "@bg_started": 1000, "@bg_origin": "%1" }),
   line({ window_id: "@5", window_index: 4, window_name: "bg 시킨 탭 닫힘", pane_id: "%5", "@bg_by": "user", "@bg_done": 3000, "@bg_from": "%99" }),
@@ -34,11 +35,13 @@ ok(at(4).bg?.from === null && at(4).bg?.fromName === "", "시킨 탭이 닫혔�
 ok(at(5).jobs === "셸 1개" && at(5).bg === null, "보통 탭의 뒤에서 도는 일");
 ok(at(1).model === "Opus 5.5" && at(1).thinking === "high", `탭의 모델·생각 깊이(${at(1).model}, ${at(1).thinking})`);
 ok(at(0).model === "" && at(0).thinking === "", "모델·생각 깊이를 모르는 탭은 빈 글");
+ok(JSON.stringify(at(1).account) === JSON.stringify({ now: "personal", pin: "work", next: "work", phase: "wait" }), `Claude Code 탭의 계정(지금·고른 것·바꿀 것·단계): ${JSON.stringify(at(1).account)}`);
+ok(at(0).account === null, "계정을 모르는 탭(Claude Code 가 아님·예전 연결부)은 null");
 ok(parseWindows("").length === 0 && parseWindows(null).length === 0, "빈 출력 → 빈 목록");
 
 const app = forApp(w);
 ok(app.every((x) => !("id" in x)) && app[1].bg?.fromName === "메인 작업", "앱에 보낼 때는 창 고유 번호를 뺌");
-ok(JSON.stringify(Object.keys(app[0])) === JSON.stringify(["index", "name", "active", "status", "sudo", "bg", "jobs", "model", "thinking"]), `앱에 보내는 칸: ${Object.keys(app[0]).join(", ")}`);
+ok(JSON.stringify(Object.keys(app[0])) === JSON.stringify(["index", "name", "active", "status", "sudo", "bg", "jobs", "model", "thinking", "account"]), `앱에 보내는 칸: ${Object.keys(app[0]).join(", ")}`);
 
 // 끝난 것 모두 닫기: 결과를 보냈고 쉬는 백그라운드 탭만
 ok(!isFinishedBackground(at(0)), "보통 탭은 닫지 않음");

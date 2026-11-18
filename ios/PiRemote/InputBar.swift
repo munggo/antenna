@@ -27,6 +27,8 @@ struct InputBar: View {
     @State private var picked: Set<Int> = []
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showPhotos = false
+    /// 확인 창을 띄운 계정 고르기(auto | personal | work). nil 이면 창 없음
+    @State private var accountAsk: String? = nil
     /// 클립보드에 새로 복사된 사진이 있으면 "복사한 사진 붙이기" 제안(같은 클립보드는 한 번만)
     @State private var clipHasNewImage = false
     /// 클립보드에 사진이 있기만 하면 true(+ 메뉴에 '복사한 사진 붙여넣기' 표시)
@@ -101,6 +103,7 @@ struct InputBar: View {
                                     thinkingMenu
                                     modelMenu
                                 }
+                                accountChip   // Claude Code 탭의 계정(일하는 중에도: 끝나면 바꾸기)
                                 modeChip   // 권한 모드(pi 는 /mode, Claude Code 는 피드가 Shift+Tab 으로 맞춤)
                             }
                         }
@@ -119,6 +122,18 @@ struct InputBar: View {
         .onChange(of: focused) { session.inputFocused = $0 }
         // 원래 형식 그대로 받음: 기본값(.automatic)은 HEIC 를 JPEG 로 바꿔 줘서 받는 데 오래 걸렸다(11-15 시험: 2.7MB HEIC 가
         // 4MB JPEG 로 바뀌어 옴). 줄이는 쪽(ImageShrink)은 어떤 형식이든 읽음
+        .confirmationDialog(accountAskTitle, isPresented: Binding(get: { accountAsk != nil }, set: { if !$0 { accountAsk = nil } }),
+                            titleVisibility: .visible) {
+            Button(accountAsk == "auto" ? "자동으로 되돌리기" : "바꾸기") {
+                if let k = accountAsk { session.setAccount(k) }
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                accountAsk = nil
+            }
+            .accessibilityIdentifier("accountConfirm")
+            Button("취소", role: .cancel) { accountAsk = nil }
+        } message: {
+            Text(accountAskMessage)
+        }
         .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 8, matching: .images, preferredItemEncoding: .current)
         .onChange(of: photoItems) { items in
             guard !items.isEmpty else { return }
@@ -575,6 +590,75 @@ struct InputBar: View {
         .layoutPriority(1)
         .accessibilityIdentifier("modeChip")
         .accessibilityValue(m)
+    }
+
+    /// 지금 보는 탭의 계정(Claude Code 탭이고 맥 연결부가 알려 준 때만)
+    private var tabAccount: TabAccount? {
+        meta.agentName == "Claude" ? session.windows.first(where: { $0.active })?.account : nil
+    }
+
+    /// 계정 칩(사용자 결정 11-18: Claude Code 탭마다 자동·개인·회사 고르기). 바꾸면 맥이 인수인계 문서를 받고 그 계정으로 새로 켬.
+    /// 일하는 중이면 끝난 뒤에 바꾸고, 그동안 칩에 '개인→회사'처럼 보임
+    @ViewBuilder private var accountChip: some View {
+        if let a = tabAccount {
+            let moving = !a.next.isEmpty && a.next != a.now
+            Menu {
+                Section("이 탭의 계정 · 지금 \(TabAccount.name(a.now))") {
+                    ForEach([("auto", "자동 — 폴더·한도 기준"), ("personal", "개인"), ("work", "회사")], id: \.0) { key, title in
+                        let picked = (key == "auto" ? "" : key) == a.pin
+                        Button {
+                            pickAccount(key, current: a)
+                        } label: {
+                            if picked { Label(title, systemImage: "checkmark") } else { Text(title) }
+                        }
+                        .accessibilityIdentifier("account-\(key)")
+                    }
+                }
+                Text("바꾸면 지금 대화에 인수인계 문서를 쓰게 한 뒤 새로 켜요. 일하는 중이면 끝난 뒤에 바꿔요. 고른 계정도 한도가 95%를 넘으면 다른 계정으로 넘어가요")
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: moving ? (a.phase == "switch" ? "arrow.triangle.2.circlepath" : "clock") : "person.crop.circle")
+                        .font(.system(size: 12, weight: .medium))
+                    Text(moving ? "\(TabAccount.name(a.now))→\(TabAccount.name(a.next))" : TabAccount.name(a.now))
+                        .font(.system(size: Typo.chip, weight: .medium)).lineLimit(1)
+                    if !a.pin.isEmpty && !moving {
+                        Image(systemName: "pin.fill").font(.system(size: 9, weight: .semibold))
+                    }
+                }
+                .foregroundColor(moving ? .white : Theme.muted)
+                .padding(.horizontal, 9)
+                .frame(height: 34)
+                .background(Capsule().fill(moving ? Theme.accent : Color.clear))
+                .overlay(Capsule().stroke(moving ? Color.clear : Theme.border, lineWidth: 1))
+            }
+            .fixedSize()
+            .disabled(a.phase == "switch")   // 바꾸는 중에는 고를 수 없음(맥도 받지 않음)
+            .accessibilityIdentifier("accountChip")
+            .accessibilityValue("\(a.now)|\(a.pin)|\(a.next)|\(a.phase)")
+        }
+    }
+
+    /// 계정을 고름: 다시 켜질 수 있으면(지금과 다른 계정·자동으로 되돌림) 확인 창, 아니면 바로 보냄
+    private func pickAccount(_ key: String, current a: TabAccount) {
+        let pin = key == "auto" ? "" : key
+        guard pin != a.pin else { return }
+        if (pin.isEmpty || pin != a.now) {
+            accountAsk = key
+        } else {
+            session.setAccount(key)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+    }
+
+    private var accountAskTitle: String {
+        guard let k = accountAsk else { return "" }
+        return k == "auto" ? "계정을 자동으로 되돌릴까요?" : "\(TabAccount.name(k)) 계정으로 바꿀까요?"
+    }
+
+    private var accountAskMessage: String {
+        guard let k = accountAsk else { return "" }
+        let how = "지금 대화에 인수인계 문서를 쓰게 한 뒤 대화를 비우고 새로 켜요. 일하는 중이면 끝난 뒤에 바꿔요."
+        return k == "auto" ? "폴더·한도 기준 계정이 지금과 다르면 \(how)" : how
     }
 
     private func chip(icon: String?, text: String, chevron: Bool = false) -> some View {

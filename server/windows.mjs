@@ -20,15 +20,21 @@ const SEP = ":::";
 export const SEEN_HOOK = "after-select-window[47]";
 export const SEEN_HOOK_CMD = `if-shell -F '#{==:#{@pi_status},yourturn}' 'set-option -w @pi_status ""'`;
 const FIELDS = ["window_id", "window_index", "window_name", "window_active", "@pi_status", "@sudo_stage", "pane_id",
-  "@bg_by", "@bg_started", "@bg_done", "@bg_from", "@bg_origin", "@ai_jobs", "@ai_model", "@ai_thinking"];
+  "@bg_by", "@bg_started", "@bg_done", "@bg_from", "@bg_origin", "@ai_jobs", "@ai_model", "@ai_thinking",
+  "@ai_account", "@ai_account_pin", "@ai_account_next", "@ai_account_phase"];
 export const WINDOW_FORMAT = FIELDS.map((f) => `#{${f}}`).join(SEP);
 
-/** list-windows 출력 → [{ id, index, name, active, status, sudo, bg, jobs, model, thinking }]. id(창 고유 번호)는 맥 쪽에서만 쓴다 */
+/**
+ * list-windows 출력 → [{ id, index, name, active, status, sudo, bg, jobs, model, thinking, account }]. id(창 고유 번호)는 맥 쪽에서만 쓴다.
+ * account: Claude Code 탭의 계정(연결부가 적음, 11-18) { now: 지금 계정, pin: 앱에서 고른 계정(없으면 자동), next: 바꿀 계정,
+ * phase: wait(일이 끝나기를 기다림) | switch(바꾸는 중) } — 모르면(Claude Code 탭이 아니거나 예전 연결부) null
+ */
 export function parseWindows(out) {
   const rows = String(out ?? "").split("\n").filter(Boolean).map((line) => {
-    const [id, index, name, active, status, sudo, pane, by, started, done, from, origin, jobs, model, thinking] = line.split(SEP);
+    const [id, index, name, active, status, sudo, pane, by, started, done, from, origin, jobs, model, thinking, acNow, acPin, acNext, acPhase] = line.split(SEP);
+    const account = acNow ? { now: acNow, pin: acPin || "", next: acNext || "", phase: acPhase || "" } : null;
     return { id, index: parseInt(index, 10), name: name || "", active: active === "1", status: status || "", sudo: sudo || "",
-      pane, by, started, done, from: from || origin || "", jobs: jobs || "", model: model || "", thinking: thinking || "" };
+      pane, by, started, done, from: from || origin || "", jobs: jobs || "", model: model || "", thinking: thinking || "", account };
   });
   const byPane = new Map(rows.map((r) => [r.pane, r]));
   return rows.map((r) => {
@@ -36,7 +42,7 @@ export function parseWindows(out) {
     const bg = r.by
       ? { by: r.by, started: Number(r.started) || 0, done: Number(r.done) || 0, from: src ? src.index : null, fromName: src ? src.name : "" }
       : null;
-    return { id: r.id, index: r.index, name: r.name, active: r.active, status: r.status, sudo: r.sudo, bg, jobs: r.jobs, model: r.model, thinking: r.thinking };
+    return { id: r.id, index: r.index, name: r.name, active: r.active, status: r.status, sudo: r.sudo, bg, jobs: r.jobs, model: r.model, thinking: r.thinking, account: r.account };
   });
 }
 

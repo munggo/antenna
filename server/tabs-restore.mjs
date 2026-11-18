@@ -120,9 +120,21 @@ export function tabCommand(tab, shell = "/bin/zsh") {
   return null;
 }
 
+/**
+ * 브리지가 tmux 서버를 처음 띄울 때 넘길 환경: 브리지만 쓰는 설정은 뺀다.
+ * tmux 서버는 처음 띄운 프로세스의 환경을 모든 탭의 기본 환경으로 삼는다. 재부팅 뒤 브리지(launchd, run.sh 가 설정 파일을 내보냄)가
+ * 서버를 띄우자 탭마다 PORT=8787·HOST=0.0.0.0·PI_REMOTE_TLS_ONLY·알림 키 설정이 들어갔다(11-19: 탭에서 띄운 시험 브리지가 '암호화만'으로 떠
+ * 앱 시험이 실패. 개발 서버도 PORT 를 읽으면 브리지 포트와 부딪힘). 재부팅 전처럼 사용자가 띄운 서버에는 없던 값들이다
+ */
+export function tmuxServerEnv(env = process.env) {
+  const BRIDGE_ONLY = new Set(["PI_TMUX_SESSION", "HOST", "PORT", "XPC_SERVICE_NAME", "XPC_FLAGS", "OSLogRateLimit"]);
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith("PI_REMOTE_") && !BRIDGE_ONLY.has(k)));
+}
+
 /** 세션 만들기(+ 언어 설정). tabs 가 있으면 같은 번호·이름·폴더로 되살림 → { restored, pi, claude, shell } */
 export function createSession(tmuxBin, session, tabs = null, shell = process.env.SHELL && /\/(zsh|bash)$/.test(process.env.SHELL) ? process.env.SHELL : "/bin/zsh") {
-  const t = (...a) => execFileSync(tmuxBin, a, { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const clean = tmuxServerEnv();
+  const t = (...a) => execFileSync(tmuxBin, a, { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "pipe"], env: clean }).trim();
   const env = Object.entries(LOCALE).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
   const list = (tabs ?? []).filter((x) => Number.isInteger(x.index)).sort((a, b) => a.index - b.index);
   const first = list[0];
