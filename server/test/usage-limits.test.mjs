@@ -92,24 +92,33 @@ try {
   ok(keys(acct(u, "personal")?.limits) === "session=20 week=43 week:Fable=74" && acct(u, "personal").limits[0].session === true,
     `5시간 한도는 세션으로 → ${keys(acct(u, "personal")?.limits)}`);
 
-  // 5) 회사 계정에 모델별 값이 적혀 있으면(pi 로 회사 계정을 쓸 때 응답에 실려 온 줄임 이름) 회사 쪽에 따로
+  // 5) 회사 계정의 Fable 한도: pi 로 회사 계정을 쓸 때 응답에 실려 온 값(구분 이름 oi)을 Fable 로 보낸다
   writeFileSync(ACCOUNTS, JSON.stringify({ "anthropic-work": { "7d": claim(0.06), "7d:oi": claim(0.31) } }));
   u = await ask();
-  ok(keys(acct(u, "work")?.limits) === "work:7d=6 work:7d:oi=31" && acct(u, "work").limits[1].label === "주간 한도 · Oi",
-    `회사: 모델별 값 → ${keys(acct(u, "work")?.limits)} '${acct(u, "work")?.limits[1]?.label}'`);
+  ok(keys(acct(u, "work")?.limits) === "work:7d=6 work:7d:Fable=31" && acct(u, "work").limits[1].label === "주간 한도 · Fable",
+    `회사: Fable 한도 → ${keys(acct(u, "work")?.limits)} '${acct(u, "work")?.limits[1]?.label}'`);
   ok(!keys(acct(u, "personal")?.limits).includes("work:"), "개인 쪽에는 회사 값이 섞이지 않음");
+
+  // 5-1) 회사 탭이 Fable 한도에 걸려 적힌 값(Claude Code 상태 줄이 대화 기록에서 읽어 적음): 100%. 풀렸다는 표시로 바뀌면 사라진다
+  writeFileSync(ACCOUNTS, JSON.stringify({ "anthropic-work": { "7d": claim(0.11), "7d:oi": { util: 1, reset: Math.floor(now / 1000) + 86400, at: now - 3 * 3600_000, hit: true } } }));
+  u = await ask();
+  ok(keys(acct(u, "work")?.limits) === "work:7d=11 work:7d:Fable=100" && acct(u, "work").limits[1].label === "주간 한도 · Fable",
+    `회사: 한도에 걸린 Fable 은 100% → ${keys(acct(u, "work")?.limits)}`);
+  writeFileSync(ACCOUNTS, JSON.stringify({ "anthropic-work": { "7d": claim(0.11), "7d:oi": { at: now, ok: true } } }));
+  u = await ask();
+  ok(keys(acct(u, "work")?.limits) === "work:7d=11", `회사: 한도가 풀리면(리셋·초기화) 모든 모델 값만 → ${keys(acct(u, "work")?.limits)}`);
 
   // 6) 초기화 시각이 지난 회사 값은 보내지 않는다
   writeFileSync(ACCOUNTS, JSON.stringify({ "anthropic-work": { "7d": claim(0.06), "7d:oi": { util: 0.9, reset: Math.floor(now / 1000) - 60, at: now - 86400_000 } } }));
   u = await ask();
-  ok(keys(acct(u, "work")?.limits) === "work:7d=6", `초기화가 지난 모델별 값은 뺌 → ${keys(acct(u, "work")?.limits)}`);
+  ok(keys(acct(u, "work")?.limits) === "work:7d=6", `초기화가 지난 값은 뺌 → ${keys(acct(u, "work")?.limits)}`);
 
-  // 7) 조회가 안 될 때(응답 파일이 없음·깨짐): 공유 파일에 적힌 개인 값으로 대신한다. 모델별 값은 이름이 달라 뺀다
+  // 7) 조회가 안 될 때(응답 파일이 없음·깨짐): 공유 파일에 적힌 개인 값으로 대신한다(모든 모델과, 적혀 있으면 Fable)
   writeFileSync(ACCOUNTS, JSON.stringify({ anthropic: { "7d": claim(0.4), "7d:fable": claim(0.7) }, "anthropic-work": { "7d": claim(0.06) } }));
   for (const [how, make] of [["없음", () => rmSync(FAKE, { force: true })], ["깨짐", () => writeFileSync(FAKE, "{ 깨진 글")]]) {
     make();
     u = await ask();
-    ok(!u?.error && keys(acct(u, "personal")?.limits) === "week=40", `조회 응답 ${how}: 공유 파일의 개인 값(모든 모델만) → ${u?.error ?? keys(acct(u, "personal")?.limits)}`);
+    ok(!u?.error && keys(acct(u, "personal")?.limits) === "week=40 week:Fable=70", `조회 응답 ${how}: 공유 파일의 개인 값 → ${u?.error ?? keys(acct(u, "personal")?.limits)}`);
   }
 
   // 8) 아무 값도 없으면 안내 글(계정 카드는 보내지 않음)

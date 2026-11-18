@@ -73,12 +73,22 @@ const WORK_SUMMARY = `${DIR}/usage-summary-work.json`;   // 터미널 하단 줄
 const ACCOUNTS_FILE = process.env.PI_ACCOUNTS_CACHE || `${process.env.HOME}/.cache/pi-remote/claude-accounts.json`;
 
 /**
+ * 공유 파일에서 Fable 전용 주간 한도를 가리키는 구분들. 이름은 달라도 모두 같은 한도다:
+ *   oi               응답 헤더 anthropic-ratelimit-unified-7d_oi-*(seven_day_overage_included. Claude Code 화면에는 'Fable limit')
+ *   overage_included pi 확장이 한도 오류 때 적는 이름(헤더의 대표 한도 이름에서)
+ *   fable            pi 확장이 사용량 조회 결과로 적는 이름
+ * 11-18 까지 oi 를 뜻 모를 모델 이름으로 다뤄 화면에 '주간 한도 · Oi'로 나왔다
+ */
+const FABLE_SCOPES = new Set(["oi", "overage_included", "fable"]);
+
+/**
  * 공유 파일(claude-accounts.json)에 적힌 계정의 사용률 → 한도 목록.
- * 이 파일은 pi 확장(응답에 실려 온 값)과 Claude Code 상태 줄(Claude Code 가 넘겨 준 5시간·주간 사용률)이 함께 쓴다:
- *   { "<계정>": { "5h" | "7d" | "7d:<모델>": { util: 0~1, reset: 초, at: 적은 시각(ms) } } }
- * 초기화 시각이 지난 값은 뺀다. 10분 넘게 지난 값은 이름 뒤에 '(N분 전 기준)'을 붙인다.
- * personal 이 참이면 사용량 조회 결과와 같은 구분(session | week)과 이름으로(pi 로그인 없이도 개인 계정을 보여 줄 때).
- *   모델별 값은 뺀다: 응답에 실려 온 줄임 이름(oi 등)이라 조회 결과의 모델 이름과 맞지 않는다
+ * 이 파일은 pi 확장(응답에 실려 온 값)과 Claude Code 상태 줄(Claude Code 가 넘겨 준 5시간·주간 사용률, 대화 기록에 남은 한도 오류)이 함께 쓴다:
+ *   { "<계정>": { "5h" | "7d" | "7d:<구분>": { util: 0~1, reset: 초, at: 적은 시각(ms), hit?: 한도에 걸려 적힌 값 } } }
+ * 초기화 시각이 지난 값과 사용률이 없는 값(한도가 풀렸다는 표시)은 뺀다. 10분 넘게 지난 값은 이름 뒤에 '(N분 전 기준)'을 붙인다
+ * (한도에 걸려 적힌 값은 초기화 때까지 그대로라 붙이지 않는다).
+ * personal 이 참이면 사용량 조회 결과와 같은 구분(session | week | week:Fable)과 이름으로(pi 로그인 없이도 개인 계정을 보여 줄 때).
+ *   Fable 말고 다른 구분은 뺀다: 무엇의 한도인지 알 수 없다
  * 아니면 회사 계정 표시(work:…, '회사 계정 · …')로 만든다
  */
 export function sharedLimits(provider, personal, now = Date.now(), file = ACCOUNTS_FILE) {
@@ -89,14 +99,22 @@ export function sharedLimits(provider, personal, now = Date.now(), file = ACCOUN
     return [];   // 아직 아무것도 적히지 않음
   }
   const out = [];
+  const ageOf = (c) => {
+    const ageMin = Math.round((now - (c.at ?? now)) / 60_000);
+    return ageMin >= 10 && !c.hit ? ` (${ageMin >= 120 ? `${Math.round(ageMin / 60)}시간` : `${ageMin}분`} 전 기준)` : "";
+  };
+  const commonOf = (c, base) => ({ percent: Math.round(c.util * 1000) / 10, resetsAt: c.reset ? new Date(c.reset * 1000).toISOString() : null, session: base === "5h", severity: "normal" });
+  let fable = null;   // Fable 한도는 구분이 여럿이라 가장 최근에 적힌 값 하나만
   for (const [k, c] of Object.entries(claims)) {
     if (!c || typeof c.util !== "number" || (c.reset && c.reset * 1000 <= now)) continue;
     const [base, model] = k.split(":");
     if (base !== "5h" && base !== "7d") continue;
+    if (base === "7d" && FABLE_SCOPES.has(model)) {
+      if (!fable || (c.at ?? 0) > (fable.at ?? 0)) fable = c;
+      continue;
+    }
     const modelName = model ? `${model[0].toUpperCase()}${model.slice(1)}` : "";
-    const ageMin = Math.round((now - (c.at ?? now)) / 60_000);
-    const age = ageMin >= 10 ? ` (${ageMin >= 120 ? `${Math.round(ageMin / 60)}시간` : `${ageMin}분`} 전 기준)` : "";
-    const common = { percent: Math.round(c.util * 1000) / 10, resetsAt: c.reset ? new Date(c.reset * 1000).toISOString() : null, session: base === "5h", severity: "normal" };
+    const age = ageOf(c), common = commonOf(c, base);
     if (personal) {
       if (model) continue;
       out.push({ key: base === "5h" ? "session" : "week", label: `${base === "5h" ? "현재 세션 (5시간)" : "주간 한도 · 모든 모델"}${age}`, ...common });
@@ -105,8 +123,13 @@ export function sharedLimits(provider, personal, now = Date.now(), file = ACCOUN
       out.push({ key: `work:${k}`, label: `회사 계정 · ${name}${age}`, ...common });
     }
   }
-  // 개인 계정은 사용량 조회 결과와 같은 차례로: 세션, 주간
+  // 개인 계정은 사용량 조회 결과와 같은 차례로: 세션, 주간, 모델별
   if (personal) out.sort((a, b) => (a.key === "session" ? 0 : 1) - (b.key === "session" ? 0 : 1));
+  if (fable) {
+    out.push(personal
+      ? { key: "week:Fable", label: `주간 한도 · Fable${ageOf(fable)}`, ...commonOf(fable, "7d") }
+      : { key: "work:7d:Fable", label: `회사 계정 · 주간 한도 · Fable${ageOf(fable)}`, ...commonOf(fable, "7d") });
+  }
   return out;
 }
 

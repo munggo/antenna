@@ -104,12 +104,35 @@ ok(after.length === 1 && JSON.parse(after[0]).w === 5, "15일 넘은 기록 150�
     "anthropic-work": { "7d": { util: 0.633, reset: sec(T + 86400_000), at: T - 3 * 3600_000 } },
   }));
   const p = m.sharedLimits("anthropic", true, T, F);
-  ok(p.map((l) => l.key).join() === "session,week", `개인: 세션·주간 차례, 모델별·지난 값·모르는 구분은 뺌 → ${p.map((l) => l.key).join()}`);
+  ok(p.map((l) => l.key).join() === "session,week,week:Fable", `개인: 세션·주간·Fable 차례, 지난 값·모르는 구분은 뺌 → ${p.map((l) => l.key).join()}`);
   ok(p[0].percent === 7 && p[0].session === true && p[0].label === "현재 세션 (5시간)", "개인: 세션 값과 이름(방금 값이면 기준 시각 표시 없음)");
   ok(p[1].percent === 42 && p[1].label === "주간 한도 · 모든 모델 (25분 전 기준)" && p[1].resetsAt === new Date(T + 3 * 86400_000).toISOString(), `개인: 주간 값·초기화 시각, 오래된 값은 기준 시각 표시 → ${p[1].label}`);
+  ok(p[2].percent === 10.5 && p[2].label === "주간 한도 · Fable" && p[2].session === false, `개인: Fable 한도는 사용량 조회 결과와 같은 구분·이름 → ${p[2].label} ${p[2].percent}`);
   const w = m.sharedLimits("anthropic-work", false, T, F);
   ok(w.length === 1 && w[0].key === "work:7d" && w[0].label === "회사 계정 · 주간 한도 (3시간 전 기준)" && w[0].percent === 63.3, `회사: 예전과 같은 구분·이름 → ${w[0]?.label}`);
   ok(m.sharedLimits("anthropic", true, T, `${dir}/none.json`).length === 0 && m.sharedLimits("nobody", true, T, F).length === 0, "파일이나 계정이 없으면 빈 목록");
+
+  // Fable 한도는 적는 쪽마다 이름이 다르다(응답 헤더 oi · pi 의 한도 오류 overage_included · pi 의 조회 fable): 같은 한도라 가장 최근 값 하나만, 이름은 Fable
+  const keys = (l) => l.map((x) => `${x.key}=${x.percent}`).join(" ");
+  const fableOf = (claims, personal = false) => {
+    writeFileSync(F, JSON.stringify({ [personal ? "anthropic" : "anthropic-work"]: { "7d": { util: 0.11, reset: sec(T + 86400_000), at: T }, ...claims } }));
+    return m.sharedLimits(personal ? "anthropic" : "anthropic-work", personal, T, F);
+  };
+  const c = (util, agoMin, extra = {}) => ({ util, reset: sec(T + 86400_000), at: T - agoMin * 60_000, ...extra });
+  let f = fableOf({ "7d:oi": c(0.31, 2) });
+  ok(keys(f) === "work:7d=11 work:7d:Fable=31" && f[1].label === "회사 계정 · 주간 한도 · Fable", `회사: 응답에 실려 온 oi 는 Fable 한도 → ${keys(f)} '${f[1]?.label}'`);
+  f = fableOf({ "7d:oi": c(0.31, 30), "7d:fable": c(0.4, 5), "7d:overage_included": c(1, 50) });
+  ok(keys(f) === "work:7d=11 work:7d:Fable=40", `이름이 여럿이면 가장 최근에 적힌 값 하나 → ${keys(f)}`);
+  f = fableOf({ "7d:oi": c(1, 200, { hit: true }) });
+  ok(keys(f) === "work:7d=11 work:7d:Fable=100" && f[1].label === "회사 계정 · 주간 한도 · Fable", `한도에 걸려 적힌 값은 100%, 오래돼도 '전 기준'을 붙이지 않음 → '${f[1]?.label}'`);
+  f = fableOf({ "7d:oi": { at: T - 60_000, ok: true } });
+  ok(keys(f) === "work:7d=11", `한도가 풀렸다는 표시(사용률 없음)는 내보내지 않음 → ${keys(f)}`);
+  f = fableOf({ "7d:oi": { util: 1, reset: sec(T - 60), at: T - 86400_000, hit: true } });
+  ok(keys(f) === "work:7d=11", `초기화 시각이 지난 한도 오류는 내보내지 않음 → ${keys(f)}`);
+  f = fableOf({ "7d:opus": c(0.2, 1), "7d:oi": c(0.31, 1) });
+  ok(keys(f) === "work:7d=11 work:7d:opus=20 work:7d:Fable=31" && f[1].label === "회사 계정 · 주간 한도 · Opus", `회사: 다른 구분은 전처럼 그 이름으로 → ${keys(f)}`);
+  f = fableOf({ "7d:opus": c(0.2, 1), "7d:oi": c(1, 1, { hit: true }) }, true);
+  ok(keys(f) === "week=11 week:Fable=100", `개인: Fable 만 보태고 다른 구분은 뺌 → ${keys(f)}`);
   // 개인 값은 사용량 기록(session·week)에 그대로 쌓인다 → pi 없이도 주간 그래프가 이어짐
   const before = m.readUsageHistory(0).length;
   m.recordUsage({ limits: p });

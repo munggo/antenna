@@ -54,7 +54,7 @@ struct DailyBar: Identifiable {
 }
 
 extension UsageInfo.Limit {
-    /// 모델별 주간 한도면 그 모델 이름(week:Fable → Fable, 회사 계정의 work:7d:oi → Oi). 모든 모델 한도·세션이면 nil
+    /// 모델별 주간 한도면 그 모델 이름(week:Fable → Fable, 회사 계정은 work:7d:Fable → Fable). 모든 모델 한도·세션이면 nil
     var weekModel: String? {
         guard let key else { return nil }
         for p in ["week:", "work:7d:"] where key.hasPrefix(p) {

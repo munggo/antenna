@@ -12,7 +12,10 @@
 #      쓰는 중에 길어진 답은 접지 않는지, 접힌 코드도 복사는 전체인지. 대화는 test/fake-feed.mjs 가 줌) ·
 #   ZZ 새 탭에서 켤 도구 고르기(서랍의 + 를 누르면 Claude Code·pi·Codex·Gemini CLI, 고르면 보던 탭의 폴더에서 새 탭) ·
 #   AAA 서랍의 이번 주 사용량 고리(모델별 주간 한도가 있으면 두 겹: 바깥은 모든 모델·안쪽은 모델별, 이름 아래 'Fable 74%'.
-#       없으면 한 겹. 여럿이면 가장 많이 쓴 것. 사용량 화면의 모델별 막대. 색과 모양은 /tmp/usage-rings-*.png 로 봄)
+#       없으면 한 겹. 여럿이면 가장 많이 쓴 것. 사용량 화면의 모델별 막대. 회사 계정의 Fable 값과, 한도에 걸렸다 풀린 것.
+#       색과 모양은 /tmp/usage-rings-*.png 로 봄) ·
+#   AAB '작업 중' 줄의 점 세 개가 그 줄 안에서 깜빡이기만 하는지(작업 중인 탭을 열 때, 열어 둔 채 작업이 시작될 때,
+#       긴 답을 펼친 뒤. 화면 사진을 여러 장 찍어 점이 줄 밖에 찍히는지 봄. '작업 중'은 /tmp/ptest/fold-busy 로 만듦)
 # 쓰기: sh test/app.sh [시험 이름 일부…]   예) sh test/app.sh QQ     (sh test.sh --app 으로도 부름)
 # 하는 일: 시험용 tmux 세션과 시험 브리지(이 맥 안에서만 닿는 127.0.0.1)를 띄우고, 시뮬레이터를 켜서 시험한 뒤 모두 치운다.
 #          쓰는 tmux 세션(antenna)·쓰는 브리지·켜져 있는 다른 시뮬레이터는 건드리지 않는다.
@@ -55,7 +58,7 @@ cleanup() {
   xcrun simctl uninstall "$SIM" "$ID" >/dev/null 2>&1   # 시험이 깐 앱은 남기지 않는다
   [ "$WAS_BOOTED" = 0 ] && xcrun simctl shutdown "$SIM" 2>/dev/null
   rm -rf "$D" "$W/secret-win" "$W/secret-win2" "$W/secret-cancel-flag" "$W/secret-got" "$W/pair-hosts-ok" "$W/pair-code-link" "$W/bg-wins" "$W/battery" "$W/shortcut-ok" \
-    "$W/fold-win" "$W/fold-arrive" "$W/fold-grow" "$W/pb-ask" "$W/pb-out" "$W/pb-out.tmp" "$W/usage.json" "$W/accounts.json"
+    "$W/fold-win" "$W/fold-arrive" "$W/fold-grow" "$W/fold-busy" "$W/pb-ask" "$W/pb-out" "$W/pb-out.tmp" "$W/usage.json" "$W/accounts.json"
   rm -f "$HOME/.cache/pi-remote/notify-$S.sock"
 }
 trap cleanup EXIT
@@ -160,7 +163,7 @@ xcrun simctl keychain "$SIM" reset
 echo $! > "$D/pb.pid"
 
 ONLY=""
-for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testWW_ShortcutTask testXX_ClaudeContext testYY_FoldLongMessages testZZ_NewTabTool testAAA_UsageRings testB_RemoveAttachment; do
+for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testWW_ShortcutTask testXX_ClaudeContext testYY_FoldLongMessages testZZ_NewTabTool testAAA_UsageRings testAAB_WorkingDotsStay testB_RemoveAttachment; do
   if [ $# -eq 0 ]; then ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t"; continue; fi
   for want in "$@"; do case "$t" in *"$want"*) ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t" ;; esac; done
 done

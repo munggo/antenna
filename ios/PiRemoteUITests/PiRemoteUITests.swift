@@ -2395,7 +2395,8 @@ final class PiRemoteUITests: XCTestCase {
     ///      (바깥: 모든 모델, 안쪽: 모델별)이고 이름 아래에 'Fable 74%'가 붙는다. 없으면 전처럼 한 겹.
     ///      값은 시험 브리지가 /tmp/ptest/usage.json(사용량 조회 응답)·accounts.json(회사 계정 값)에서 읽는다(test/app.sh):
     ///      ① 개인 43%·Fable 74%, 회사 6%  ② 사용량 화면의 계정 카드에 모델별 막대  ③ 모델별 한도가 없어지면 한 겹(글도 없음)
-    ///      ④ 모델별 한도가 여럿이면 가장 많이 쓴 것 하나(Fable 95%), 회사 계정에 적힌 모델별 값(Oi 31%)
+    ///      ④ 모델별 한도가 여럿이면 가장 많이 쓴 것 하나(Fable 95%), 회사 계정에 적힌 Fable 값(구분 이름 oi → 'Fable 31%'),
+    ///        회사 탭이 Fable 한도에 걸려 적힌 값은 100%, 풀렸다는 표시로 바뀌면 다시 한 겹
     ///      ⑤ 둘 다 100%  ⑥ 모델별 한도를 아직 안 씀(0%)
     ///      고리 모양과 색(모델별은 보라, 90%를 넘으면 빨강)은 사진으로 본다(/tmp/usage-rings-*.png)
     func testAAA_UsageRings() throws {
@@ -2442,20 +2443,23 @@ final class PiRemoteUITests: XCTestCase {
         shows("label CONTAINS '12%' AND NOT (label CONTAINS 'Fable')", "모델별 한도가 없으면 전처럼 %와 계정 이름만")
         shot("usage-rings-one")
 
-        // ④ 모델별 한도가 여럿(Opus 30% · Fable 95%), 회사 계정에도 모델별 값(Oi 31%)
+        // ④ 모델별 한도가 여럿(Opus 30% · Fable 95%), 회사 계정에도 Fable 값(31%).
+        //    회사 값은 공유 파일에 구분 이름 'oi'로 적힌다(응답에 실려 오는 Fable 한도의 이름). 화면에는 Fable 로 보여야 한다
         setUsage(week: 50, models: [("Opus", 30), ("Fable", 95)], work: ["7d": 0.06, "7d:oi": 0.31])
         openSheet()
         el("usageRefresh").tap()
-        XCTAssertTrue(app.staticTexts["주간 한도 · Fable"].waitForExistence(timeout: 10), "새로 고치면 모델별 막대가 다시 보여야 함")
+        let fableBars = app.staticTexts.matching(NSPredicate(format: "label == %@", "주간 한도 · Fable"))
+        let both = expectation(for: NSPredicate(format: "count == 2"), evaluatedWith: fableBars)
+        XCTAssertEqual(XCTWaiter().wait(for: [both], timeout: 10), .completed, "새로 고치면 개인·회사 계정에 Fable 막대가 하나씩 보여야 함(지금 \(fableBars.count)개)")
         XCTAssertTrue(app.staticTexts["주간 한도 · Opus"].exists, "사용량 화면에는 모델별 한도가 모두 보여야 함")
-        XCTAssertTrue(app.staticTexts["주간 한도 · Oi"].waitForExistence(timeout: 5), "회사 계정의 모델별 값도 막대로 보여야 함")
+        XCTAssertFalse(app.staticTexts["주간 한도 · Oi"].exists, "회사 계정의 Fable 값이 구분 이름(Oi) 그대로 보이면 안 됨")
         app.swipeUp()   // 화면 크게
         sleep(1)
         shot("usage-sheet-many")
         closeSheet()
         openDrawer()
         shows("label CONTAINS '50%' AND label CONTAINS 'Fable 95%' AND NOT (label CONTAINS 'Opus')", "서랍 고리에는 가장 많이 쓴 모델별 한도 하나")
-        shows("label CONTAINS 'Oi 31%'", "회사 계정에도 모델별 값이 보여야 함")
+        shows("label CONTAINS 'Fable 31%' AND NOT (label CONTAINS 'Oi')", "회사 계정에도 Fable 값이 보여야 함")
         shot("usage-rings-red")
 
         /// 값을 바꾼 뒤 사용량 화면에서 새로 고치고 서랍으로 돌아온다
@@ -2466,6 +2470,17 @@ final class PiRemoteUITests: XCTestCase {
             closeSheet()
             openDrawer()
         }
+        // ④-1 회사 탭이 Fable 한도에 걸려 적힌 값(Claude Code 상태 줄이 대화 기록에서 읽어 적음): 꽉 찬 고리.
+        //      그 뒤 풀렸다는 표시로 바뀌면(리셋권·초기화) 회사 고리는 다시 한 겹
+        setUsage(week: 43, models: [("Fable", 74)], work: ["7d": 0.11], workHit: true)
+        refresh()
+        shows("label CONTAINS '11%' AND label CONTAINS 'Fable 100%' AND label CONTAINS 'Fable 74%'", "회사 계정이 Fable 한도에 걸리면 100%로 보여야 함")
+        shot("usage-rings-hit")
+        setUsage(week: 43, models: [("Fable", 74)], work: ["7d": 0.11], workHit: false)
+        refresh()
+        shows("label CONTAINS '11%' AND label CONTAINS 'Fable 74%' AND NOT (label CONTAINS 'Fable 100%')", "한도가 풀리면 회사 계정은 모든 모델 값만")
+        XCTAssertEqual(card.label.components(separatedBy: "Fable").count - 1, 1, "풀린 뒤 Fable 글은 개인 계정에만(카드의 글: \(card.label))")
+
         // ⑤ 둘 다 꽉 참: 가운데 '100%'가 안쪽 고리 안에 들어가는지는 사진으로
         setUsage(week: 100, models: [("Fable", 100)])
         refresh()
@@ -2480,8 +2495,9 @@ final class PiRemoteUITests: XCTestCase {
     }
 
     /// 시험 브리지가 읽는 사용량 값 바꾸기(test/app.sh 의 PI_REMOTE_FAKE_USAGE_FILE·PI_ACCOUNTS_CACHE).
-    /// week: 모든 모델 주간 %, models: 모델별 주간 %, work: 회사 계정 값(공유 파일의 구분 → 사용률 0~1)
-    private func setUsage(week: Int, models: [(String, Int)] = [], work: [String: Double] = ["7d": 0.06]) {
+    /// week: 모든 모델 주간 %, models: 모델별 주간 %, work: 회사 계정 값(공유 파일의 구분 → 사용률 0~1),
+    /// workHit: 회사 계정의 Fable 한도가 걸려 적힌 값(참)인지, 그 뒤 풀렸다는 표시(거짓)인지. 없으면 적지 않음
+    private func setUsage(week: Int, models: [(String, Int)] = [], work: [String: Double] = ["7d": 0.06], workHit: Bool? = nil) {
         let now = Date().timeIntervalSince1970
         let reset = ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: now + 5 * 86400))
         var limits: [[String: Any]] = [["kind": "weekly_all", "group": "weekly", "percent": week, "severity": "normal", "resets_at": reset]]
@@ -2489,11 +2505,103 @@ final class PiRemoteUITests: XCTestCase {
             limits.append(["kind": "weekly_scoped", "group": "weekly", "percent": percent, "severity": "normal", "resets_at": reset,
                            "scope": ["model": ["display_name": name]]])
         }
-        let claims = work.mapValues { ["util": $0, "reset": Int(now) + 3 * 86400, "at": Int(now * 1000)] as [String: Any] }
+        var claims = work.mapValues { ["util": $0, "reset": Int(now) + 3 * 86400, "at": Int(now * 1000)] as [String: Any] }
+        if let workHit {
+            claims["7d:oi"] = workHit ? ["util": 1, "reset": Int(now) + 3 * 86400, "at": Int(now * 1000) - 3 * 3_600_000, "hit": true]
+                                      : ["at": Int(now * 1000), "ok": true]
+        }
         let files: [(String, [String: Any])] = [("/tmp/ptest/usage.json", ["limits": limits]), ("/tmp/ptest/accounts.json", ["anthropic-work": claims])]
         for (path, obj) in files {
             try? JSONSerialization.data(withJSONObject: obj).write(to: URL(fileURLWithPath: path), options: .atomic)
         }
+    }
+
+    /// AAB. '작업 중' 줄의 점 세 개는 그 줄 안에서 깜빡이기만 해야 한다(11-18 사용자 보고: 점들이 줄 밖으로, 화면 전체를 오르내림).
+    ///      끝없이 되풀이하는 깜빡임이 점의 '자리 바뀜'까지 붙잡으면 점이 옛 자리와 새 자리 사이를 계속 오간다.
+    ///      ① 작업 중인 탭을 열 때(긴 답들이 접히며 줄의 자리가 크게 바뀜)  ② 열어 둔 채 작업이 시작될 때
+    ///      ③ 작업 중에 위의 긴 답을 펼치고 접어 줄의 자리가 바뀔 때. 화면 사진을 여러 장 찍어, 대화 왼쪽 가장자리의
+    ///      강조색 점이 '작업 중' 줄의 높이 안에만 있는지 본다(대화는 맥의 test/fake-feed.mjs, '작업 중'은 /tmp/ptest/fold-busy)
+    func testAAB_WorkingDotsStay() throws {
+        guard let text = try? String(contentsOfFile: "/tmp/ptest/fold-win", encoding: .utf8),
+              let win = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw XCTSkip("접기 시험 탭 준비 안 됨") }
+        let busy = "/tmp/ptest/fold-busy"
+        defer { try? FileManager.default.removeItem(atPath: busy) }   // 뒤에 도는 시험(YY)은 쉬는 탭에서 시작
+        let status = el("statusRow"), chat = el("chatScroll")
+        /// 사진 8장(2초쯤): 점이 '작업 중' 줄 밖에 찍힌 장의 자리들과, 점이 찍힌 장 수
+        func watch(_ name: String) -> (stray: [String], seen: Int) {
+            var stray: [String] = [], seen = 0
+            for i in 0..<8 {
+                let image = XCUIScreen.main.screenshot().image
+                let row = status.frame
+                if let y = accentDotsY(image, in: chat.frame) {
+                    seen += 1
+                    if y.lowerBound < row.minY - 6 || y.upperBound > row.maxY + 6 {
+                        stray.append("\(i + 1)번째 장: 점 y \(Int(y.lowerBound))~\(Int(y.upperBound)), 줄 y \(Int(row.minY))~\(Int(row.maxY))")
+                        try? image.pngData()?.write(to: URL(fileURLWithPath: "/tmp/dots-\(name)-stray\(i + 1).png"))
+                    }
+                }
+                if i == 0 { try? image.pngData()?.write(to: URL(fileURLWithPath: "/tmp/dots-\(name).png")) }
+                usleep(150_000)
+            }
+            return (stray, seen)
+        }
+        func check(_ name: String, _ what: String) {
+            let r = watch(name)
+            XCTAssertTrue(r.stray.isEmpty, "\(what): 점이 '작업 중' 줄 밖에 보임 → \(r.stray.joined(separator: " / "))")
+            XCTAssertGreaterThanOrEqual(r.seen, 3, "\(what): 점이 '작업 중' 줄에 보여야 함(사진 8장 가운데 \(r.seen)장에서만 보임)")
+        }
+
+        // ① 작업 중인 탭을 연다: 처음 받은 대화의 긴 답들이 접히는 것과 '작업 중' 줄이 생기는 것이 겹친다
+        FileManager.default.createFile(atPath: busy, contents: nil)
+        sleep(1)   // 가짜 피드가 신호 파일을 보는 틈(0.2초)
+        relaunch(test: "")
+        openTab(win)
+        XCTAssertTrue(status.waitForExistence(timeout: 20), "작업 중인 탭을 열면 '작업 중' 줄이 보여야 함")
+        sleep(2)   // 처음 자리 잡기가 끝난 뒤에도 오가는지
+        check("open", "작업 중인 탭을 열었을 때")
+
+        // ② 쉬는 탭을 열어 둔 채 작업이 시작될 때
+        try? FileManager.default.removeItem(atPath: busy)
+        XCTAssertTrue(waitGone(status, 10), "작업이 끝나면 '작업 중' 줄이 없어져야 함")
+        FileManager.default.createFile(atPath: busy, contents: nil)
+        XCTAssertTrue(status.waitForExistence(timeout: 10), "작업이 시작되면 '작업 중' 줄이 다시 보여야 함")
+        sleep(1)
+        check("start", "열어 둔 탭에서 작업이 시작됐을 때")
+
+        // ③ 작업 중에 위의 긴 답을 펼치면 줄이 아래로 밀려난다. 맨 아래로 내려와서도 점은 줄 안에
+        let more = app.buttons.matching(identifier: "foldMore")
+        if let last = more.allElementsBoundByIndex.last, last.isHittable {
+            last.tap()
+            sleep(1)
+            for _ in 0..<12 where !status.isHittable { chat.swipeUp(velocity: .fast) }
+            XCTAssertTrue(status.isHittable, "펼친 뒤 맨 아래로 내려오면 '작업 중' 줄이 보여야 함")
+            sleep(1)
+            check("unfold", "작업 중에 긴 답을 펼친 뒤")
+        }
+    }
+
+    /// 화면 사진에서 대화 왼쪽 가장자리('작업 중' 점 세 개의 가로 자리)에 보이는 강조색(주황) 점의 세로 범위(pt). 안 보이면 nil.
+    /// 점은 차례로 흐려졌다 진해지므로 흐린 순간의 점은 잡히지 않을 수 있다
+    private func accentDotsY(_ image: UIImage, in area: CGRect) -> ClosedRange<CGFloat>? {
+        guard let cg = image.cgImage else { return nil }
+        let w = cg.width, h = cg.height
+        let scale = CGFloat(w) / app.frame.width
+        var data = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let x0 = Int(14 * scale), x1 = Int(38 * scale)   // 대화 왼쪽 여백 16pt 에서 점 세 개(5pt, 사이 4pt)
+        let y0 = max(0, Int(area.minY * scale)), y1 = min(h - 1, Int(area.maxY * scale))
+        guard y0 < y1 else { return nil }
+        var lo = Int.max, hi = Int.min
+        for y in y0...y1 {
+            for x in x0...x1 {
+                let i = (y * w + x) * 4
+                let r = Int(data[i]), g = Int(data[i + 1]), b = Int(data[i + 2])
+                if r > 120, r - b > 50, r - g > 30 { lo = min(lo, y); hi = max(hi, y) }
+            }
+        }
+        return lo <= hi ? CGFloat(lo) / scale...CGFloat(hi) / scale : nil
     }
 
     /// 그 요소 아래에서 가장 가까운 '더 보기'·'접기' 버튼

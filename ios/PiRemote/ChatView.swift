@@ -797,20 +797,29 @@ struct StatusRow: View {
     }
 }
 
-/// 차례로 깜빡이는 작은 점 3개(클레이 색)
+/// 차례로 깜빡이는 작은 점 3개(클레이 색).
+/// 깜빡임은 시각에서 바로 계산한다. 끝없이 되풀이하는 애니메이션을 점에 걸면, 그 순간 점의 자리가 바뀌는 것(위의 글이 접히거나
+/// 늘어남)까지 붙잡아 점이 옛 자리와 새 자리 사이를 계속 오르내린다(11-18: 작업 중인 탭을 열면 점들이 화면을 오르내림)
 struct PulsingDots: View {
-    @State private var on = false
-
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<3) { i in
-                Circle()
-                    .fill(Theme.accent)
-                    .frame(width: 5, height: 5)
-                    .opacity(on ? 1 : 0.25)
-                    .animation(.easeInOut(duration: 0.6).repeatForever().delay(Double(i) * 0.2), value: on)
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 4) {
+                ForEach(0..<3) { i in
+                    Circle()
+                        .fill(Theme.accent)
+                        .frame(width: 5, height: 5)
+                        .opacity(Self.opacity(at: t, dot: i))
+                }
             }
         }
-        .onAppear { on = true }
+    }
+
+    /// 0.6초 동안 진해졌다 0.6초 동안 흐려진다(0.25~1, 점마다 0.2초씩 늦게, 천천히 시작해 천천히 끝남)
+    static func opacity(at t: TimeInterval, dot i: Int) -> Double {
+        let turn = (t - Double(i) * 0.2) / 1.2
+        let x = turn - turn.rounded(.down)             // 한 번 오가는 동안 0 → 1
+        let up = x < 0.5 ? x * 2 : (1 - x) * 2          // 0 → 1 → 0
+        return 0.25 + 0.75 * up * up * (3 - 2 * up)
     }
 }

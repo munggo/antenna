@@ -3,6 +3,7 @@
 //   node fake-feed.mjs <칸 id> <신호 폴더>
 //   <신호 폴더>/fold-arrive 가 생기면 긴 답을 통째로 하나 더 보낸다(Claude Code 탭에서 답이 오는 모양)
 //   <신호 폴더>/fold-grow   가 생기면 답 하나를 조금씩 키워 가며 보낸다(쓰는 중인 답)
+//   <신호 폴더>/fold-busy   가 있는 동안은 '작업 중'인 탭으로 보인다(새로 붙는 앱이 받는 처음 대화에도). 없어지면 쉬는 중으로
 // 소켓 자리는 진짜 피드와 같은 ~/.cache/pi-remote/feed/<칸 번호>.sock (시험 세션의 칸이라 쓰는 탭과 겹치지 않음). 끝날 때 지운다.
 // 작성: 서문교
 import { existsSync, mkdirSync, rmSync } from "node:fs";
@@ -36,7 +37,8 @@ const messages = [
 
 const clients = new Set();
 const send = (o) => { for (const c of clients) c.write(`${JSON.stringify(o)}\n`); };
-const snapshot = () => ({ t: "snapshot", v: 3, messages, truncated: 0, working: false, queue: [], canSend: true, notice: null, context: null, compacting: false });
+let busySince = 0;   // 0 이 아니면 '작업 중'(그때부터 일한 것으로)
+const snapshot = () => ({ t: "snapshot", v: 3, messages, truncated: 0, working: busySince > 0, since: busySince || null, queue: [], canSend: true, notice: null, context: null, compacting: false });
 const server = createServer((c) => {
   clients.add(c);
   c.on("error", () => {});
@@ -76,6 +78,14 @@ once("fold-grow", () => {
     send({ t: "working", value: false });
   }, 250);
 });
+
+// '작업 중'인 탭 흉내: 신호 파일이 생기고 없어질 때마다 붙어 있는 앱에 알린다(1분 넘게 일한 것처럼)
+setInterval(() => {
+  const busy = existsSync(`${signals}/fold-busy`);
+  if (busy === busySince > 0) return;
+  busySince = busy ? Date.now() - 65_000 : 0;
+  send(busy ? { t: "working", value: true, since: busySince } : { t: "working", value: false });
+}, 200);
 
 const bye = () => { rmSync(sock, { force: true }); process.exit(0); };
 process.on("SIGTERM", bye);
