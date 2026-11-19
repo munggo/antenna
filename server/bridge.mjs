@@ -286,9 +286,12 @@ const AUTH_FILE = PI_AUTH_FILE;
 const FAKE_USAGE_FILE = process.env.PI_REMOTE_FAKE_USAGE_FILE || "";
 // 시험용: 회사 계정 사용량 조회 응답을 이 파일의 JSON 으로 대신한다(조회 전용 로그인이 있는 것처럼)
 const FAKE_WORK_USAGE_FILE = process.env.PI_REMOTE_FAKE_WORK_USAGE_FILE || "";
+// 시험용: 회사 계정 요금제 조회(profile) 응답을 이 파일의 JSON 으로 대신한다
+const FAKE_WORK_PROFILE_FILE = process.env.PI_REMOTE_FAKE_WORK_PROFILE_FILE || "";
 const USAGE_TTL_MS = 60_000;
 let usageCache = null; // { at, data }
 let planCache = null; // { at, plan }
+let workPlanCache = null; // { at, plan } 회사 계정 요금제(조회 전용 로그인이 있을 때만)
 
 /** 사용량 조회에 쓸 토큰. 못 얻었으면 까닭을 기록에 한 번씩만 남긴다(같은 까닭을 10분마다 되풀이하지 않게) */
 const tokenNotes = new Map();
@@ -316,16 +319,27 @@ async function anthropicToken() {
 async function refreshWorkUsage() {
   try {
     let u;
+    let profile = null;
     if (FAKE_WORK_USAGE_FILE) {
       if (!existsSync(FAKE_WORK_USAGE_FILE)) return;
       u = JSON.parse(readFileSync(FAKE_WORK_USAGE_FILE, "utf8"));
+      if (FAKE_WORK_PROFILE_FILE) profile = async () => JSON.parse(readFileSync(FAKE_WORK_PROFILE_FILE, "utf8"));
     } else {
       const r = await tokenFor("회사", USAGE_AUTH_FILE, "anthropic-work");
       if (!r.token) return;
       u = await anthropicGet("/api/oauth/usage", r.token);
+      profile = () => anthropicGet("/api/oauth/profile", r.token);
     }
     recordSharedClaims("anthropic-work", claimsFromUsage(u));
     tokenNotes.delete("회사 조회");
+    // 요금제 이름도 개인처럼 한 시간에 한 번(사용자 요청 11-19: 회사 카드에도 'Claude Max 20x' 처럼). 못 얻으면 '회사 계정'
+    if (profile && (!workPlanCache || Date.now() - workPlanCache.at > 3600_000)) {
+      try {
+        workPlanCache = { at: Date.now(), plan: planLabel((await profile()).organization) };
+      } catch {
+        /* 요금제 이름은 없어도 됨 */
+      }
+    }
   } catch (e) {
     if (tokenNotes.get("회사 조회") !== e.message) console.warn(`[pi-remote] 회사 계정 사용량 조회 실패: ${e.message}`);
     tokenNotes.set("회사 조회", e.message);
@@ -1152,7 +1166,8 @@ wss.on("connection", (ws, req) => {
             const accounts = data.error ? undefined : [
               { key: "personal", label: "개인", plan: data.plan || "", limits: (data.limits || []).filter((l) => !String(l.key).startsWith("work:")), ...graph },
               ...(wl.length || work.history.length
-                ? [{ key: "work", label: "회사", plan: "회사 계정", limits: wl.map((l) => ({ ...l, label: l.label.replace(/^회사 계정 · /, "").replace(/\s*\([^)]*전 기준\)$/, "") })), ...work }]
+                // 요금제·이름을 개인 카드와 같게: 요금제를 알면 'Claude Max 20x' 처럼, 모든 모델 주간 한도는 '주간 한도 · 모든 모델'(사용자 요청 11-19)
+                ? [{ key: "work", label: "회사", plan: workPlanCache?.plan || "회사 계정", limits: wl.map((l) => ({ ...l, label: l.label.replace(/^회사 계정 · /, "").replace(/\s*\([^)]*전 기준\)$/, "").replace(/^주간 한도$/, "주간 한도 · 모든 모델") })), ...work }]
                 : []),
             ];
             if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "usage", ...data, ...graph, ...(accounts ? { accounts } : {}) }));

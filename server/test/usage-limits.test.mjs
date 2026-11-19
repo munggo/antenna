@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 const SERVER = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WebSocket = createRequire(join(SERVER, "package.json"))("ws");
 const S = "usagetest", PORT = 8785, ROOT = `/tmp/antenna-usage-${process.pid}`, TOKEN = "f".repeat(64);
-const FAKE = `${ROOT}/usage.json`, ACCOUNTS = `${ROOT}/accounts.json`, WORKFAKE = `${ROOT}/work-usage.json`;
+const FAKE = `${ROOT}/usage.json`, ACCOUNTS = `${ROOT}/accounts.json`, WORKFAKE = `${ROOT}/work-usage.json`, WORKPROFILE = `${ROOT}/work-profile.json`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tm = (...a) => { try { return execFileSync("tmux", a, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return null; } };
 let fail = 0;
@@ -31,13 +31,15 @@ const claim = (util, agoMin = 1) => ({ util, reset: Math.floor(now / 1000) + 3 *
 mkdirSync(`${ROOT}/home`, { recursive: true });
 writeFileSync(FAKE, JSON.stringify({ limits: [weekly(43), weekly(74, "Fable")] }));
 writeFileSync(ACCOUNTS, JSON.stringify({ "anthropic-work": { "7d": claim(0.06) } }));
+// 회사 계정 요금제 조회 응답(조회 전용 로그인이 있을 때만 쓰임: 7-1 에서 회사 조회 응답 파일을 만든 뒤부터)
+writeFileSync(WORKPROFILE, JSON.stringify({ organization: { organization_type: "claude_max", rate_limit_tier: "default_claude_max_20x" } }));
 tm("kill-session", "-t", `=${S}`);
 tm("new-session", "-d", "-s", S, "-x", "100", "-y", "30", "-c", "/tmp");
 const bridge = spawn(process.execPath, ["bridge.mjs"], {
   cwd: SERVER,
   env: { PATH: process.env.PATH, LANG: "ko_KR.UTF-8", HOME: `${ROOT}/home`, PI_BIN: `${ROOT}/no-such/pi`, PI_PKG: `${ROOT}/no-such/pi-pkg`, PI_REMOTE_TOKEN: TOKEN, HOST: "127.0.0.1", PORT: String(PORT),
     PI_TMUX_SESSION: S, PI_REMOTE_PUSH_DRYRUN: "1", PI_REMOTE_PUSH_FILE: `${ROOT}/push.json`, PI_REMOTE_TABS_FILE: `${ROOT}/tabs.json`,
-    PI_REMOTE_USAGE_DIR: `${ROOT}/usage`, PI_ACCOUNTS_CACHE: ACCOUNTS, PI_REMOTE_FAKE_USAGE_FILE: FAKE, PI_REMOTE_FAKE_WORK_USAGE_FILE: WORKFAKE, PI_REMOTE_CRASH_LOG: `${ROOT}/crash.log` },
+    PI_REMOTE_USAGE_DIR: `${ROOT}/usage`, PI_ACCOUNTS_CACHE: ACCOUNTS, PI_REMOTE_FAKE_USAGE_FILE: FAKE, PI_REMOTE_FAKE_WORK_USAGE_FILE: WORKFAKE, PI_REMOTE_FAKE_WORK_PROFILE_FILE: WORKPROFILE, PI_REMOTE_CRASH_LOG: `${ROOT}/crash.log` },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let log = "";
@@ -73,7 +75,8 @@ try {
   ok(keys(acct(u, "personal")?.limits) === "week=43 week:Fable=74", `개인: 모든 모델과 모델별 주간 한도를 따로 보냄 → ${keys(acct(u, "personal")?.limits)}`);
   ok(acct(u, "personal")?.limits.map((l) => l.label).join(" | ") === "주간 한도 · 모든 모델 | 주간 한도 · Fable", `개인: 이름 → ${acct(u, "personal")?.limits.map((l) => l.label).join(" | ")}`);
   ok(acct(u, "personal")?.limits.every((l) => l.resetsAt === RESET && l.session === false), "개인: 초기화 시각을 그대로, 세션 한도가 아님");
-  ok(keys(acct(u, "work")?.limits) === "work:7d=6" && acct(u, "work").limits[0].label === "주간 한도", `회사: 공유 파일의 주간 값 → ${keys(acct(u, "work")?.limits)} '${acct(u, "work")?.limits[0]?.label}'`);
+  ok(keys(acct(u, "work")?.limits) === "work:7d=6" && acct(u, "work").limits[0].label === "주간 한도 · 모든 모델", `회사: 공유 파일의 주간 값(이름은 개인처럼) → ${keys(acct(u, "work")?.limits)} '${acct(u, "work")?.limits[0]?.label}'`);
+  ok(acct(u, "work")?.plan === "회사 계정", `회사: 조회 전용 로그인이 없으면 요금제 대신 '회사 계정' → ${acct(u, "work")?.plan}`);
   ok(keys(u?.limits) === "week=43 week:Fable=74 work:7d=6", `계정을 나눠 받지 않는 예전 앱에는 한 목록으로 → ${keys(u?.limits)}`);
 
   // 2) 모델별 한도가 없는 요금제: 모든 모델만
@@ -127,7 +130,8 @@ try {
   writeFileSync(WORKFAKE, JSON.stringify({ limits: [weekly(12), weekly(55, "Fable")] }));
   u = await ask();
   ok(keys(acct(u, "work")?.limits) === "work:7d=12 work:7d:Fable=55", `회사: 조회한 값으로(모든 모델·Fable) → ${keys(acct(u, "work")?.limits)}`);
-  ok(acct(u, "work")?.limits.map((l) => l.label).join(" | ") === "주간 한도 | 주간 한도 · Fable", `회사: 이름 → ${acct(u, "work")?.limits.map((l) => l.label).join(" | ")}`);
+  ok(acct(u, "work")?.limits.map((l) => l.label).join(" | ") === "주간 한도 · 모든 모델 | 주간 한도 · Fable", `회사: 이름 → ${acct(u, "work")?.limits.map((l) => l.label).join(" | ")}`);
+  ok(acct(u, "work")?.plan === "Claude Max 20x", `회사: 조회 전용 로그인이 있으면 요금제 이름도(개인처럼) → ${acct(u, "work")?.plan}`);
   ok(keys(acct(u, "personal")?.limits) === "week=43 week:Fable=74", "개인 계정 값은 그대로");
   const shared = JSON.parse(readFileSync(ACCOUNTS, "utf8"))["anthropic-work"];
   ok(shared["7d"].util === 0.12 && shared["7d:oi"].util === 0.55 && !("7d:fable" in shared),
