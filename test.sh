@@ -95,6 +95,7 @@ run usage-login "회사 계정 조회용 로그인 명령: 회사 계정만 저�
 run status-line "맥 화면 상태 줄에서 모델·생각 깊이 읽기, 입력창이 비었는지" "$NODE" server/test/status-line.test.mjs
 run live-activity "작업 표시(잠금 화면)" "$NODE" server/test/live-activity.test.mjs
 run battery "맥북 배터리 읽기(잔량·충전기·낮음)" "$NODE" server/test/battery.test.mjs
+run mac-prompts "맥에 뜬 권한 창 알림: 감지·어느 탭·무슨 권한·한 번만·맥을 쓰는 중이면 미룸(탭 찾기는 따로 띄운 tmux 서버에서)" "$NODE" server/test/mac-prompts.test.mjs
 run advertise "브리지가 죽지 않는지(자동 발견 오류·죽음 기록)" "$NODE" server/test/advertise.test.mjs
 run devices "기기별 토큰·짝짓기 코드(만들기·한 번 쓰기·끊기)" "$NODE" server/test/devices.test.mjs
 run deps "브리지 모듈 폴더 지키기: 지워진 것 알아채기·다시 설치(한 번에 하나, 실패하면 5분 쉼)" "$NODE" server/test/deps.test.mjs

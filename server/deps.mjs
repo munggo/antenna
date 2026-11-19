@@ -39,9 +39,10 @@ function ptyHelperOk(dir) {
   });
 }
 
-/** 잠금 파일대로 다시 설치(npm ci). 이 node 옆의 npm 을 쓴다(launchd 의 PATH 에는 nvm 의 node 가 없음) */
+/** 잠금 파일대로 다시 설치(npm ci). 이 node 옆의 npm 을 쓴다(launchd 의 PATH 에는 nvm 의 node 가 없음).
+ * 브리지가 이름을 바꾼 복사본('Antenna 연결부')으로 돌면 run.sh 가 원래 node 폴더를 PI_REMOTE_NODE_DIR 로 알려 준다 */
 export function npmCi(dir) {
-  const bin = dirname(process.execPath);
+  const bin = process.env.PI_REMOTE_NODE_DIR || dirname(process.execPath);
   const npm = existsSync(join(bin, "npm")) ? join(bin, "npm") : "npm";
   return new Promise((resolve, reject) => {
     execFile(npm, ["ci", "--no-audit", "--no-fund"], {

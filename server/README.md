@@ -13,6 +13,8 @@ PI_TMUX_SESSION=antenna node bridge.mjs
 
 `run.sh` does the same with the settings from `~/.config/pi-remote/env`; the login item calls it. Pair a phone with `sh ../deploy/pair.sh`.
 
+`run.sh` starts the bridge from a copy of node named `Antenna 연결부` (`~/Library/Application Support/Antenna/`), so macOS privacy prompts and the Full Disk Access list show that name instead of "node" for every tab in the tmux the bridge starts. It sets `PI_REMOTE_NODE_DIR` to the original node folder, where the bridge looks for `pi` and `npm`. When a privacy prompt is waiting on the Mac, `mac-prompts.mjs` tells the phone which tab is waiting for which permission.
+
 ## Files
 
 - `bridge.mjs` — the WebSocket server and everything it relays

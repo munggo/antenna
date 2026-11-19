@@ -45,4 +45,15 @@ if ! "$NODE_BIN" --input-type=module -e 'import { missingDeps } from "./deps.mjs
   fi
 fi
 
+# macOS 권한 창·설정 목록에 'node' 대신 알아볼 이름이 보이게, 같은 node 를 'Antenna 연결부' 이름으로 복사해 그것으로 돈다(사용자 요청 11-19).
+# macOS 는 실행 파일 이름을 그대로 보여 주고, 브리지가 띄운 tmux 의 모든 탭이 이 이름으로 권한을 받는다. 복사해도 Node.js 서명은 그대로다.
+# 복사본 옆에는 pi·npm 이 없으므로 원래 node 폴더를 PI_REMOTE_NODE_DIR 로 알려 준다. 복사하지 못하면 원래 node 로 돈다
+NAMED="$HOME/Library/Application Support/Antenna/Antenna 연결부"
+if ! cmp -s "$NODE_BIN" "$NAMED"; then
+  mkdir -p "${NAMED%/*}" && /bin/cp -f "$NODE_BIN" "$NAMED.tmp" && /bin/mv -f "$NAMED.tmp" "$NAMED" || echo "[pi-remote] 'Antenna 연결부' 이름으로 복사하지 못해 node 로 돕니다" >&2
+fi
+if cmp -s "$NODE_BIN" "$NAMED"; then
+  export PI_REMOTE_NODE_DIR="$(dirname "$NODE_BIN")"
+  exec "$NAMED" bridge.mjs
+fi
 exec "$NODE_BIN" bridge.mjs

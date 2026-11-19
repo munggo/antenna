@@ -25,6 +25,7 @@ import { createDualServer, ensureCert } from "./tls.mjs";
 import { outsideReach, parseHosts, reachText } from "./reach.mjs";
 import { getPrefs, notify, pushEnabled, registerActivity, registerLiveStart, registerToken, setNotifyGate, setPrefs, startNotifySocket } from "./push.mjs";
 import { readBattery } from "./battery.mjs";
+import { createPromptWatch, readRequests, readWindows, tabFinder } from "./mac-prompts.mjs";
 import { launchBackground } from "../claude-remote/bg-launch.mjs";
 import { createTaskStarter } from "./tasks.mjs";
 import { createSession, loadSnapshot, saveSnapshot, snapshotTabs } from "./tabs-restore.mjs";
@@ -118,7 +119,9 @@ function listWindows() {
 // --- 지난 대화(폰 '지난 대화' 화면) ---
 // 목록은 pi 공식 함수(SessionManager.listAll)로 뽑는다. 브리지에 pi 전체를 올리지 않도록 잠깐 도는 별도 프로세스에서.
 // PI_REMOTE_SESSION_DIR: 시험용 대화 폴더(지정하면 그 폴더만 보고, 새 탭의 pi 도 그 폴더를 씀)
-const PI_PKG = process.env.PI_PKG || `${dirname(process.execPath)}/../lib/node_modules/@earendil-works/pi-coding-agent`;
+// 원래 node 폴더: 브리지가 이름을 바꾼 복사본('Antenna 연결부', run.sh)으로 돌면 그 옆에는 pi·npm 이 없어 run.sh 가 알려 준다
+const NODE_DIR = process.env.PI_REMOTE_NODE_DIR || dirname(process.execPath);
+const PI_PKG = process.env.PI_PKG || `${NODE_DIR}/../lib/node_modules/@earendil-works/pi-coding-agent`;
 const SESSION_DIR = process.env.PI_REMOTE_SESSION_DIR || "";
 const SESSIONS_ROOT = SESSION_DIR || `${process.env.HOME}/.pi/agent/sessions`;
 
@@ -211,7 +214,7 @@ function sessionCwd(path) {
 
 // pi 모델 목록(앱 선택 메뉴용). thinking 지원 + 날짜 스냅샷 제외. 시작 시 1회 비동기 조회.
 let MODELS = [];
-const PI_BIN = process.env.PI_BIN || `${dirname(process.execPath)}/pi`;
+const PI_BIN = process.env.PI_BIN || `${NODE_DIR}/pi`;
 // pi 는 tmux 안에서 돌므로, tmux 전역 환경(API 키 포함) 기준으로 목록을 뽑는다.
 function tmuxEnv() {
   const env = { ...process.env };
@@ -648,6 +651,20 @@ function batteryTick() {
 }
 batteryTick();
 setInterval(batteryTick, Number(process.env.PI_REMOTE_BATTERY_SEC ?? 60) * 1000).unref();
+
+// --- 맥에 뜬 권한 창(사용자 요청 11-19): 10초마다 보고, 떠 있으면 어느 탭·무슨 권한인지 폰에 한 번 알림(맥을 쓰는 중이면 미룸) ---
+// macOS 가 이 창을 프로그램이 누르지 못하게 막아 둬서 폰에서 허용할 수는 없다. 자세한 것은 mac-prompts.mjs
+const promptTick = createPromptWatch({
+  listWindows: readWindows,
+  requests: readRequests,
+  tabOf: tabFinder(TMUX_BIN, SESSION),
+  inUse: macInUse,
+  send: (m) => {
+    console.log(`[pi-remote] 맥 권한 창: ${m.body}`);
+    return notify({ kind: "permission", ...m });
+  },
+});
+setInterval(() => promptTick().catch(() => {}), Number(process.env.PI_REMOTE_PROMPT_CHECK_SEC ?? 10) * 1000).unref();
 
 // --- tmux 탭 저장·되살리기(재부팅 뒤, 사용자 결정 11-12) ---
 // 1분마다 탭 목록(번호·이름·폴더·pi/Claude 대화)을 저장하고, 브리지가 켜질 때 세션이 없으면 그대로 되살린 뒤 폰에 한 번 알림
