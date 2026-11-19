@@ -112,6 +112,21 @@ ws.send(JSON.stringify({ type: "question-answer", id: q?.question.id, answers: [
 ok(await waitFor(() => answerOf() === "Tea, Juice", 30000), `여러 개 + 직접 입력 답(${answerOf()})`);
 await idle();
 
+// 6-1) 미리보기 그림이 있는 문항: 숫자 키가 먹지 않아 폰 답이 들어가지 않았다(11-20 사용자 보고 '이미 다 선택했는데 다시 뜬다')
+say("Use the AskUserQuestion tool once with two questions: first 'Shape?' (header Shape) with options Round, Square and Star, and give every option a short 'preview' field containing a tiny ASCII drawing; second 'Tone?' (header Tone) with options Warm and Cool (no previews). Then reply with the answers only.");
+q = await waitFor(() => ev.find((e) => e.t === "question"), 60000);
+ok(q && q.question.items?.[0]?.preview === true && !q.question.items?.[1]?.preview, "미리보기 문항 표시(첫째만)");
+ws.send(JSON.stringify({ type: "question-answer", id: q?.question.id, items: [{ answers: ["Star"], other: "" }, { answers: ["Cool"], other: "" }] }));
+ok(await waitFor(() => answerOf() === "Star / Cool", 30000), `미리보기 문항 셋째 고르기 + 다음 문항(${answerOf()})`);
+await idle();
+
+// 6-2) 미리보기 문항에 직접 쓴 글 → 메모
+say("Use the AskUserQuestion tool once with one question 'Logo?' (header Logo) with options Owl and Cat, and give every option a short 'preview' field containing a tiny ASCII drawing. Then reply with the answer only.");
+q = await waitFor(() => ev.find((e) => e.t === "question"), 60000);
+ws.send(JSON.stringify({ type: "question-answer", id: q?.question.id, answers: [], other: "더 둥글게" }));
+ok(await waitFor(() => answerOf() === "메모: 더 둥글게", 30000), `미리보기 문항에 쓴 글은 메모로(${answerOf()})`);
+await idle();
+
 // 7) 폰에서 취소 → Esc
 say("Use the AskUserQuestion tool once with one question 'Day?' (header Day) with options Mon and Tue. Then reply with the answer only.");
 q = await waitFor(() => ev.find((e) => e.t === "question"), 60000);

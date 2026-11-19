@@ -590,7 +590,12 @@ export function answerKeys(qs, answers) {
     const picks = (Array.isArray(a.answers) ? a.answers : []).map((l) => q.options.findIndex((o) => o.label === String(l))).filter((j) => j >= 0);
     const other = String(a.other ?? "").trim();
     const n = q.options.length;
-    if (!q.multiSelect) {
+    if (q.preview) {
+      // 미리보기 그림이 있는 문항(하나만 고르기)은 숫자 키가 먹지 않고 직접 입력 줄도 없다(11-20 실제 Claude Code 로 확인).
+      // 커서는 첫 줄에서 시작: 아래로 내려가 Enter. 직접 쓴 글은 메모(n)로 넣고 Enter → Claude 에는 '고른 것 없음, 메모: 글'로 감
+      if (picks.length) seq.push(...Array.from({ length: picks[0] }, () => ({ key: "Down" })), { key: "Enter" });
+      else seq.push({ key: "n" }, { text: other || "-" }, { key: "Enter" });
+    } else if (!q.multiSelect) {
       if (picks.length) seq.push({ key: String(picks[0] + 1) });
       else seq.push({ key: String(n + 1) }, { text: other || "-" }, { key: "Enter" });
     } else {
@@ -608,7 +613,9 @@ export function answerKeys(qs, answers) {
 
 /** 질문 도구 결과 '"Color?"="Blue", "Size?"="Small, Large"' → 'Blue / Small, Large' */
 export function questionAnswer(t) {
-  const pairs = [...String(t ?? "").matchAll(/"([^"]*)"="([^"]*)"/g)].map((m) => m[2]);
+  // 미리보기 문항에 메모만 적으면 '"질문"=(no option selected) notes: 글' 로 온다
+  const re = /"([^"]*)"=(?:"([^"]*)"|\(no option selected\) notes: ([\s\S]*?)(?=, "[^"]*"=|\. (?:Read the answers|You can now)|$))/g;
+  const pairs = [...String(t ?? "").matchAll(re)].map((m) => (m[2] !== undefined ? m[2] : `메모: ${m[3].trim()}`));
   return pairs.length ? pairs.join(" / ") : (lines(t).slice(-1)[0] ?? "");
 }
 
@@ -1443,6 +1450,7 @@ export function runFeed(pane) {
         question: String(q?.question ?? ""),
         options: (Array.isArray(q?.options) ? q.options : []).map((o) => ({ label: String(o?.label ?? ""), description: String(o?.description ?? "") })),
         multiSelect: !!q?.multiSelect,
+        ...((Array.isArray(q?.options) ? q.options : []).some((o) => o?.preview) && !q?.multiSelect ? { preview: true } : {}),   // 맥 창의 키가 다름(answerKeys)
       }))
       .filter((q) => q.question.trim() && q.options.length);
     if (!qs.length) return;

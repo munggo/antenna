@@ -89,6 +89,16 @@ ok(K(answerKeys([Q("Drinks?", ["Tea", "Coffee"], true)], [{ answers: ["Tea"], ot
 ok(K(answerKeys([Q("Color?", ["Red", "Blue"]), Q("Pet?", ["Cat", "Dog"])], [{ answers: ["Red"] }, { answers: [], other: "Fox" }])) === '1 3 "Fox" Enter 1',
   "질문 둘(둘째는 직접 입력)");
 ok(questionAnswer('Your questions have been answered: "Color?"="Blue", "Size?"="Small, Large". You can now continue') === "Blue / Small, Large", "질문 결과에서 답만");
+// 미리보기 그림이 있는 문항: 숫자 키가 먹지 않음(11-20 사용자 보고 '이미 다 선택했는데 다시 뜬다') → 아래로 + Enter, 직접 쓴 글은 메모
+const PQ = (question, labels) => ({ ...Q(question, labels), preview: true });
+ok(K(answerKeys([PQ("Shape?", ["A", "B", "C"]), Q("Tone?", ["X", "Y"]), Q("Count?", ["1", "2", "3"])], [{ answers: ["A"] }, { answers: ["X"] }, { answers: ["1"] }])) === "Enter 1 1 1",
+  "미리보기 문항 첫째 고르기: Enter 만, 나머지는 번호, 검토 화면 1");
+ok(K(answerKeys([PQ("Shape?", ["A", "B", "C"]), Q("Tone?", ["X", "Y"])], [{ answers: ["C"] }, { answers: ["Y"] }])) === "Down Down Enter 2 1", "미리보기 문항 셋째: 아래로 두 번 → Enter");
+ok(K(answerKeys([PQ("Shape?", ["A", "B"])], [{ answers: ["B"] }])) === "Down Enter", "미리보기 문항 하나뿐: 아래로 → Enter(바로 제출)");
+ok(K(answerKeys([PQ("Shape?", ["A", "B"]), Q("Tone?", ["X", "Y"])], [{ answers: [], other: "둥글게" }, { answers: ["X"] }])) === 'n "둥글게" Enter 1 1', "미리보기 문항에 직접 쓴 글: 메모(n) → 글 → Enter");
+ok(questionAnswer('The user answered: "Shape?"=(no option selected) notes: 둥글게, 작게, "Tone?"="X". Read the answers carefully') === "메모: 둥글게, 작게 / X", "메모만 적은 답도 요약에");
+ok(questionAnswer('The user answered: "Tone?"="X", "Shape?"=(no option selected) notes: 끝 메모. Read the answers carefully') === "X / 메모: 끝 메모", "마지막 문항의 메모");
+ok(questionAnswer('The user answered: "Shape?"="약과 (Recommended)" selected preview:\n ┌──┐\n │약과│, "Tone?"="X". Read') === "약과 (Recommended) / X", "미리보기를 고른 답(뒤에 그림이 붙음)");
 
 // 3-2. 할 일: 새 방식(TaskCreate·TaskUpdate), 예전 방식(TodoWrite)
 {
