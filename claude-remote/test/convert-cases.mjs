@@ -188,5 +188,24 @@ ok(files.length > 0 && bad === 0 && total > 0, `최근 실제 기록 ${files.len
   ok(CLOUDFLARE_BLOCK.test("API Error: 403 <html>Attention Required! | Cloudflare</html>") && !CLOUDFLARE_BLOCK.test("API Error: 429 rate limited") && !CLOUDFLARE_BLOCK.test("Attention Required! | Cloudflare"), "막힘 판정: 403 과 Cloudflare 확인 페이지 제목이 함께 있을 때만");
 }
 
+// 11. 멈춤 표시(Claude Code 가 사람 글처럼 남김, 11-19 실제 기록의 두 모양): 내 말풍선이 아니라 앱의 '중단됨' 줄(끝 표시 aborted 인 빈 답)
+{
+  const c = createConverter();
+  const said = (uuid, text) => ({ type: "user", uuid, message: { role: "user", content: [{ type: "text", text }] } });
+  c.add(said("p1", "도메인 이름 골라 줘"));
+  c.add({ type: "assistant", uuid: "x1", message: { id: "mx", model: "claude-opus-5-5", content: [{ type: "tool_use", id: "tq", name: "AskUserQuestion", input: { questions: [] } }], stop_reason: "tool_use" } });
+  c.add({ type: "user", uuid: "x2", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tq", is_error: true, content: "The user doesn't want to proceed with this tool use. [Request interrupted by user for tool use]" }] } });
+  const [ab] = c.add(said("x3", "[Request interrupted by user for tool use]"));
+  ok(ab?.role === "assistant" && ab.stop === "aborted" && ab.blocks.length === 0 && ab.interrupted === true, `도구 중 멈춤 → 중단됨 줄(${JSON.stringify(ab)})`);
+  const [ab2] = c.add(said("x4", "[Request interrupted by user]"));
+  ok(ab2?.stop === "aborted" && ab2.interrupted === true, "답하는 중 멈춤 → 중단됨 줄");
+  ok(!c.messages().some((m) => m.role === "user" && /Request interrupted/.test(m.text ?? "")), "멈춤 글이 내 말풍선으로 남지 않음");
+  ok(c.messages().filter((m) => m.role === "toolResult").length === 1, "같은 글이 든 도구 결과는 그대로 도구 결과");
+  ok(c.lastPrompt() === "도메인 이름 골라 줘", `마지막 사람 글은 멈춤 표시가 아니라 보낸 글(계정 전환 때 견줌): ${c.lastPrompt()}`);
+  ok(c.lastAnswerText() === "", "멈춘 뒤 마지막 답의 글은 비어 있음(전과 같음)");
+  const [u] = c.add(said("x5", "왜 [Request interrupted by user] 가 보이지?"));
+  ok(u?.role === "user", "멈춤 표시를 말한 사람 글은 그대로 말풍선");
+}
+
 console.log(fail ? `실패 ${fail}개` : "모두 통과");
 process.exit(fail ? 1 : 0);

@@ -44,6 +44,8 @@ const MAX_TOOL_OUTPUT = 4000;
 const BIG = 200_000;
 /** Anthropic 앞단(Cloudflare)이 요청을 막았을 때의 API 오류 글 */
 export const CLOUDFLARE_BLOCK = /\b403\b[\s\S]*Attention Required!?\s*\|\s*Cloudflare/i;
+/** Claude Code 가 멈춤(Esc·승인 거부·질문 취소)을 사람 글처럼 남기는 줄: '[Request interrupted by user]', 도구 중이면 '… for tool use]' */
+export const INTERRUPT_TEXT = /^\[Request interrupted by user[^\]]*\]$/;
 export const CLOUDFLARE_NOTE = "⚠️ 로그인 문제가 아니에요. Anthropic 앞단(Cloudflare)이 이 맥에서 보낸 요청을 잠깐 막은 거예요. /login 하지 말고 몇 분 뒤 다시 보내 주세요. (로그인은 이 맥의 탭들이 같이 써서, 다른 계정으로 로그인하면 다른 탭까지 그 계정으로 바뀌어요)";
 const HOME = process.env.HOME ?? "";
 const TMUX = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"].find((p) => existsSync(p)) ?? "tmux";
@@ -696,6 +698,10 @@ export function createConverter() {
       if (o.isMeta) return [];
       // 내가 보낸 글이 아닌 것: 뒤에서 돌린 작업이 끝났다는 알림, 다른 세션·하위 에이전트가 보낸 글(peer). 내 말풍선으로 보이지 않게
       if (o.origin?.kind === "task-notification" || o.origin?.kind === "peer") return [];
+      // 멈춤 표시는 내 말풍선이 아니라 앱의 '중단됨' 줄로: 끝 표시가 aborted 인 빈 답(pi 에서 멈출 때와 같은 모양, 사용자 보고 11-19).
+      // interrupted 는 피드가 멈춤을 알아채는 데 씀
+      const said = typeof c === "string" ? c : Array.isArray(c) && !c.some((b) => b?.type === "tool_result") ? c.filter((b) => b?.type === "text").map((b) => b.text ?? "").join("\n") : "";
+      if (INTERRUPT_TEXT.test(cleanUserText(said))) return [put({ id: o.uuid, role: "assistant", blocks: [], stop: "aborted", error: null, interrupted: true })];
       const out = [];
       if (typeof c === "string") {
         const t = cleanUserText(c);
@@ -1107,11 +1113,11 @@ export function runFeed(pane) {
   };
   let lastConvAt = 0;   // 대화 기록에 새 내용이 들어온 때(훅이 빠져도 일하는 중인 것을 알 수 있게, 바로잡기가 씀)
   let lastStopAt = 0;   // 마지막 끝 훅(또는 Esc 멈춤)을 받은 때. 그 전에 생긴 기록 줄로는 작업 중을 다시 켜지 않음
-  /** 차례가 이어지는 중이라는 기록인지: 도구 호출·생각 조각(끝 표시가 '끝'이 아님), 도구 결과, 사람이 보낸 글(슬래시 명령·멈춤 표시는 뺌) */
+  /** 차례가 이어지는 중이라는 기록인지: 도구 호출·생각 조각(끝 표시가 '끝'이 아님), 도구 결과, 사람이 보낸 글(슬래시 명령은 뺌). 멈춤 표시(aborted)는 아님 */
   const inProgress = (m) =>
     m.role === "toolResult" ||
-    (m.role === "assistant" && m.stop !== "stop" && !m.error) ||
-    (m.role === "user" && Boolean(m.text || m.images) && !/^\/|^\[Request interrupted by user/.test(m.text ?? ""));
+    (m.role === "assistant" && m.stop !== "stop" && m.stop !== "aborted" && !m.error) ||
+    (m.role === "user" && Boolean(m.text || m.images) && !/^\//.test(m.text ?? ""));
   const readNew = (initial) => {
     if (!transcript) return;
     let size;
@@ -1158,7 +1164,7 @@ export function runFeed(pane) {
       }
     }
     if (changed.length && !initial) lastConvAt = Date.now();
-    const interrupted = !initial && changed.some((m) => m.role === "user" && /^\[Request interrupted by user/.test(m.text ?? ""));
+    const interrupted = !initial && changed.some((m) => m.interrupted);
     // 훅이 빠져도 대화가 이어지면 작업 중으로(11-14: 한 탭에서 끝 훅이 21번 중 17번 연결부에 닿지 않았고, 시작 훅도 빠져 처음부터 표시가 안 켜졌다)
     if (fresh && !initial && !interrupted && !working) {
       working = true;

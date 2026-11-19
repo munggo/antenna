@@ -118,6 +118,9 @@ q = await waitFor(() => ev.find((e) => e.t === "question"), 60000);
 ws.send(JSON.stringify({ type: "question-answer", id: q?.question.id, answers: [], other: "", cancel: true }));
 ok(await waitFor(() => ev.some((e) => e.t === "working" && e.value === false), 15000), "폰에서 취소 → 질문 창 닫히고 작업 끝");
 ok(!/Esc to cancel/.test(tm("capture-pane", "-p", "-t", `${S}:1`)), "맥 질문 창도 닫힘");
+const ups = () => ev.filter((e) => e.t === "upsert").map((e) => e.message);
+ok(await waitFor(() => ups().some((m) => m.role === "assistant" && m.stop === "aborted"), 10000) && !ups().some((m) => m.role === "user" && /Request interrupted/.test(m.text ?? "")),
+  `Claude Code 의 멈춤 표시는 내 말풍선이 아니라 앱의 '중단됨' 줄로(사용자 보고 11-19): ${ups().map((m) => m.role === "user" ? `user:${m.text}` : `${m.role}:${m.stop ?? ""}`).join(" ")}`);
 
 // 8) 맥에서 먼저 답 → 폰 카드 사라짐
 say("Use the AskUserQuestion tool once with one question 'Season?' (header Season) with options Spring and Fall. Then reply with the answer only.");
