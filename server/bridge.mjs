@@ -33,6 +33,7 @@ import { editorEmpty, LEVELS, parseStatusLine } from "./status-line.mjs";
 import { finishedBackgroundIds, forApp, parseWindows, SEEN_HOOK, SEEN_HOOK_CMD, WINDOW_FORMAT } from "./windows.mjs";
 import { accountsState, claimsFromUsage, dailyUsage, MIXED_TEXT, mixedDirection, readUsageHistory, recordSharedClaims, recordUsage, recordWorkUsage, sharedLimits, usageHistoryForApp, workUsageForApp } from "./usage-history.mjs";
 import { loadPiAuth, PI_AUTH_FILE, USAGE_AUTH_FILE, usageToken } from "./usage-auth.mjs";
+import { acceptFolderTrust } from "./folder-trust.mjs";
 
 // launchd 로 실행되면 언어 설정이 없어 tmux 가 한글(창 이름 등)을 "_" 로 바꿔 출력한다 → UTF-8 지정.
 // (이 프로세스에서 실행하는 tmux 명령들이 이 환경을 물려받는다)
@@ -505,6 +506,30 @@ const NEW_TAB_TOOLS = {
 // 시험: 켤 명령 앞에 붙일 글(예: 'echo started:' → 진짜 도구를 켜지 않고 무엇을 켜려 했는지만 찍음)
 const NEW_TAB_PREFIX = process.env.PI_NEW_TAB_PREFIX ? `${process.env.PI_NEW_TAB_PREFIX} ` : "";
 
+/** 연결부가 새로 켠 Claude Code 탭(target: 창·칸 번호)이 '이 폴더를 믿나요' 창에서 멈추지 않게 '예'를 누름(folder-trust.mjs) */
+function trustNewTab(target) {
+  acceptFolderTrust({
+    capture: () => {
+      try {
+        return execFileSync(TMUX_BIN, ["capture-pane", "-p", "-t", target], { encoding: "utf8", timeout: 3000 });
+      } catch {
+        return null;   // 탭이 닫힘
+      }
+    },
+    press: (key) => {
+      try {
+        execFileSync(TMUX_BIN, ["send-keys", "-t", target, key]);
+      } catch {
+        /* 그새 닫혔으면 무시 */
+      }
+    },
+    ms: Number(process.env.PI_TRUST_WATCH_MS ?? 30_000),
+  }).then((r) => {
+    if (r === "accepted") console.log(`[pi-remote] 새 탭 ${target}: '이 폴더를 믿나요' 창에서 '예'를 누름`);
+    else if (r === "unsure") console.warn(`[pi-remote] 새 탭 ${target}: '이 폴더를 믿나요' 창의 커서를 '예'로 옮기지 못해 그대로 둠`);
+  }).catch(() => {});
+}
+
 // 앱이 보낼 수 있는 pi 명령은 모델·생각 깊이 지정만 허용(임의 입력 차단).
 const PI_COMMAND = new RegExp(`^/(model [A-Za-z0-9._/:-]+|thinking (${LEVELS})|new|reload|plan (on|off)|mode (auto|ask|plan|manual|acceptEdits))$`);   // plan: 계획 모드, mode: 권한 모드 칩
 
@@ -793,7 +818,13 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 // 단축어로 시킨 일: 폰이 짧은 접속으로 보낸 할 일을 새 백그라운드 탭에서 시작(폰의 '백그라운드로 보내기'와 같은 실행기)
-const startTask = createTaskStarter({ launch: launchBackground, home: process.env.HOME, session: SESSION, log: (text) => console.log(`[pi-remote] ${text}`) });
+const startTask = createTaskStarter({
+  launch: (o) => {
+    const r = launchBackground(o);
+    if (o.agent === "claude") trustNewTab(r.pane);   // 단축어는 아무 폴더나 고를 수 있음
+    return r;
+  },
+  home: process.env.HOME, session: SESSION, log: (text) => console.log(`[pi-remote] ${text}`) });
 
 wss.on("connection", (ws, req) => {
   const peer = req.socket.remoteAddress;
@@ -1237,6 +1268,7 @@ wss.on("connection", (ws, req) => {
               { encoding: "utf8" }).trim();
             execFileSync(TMUX_BIN, ["send-keys", "-t", id, "-l", `${NEW_TAB_PREFIX}${tool.cmd}`]);
             execFileSync(TMUX_BIN, ["send-keys", "-t", id, "Enter"]);
+            if (tool === NEW_TAB_TOOLS.claude) trustNewTab(id);
           } catch (e) {
             console.warn(`[pi-remote] 새 창 실패: ${e.message}`);
           }

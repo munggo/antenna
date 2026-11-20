@@ -222,6 +222,7 @@ Things to know:
 - In an automation, choose to run it without asking ("Run Immediately"). Otherwise you have to confirm on the phone every time the trigger fires.
 - After restarting the phone, unlock it once so the app can read its connection token.
 - The agent starts with the same settings it normally has in that folder. If it asks for an approval, the card and the notification reach the phone as usual.
+- The first time Claude Code starts in a folder it asks whether you trust the folder ("Yes, I trust this folder"). Antenna answers yes for you, since you picked that folder. A new tab opened from the app works the same way.
 - If the Antenna on the Mac is an older version that does not know this action, the shortcut says so. [Update](#updating) the Mac.
 
 ## Optional features

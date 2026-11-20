@@ -44,7 +44,7 @@ The bridge cannot work without `node_modules/node-pty/prebuilds/<platform>/spawn
 
 The bridge makes a certificate of its own the first time it starts (`~/.config/pi-remote/tls/`) and the pairing QR carries its fingerprint, which is the only certificate the app accepts. Plain `ws://` on the same port is accepted only when `PI_REMOTE_TLS_ONLY=1` is not set, for old builds of the app.
 
-Binary frames carry terminal bytes in both directions. Text frames carry JSON messages with a `type` field, for example `{"type":"resize","cols":100,"rows":30}` or `{"type":"new-window","agent":"claude"}` (a new tab running one of `claude`, `pi`, `codex` or `gemini` in the folder of the tab the app was showing).
+Binary frames carry terminal bytes in both directions. Text frames carry JSON messages with a `type` field, for example `{"type":"resize","cols":100,"rows":30}` or `{"type":"new-window","agent":"claude"}` (a new tab running one of `claude`, `pi`, `codex` or `gemini` in the folder of the tab the app was showing). For a new Claude Code tab, here or from a shortcut task, the bridge watches that tab for 30 seconds and answers yes to Claude Code's "trust this folder" prompt (`folder-trust.mjs`). It moves the cursor and presses Enter only once the cursor is on the yes line.
 
 Pairing uses `wss://<host>:<port>/pair` without a token: the phone sends `{"type":"pair","code":"…","name":"…"}` and gets `{"type":"paired","token":"…"}` once. The code comes from the pairing QR, lasts five minutes and works one time.
 
