@@ -1374,8 +1374,9 @@ wss.on("connection", (ws, req) => {
           if (feed && feedOn && feedCanSend && !isCommand) {
             feed.write(`${JSON.stringify({ cmd: "send", text, mode, images })}\n`);
           } else {
-            // 앱이 이미 글 앞에 "@사진경로"를 붙여 보내므로 그대로 넣는다(다시 붙이면 사진이 두 번 들어감)
-            term.write(`\x1b[200~${text}\x1b[201~\r`);
+            // 앱이 이미 글 앞에 "@사진경로"를 붙여 보내므로 그대로 넣는다(다시 붙이면 사진이 두 번 들어감).
+            // 사진만 보내 글이 '@경로'로 끝나면 빈칸을 붙임: 입력창의 파일 고르기 목록이 Enter 를 먹는다(claude-feed.mjs 의 closeMention)
+            term.write(`\x1b[200~${/(^|\s)@\S+$/.test(text) ? `${text} ` : text}\x1b[201~\r`);
           }
           return;
         }

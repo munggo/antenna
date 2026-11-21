@@ -127,6 +127,16 @@ ws.send(JSON.stringify({ type: "question-answer", id: q?.question.id, answers: [
 ok(await waitFor(() => answerOf() === "메모: 더 둥글게", 30000), `미리보기 문항에 쓴 글은 메모로(${answerOf()})`);
 await idle();
 
+// 6-3) 글 없이 사진만 보내기('@사진경로' 한 줄): 입력창의 파일 고르기 목록이 Enter 를 먹어 보내지지 않았다(11-21 사용자 보고)
+const IMG = `${process.env.HOME}/.cache/pi-remote/img-${Date.now()}000.png`;
+writeFileSync(IMG, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==", "base64"));   // 1×1 그림
+ev.length = 0;
+ws.send(JSON.stringify({ type: "pi-send", text: `@${IMG}`, mode: "auto", images: [IMG] }));
+ok(await waitFor(() => ev.some((e) => e.t === "working" && e.value === true), 20000), "사진만 보내도 Claude Code 가 받아 일을 시작");
+ok(await waitFor(() => ev.some((e) => e.t === "upsert" && e.message?.role === "assistant" && e.message.stop === "stop"), 60000), "사진만 보낸 것에 답이 옴");
+await idle();
+rmSync(IMG, { force: true });
+
 // 7) 폰에서 취소 → Esc
 say("Use the AskUserQuestion tool once with one question 'Day?' (header Day) with options Mon and Tue. Then reply with the answer only.");
 q = await waitFor(() => ev.find((e) => e.t === "question"), 60000);

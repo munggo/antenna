@@ -1,7 +1,7 @@
 // Claude Code 대화 기록 → 폰 메시지 변환 판정 시험: node claude-remote/test/convert-cases.mjs
 import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { answerKeys, cleanUserText, CLOUDFLARE_BLOCK, CLOUDFLARE_NOTE, createConverter, describeTool, prettyModel, questionAnswer, readStart } from "../claude-feed.mjs";
+import { answerKeys, cleanUserText, closeMention, CLOUDFLARE_BLOCK, CLOUDFLARE_NOTE, createConverter, describeTool, prettyModel, questionAnswer, readStart } from "../claude-feed.mjs";
 
 let fail = 0;
 const ok = (c, n) => { console.log(`${c ? "통과" : "실패"}: ${n}`); if (!c) fail++; };
@@ -76,6 +76,13 @@ ok(u2[2].type === "text" && u2[2].update === true && u2[3].type === "text" && !(
 ok(cu.lastAnswerText() === "다 고쳤습니다.\n시험도 통과했습니다.", "끝남 알림에 쓰는 마지막 답의 글에는 진행 설명을 넣지 않음");
 ok(cu.detail({ kind: "thinking", ref: u1[0].ref }).text.includes("남기지 않았어요"), "내용 없는 생각 칸의 상세는 안내 글");
 ok(c.lastAnswerText() === "끝났어요", "진행 설명이 없던 대화의 마지막 답 글은 전과 같음");
+
+// 3-0. 사진만 보낼 때('@사진경로' 한 줄): 끝에 빈칸을 붙여 Claude Code 의 파일 고르기 목록을 닫음(11-21 사용자 보고 '이미지만 올리면 응답이 없다')
+ok(closeMention("@/x/.cache/pi-remote/img-1.jpg") === "@/x/.cache/pi-remote/img-1.jpg ", "사진 하나만: 빈칸 붙임");
+ok(closeMention("@/x/img-1.jpg @/x/img-2.png") === "@/x/img-1.jpg @/x/img-2.png ", "사진 여럿만: 빈칸 붙임");
+ok(closeMention("@/x/img-1.jpg 이 화면 봐 줘") === "@/x/img-1.jpg 이 화면 봐 줘", "사진과 글: 그대로");
+ok(closeMention("메일은 a@b.com") === "메일은 a@b.com" && closeMention("그냥 글") === "그냥 글" && closeMention("") === "", "글만·메일 주소: 그대로");
+ok(closeMention("이 파일 봐 @src/app.ts") === "이 파일 봐 @src/app.ts ", "글 끝이 파일 언급이어도 빈칸(같은 목록이 뜸)");
 
 // 3-1. 질문 창 키 순서·답 요약
 const K = (seq) => seq.map((k) => (k.text !== undefined ? `"${k.text}"` : k.key)).join(" ");

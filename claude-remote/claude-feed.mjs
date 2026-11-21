@@ -533,6 +533,10 @@ export function inputLine(screen) {
   if (i < 0 || !/^─/.test(ls[i + 1] ?? "")) return null;
   return ls[i].replace(/^❯\s?/, "").trim();
 }
+/** 글이 '@경로'로 끝나면 끝에 빈칸을 붙인다. Claude Code 는 그때 파일 고르기 목록을 열어 두어 Enter 를 그 목록이 먹고
+ *  보내지 않는다(11-21 재현: 앱에서 글 없이 사진만 보내면 '@사진경로' 한 줄이라 아무 응답이 없었다) */
+export const closeMention = (t) => (/(^|\s)@\S+$/.test(t) ? `${t} ` : t);
+
 /** 지금 계정이 사용 한도에 걸려 답을 못 하는지: 한도 오류 답(대화 기록의 오류 글)이나, Claude Code 가 띄운 '어떻게 할까요'
  *  창(1. 한도가 풀릴 때까지 멈춤 · 2. 여기서 기다렸다 이어 감 · 3. 사용 크레딧으로). 11-21: 계정을 바꾸려고 인수인계를 묻자마자
  *  개인 계정이 Fable 한도에 걸렸는데, 그 창을 몰라 인수인계를 10분 기다렸고 그동안 폰에는 그 창이 카드로 뜨지 않았다 */
@@ -1848,7 +1852,7 @@ export function runFeed(pane) {
         const text = [body, ...imgs].filter(Boolean).join("\n");
         // '멈추고 보내기'면 먼저 Esc 로 Claude Code 작업을 멈춤
         if (o.mode === "interrupt" && working) tmux("send-keys", "-t", pane, "Escape");
-        if (!text || !paste(text)) write(sock, { t: "notice", text: "맥 Claude Code 에 보내지 못했어요" });
+        if (!text || !paste(closeMention(text))) write(sock, { t: "notice", text: "맥 Claude Code 에 보내지 못했어요" });
         return;
       }
       case "slash": {
