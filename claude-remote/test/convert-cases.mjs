@@ -1,7 +1,7 @@
 // Claude Code 대화 기록 → 폰 메시지 변환 판정 시험: node claude-remote/test/convert-cases.mjs
 import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { answerKeys, cleanUserText, closeMention, CLOUDFLARE_BLOCK, CLOUDFLARE_NOTE, createConverter, describeTool, ESC_CANCEL, limitStopped, screenBusy, prettyModel, questionAnswer, readStart } from "../claude-feed.mjs";
+import { answerKeys, cleanUserText, closeMention, CLOUDFLARE_BLOCK, CLOUDFLARE_NOTE, createConverter, describeTool, dialogOpen, ESC_CANCEL, limitStopped, screenBusy, prettyModel, questionAnswer, readStart } from "../claude-feed.mjs";
 
 let fail = 0;
 const ok = (c, n) => { console.log(`${c ? "통과" : "실패"}: ${n}`); if (!c) fail++; };
@@ -83,6 +83,12 @@ ok(ESC_CANCEL.test(NARROW_Q) && !/Esc to cancel/.test(NARROW_Q), "질문 창 안
 ok(ESC_CANCEL.test("Enter to confirm · Esc to cancel") && !ESC_CANCEL.test("❯ \n────\n  ⏵⏵ auto mode on"), "한 줄 안내는 그대로, 창이 없으면 아님");
 ok(screenBusy("✻ Working…\n❯ \n────\n  ⏵⏵ auto mode on (shift+tab to cycle) · esc\n  to interrupt"), "모드 줄의 'esc to interrupt' 가 접혀도 일하는 중");
 ok(limitStopped(" ❯ 1. Stop and wait for limit to\n      reset\n   2. Wait here, then continue\n      automatically at Nov 23", null), "한도 창 글이 접혀도 한도 창");
+
+// 3-0. 맥에 확인·질문 창이 떠 있는지(그때는 폰 글을 넣지 않음. 11-21 '1'이 질문의 답으로 들어감)
+ok(dialogOpen(NARROW_Q), "질문 창(안내가 접힘)");
+ok(dialogOpen(" Bash command\n   touch x\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend"), "승인 창");
+ok(!dialogOpen("⏺ 질문 창 아래에는 'Enter to select · Esc to cancel' 이 보입니다.\n\n✻ Worked for 3s\n────\n❯ \n────\n  ⏵⏵ auto mode on (shift+tab to cycle)"), "지난 글에 그 글자가 있어도 입력창·모드 줄이 보이면 창이 아님");
+ok(!dialogOpen("✻ Working… (3s)\n────\n❯ \n────\n  ⏵⏵ auto mode on · esc to interrupt"), "일하는 중 화면은 창이 아님");
 
 // 3-0. 사진만 보낼 때('@사진경로' 한 줄): 끝에 빈칸을 붙여 Claude Code 의 파일 고르기 목록을 닫음(11-21 사용자 보고 '이미지만 올리면 응답이 없다')
 ok(closeMention("@/x/.cache/pi-remote/img-1.jpg") === "@/x/.cache/pi-remote/img-1.jpg ", "사진 하나만: 빈칸 붙임");

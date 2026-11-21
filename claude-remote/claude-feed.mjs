@@ -294,6 +294,13 @@ export function shownMode(screen) {
   return null;
 }
 
+/** 맥 Claude Code 에 확인·질문 창이 떠 있는지: 화면 맨 아래 네 줄에 'Esc to cancel' 안내가 있고 모드 줄이 없음
+ *  (지난 대화 글 속의 같은 글자와 헷갈리지 않게 아래쪽만 봄. 창이 뜨면 입력창과 모드 줄이 그 창으로 바뀜) */
+export function dialogOpen(screen) {
+  const tail = String(screen ?? "").split("\n").filter((l) => l.trim()).slice(-4).join("\n");
+  return ESC_CANCEL.test(tail) && !shownMode(String(screen ?? ""));
+}
+
 /** 글자 하나가 터미널에서 차지하는 칸(대략): 한글·한자·가나·전각 글자와 그림 문자는 두 칸, 결합용 글자는 0 칸 */
 function cellsOf(ch) {
   const c = ch.codePointAt(0);
@@ -1854,9 +1861,27 @@ export function runFeed(pane) {
         const imgs = (Array.isArray(o.images) ? o.images : []).map(String)
           .filter((p) => /\/\.cache\/pi-remote\/img-\d+\.(jpe?g|png)$/i.test(p) && !body.includes(p));
         const text = [body, ...imgs].filter(Boolean).join("\n");
+        if (!text) return void write(sock, { t: "notice", text: "맥 Claude Code 에 보내지 못했어요" });
+        const sendNow = () => {
+          if (!paste(closeMention(text))) write(sock, { t: "notice", text: "맥 Claude Code 에 보내지 못했어요" });
+        };
+        // 맥에 확인·질문 창이 떠 있으면 그 창에 글을 넣지 않음: 질문의 직접 입력이나 승인 창의 고르기로 들어가 엉뚱한 답이 됨
+        // (11-21: 폰 카드가 없을 때 보낸 '1'이 질문의 답 '1'로 들어감). '멈추고 보내기'면 그 창을 닫고(거부·취소) 보냄
+        if (dialogOpen(screenNow())) {
+          if (o.mode !== "interrupt") {
+            return void write(sock, { t: "notice", text: "맥 Claude Code 에 확인·질문 창이 떠 있어 보내지 않았어요. 카드에서 먼저 답하거나 '멈추고 보내기'로 보내 주세요" });
+          }
+          tmux("send-keys", "-t", pane, "Escape");
+          void (async () => {
+            for (let i = 0; i < 20 && dialogOpen(screenNow()); i++) await sleepMs(150);
+            if (dialogOpen(screenNow())) return void write(sock, { t: "notice", text: "맥 Claude Code 의 확인·질문 창을 닫지 못해 보내지 않았어요" });
+            sendNow();
+          })();
+          return;
+        }
         // '멈추고 보내기'면 먼저 Esc 로 Claude Code 작업을 멈춤
         if (o.mode === "interrupt" && working) tmux("send-keys", "-t", pane, "Escape");
-        if (!text || !paste(closeMention(text))) write(sock, { t: "notice", text: "맥 Claude Code 에 보내지 못했어요" });
+        sendNow();
         return;
       }
       case "slash": {

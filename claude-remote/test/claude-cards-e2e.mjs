@@ -114,6 +114,27 @@ await idle();
 tm("resize-window", "-t", `${S}:1`, "-x", "160", "-y", "45");
 await sleep(1500);
 
+// 4-2) 맥에 질문 창이 떠 있을 때 폰에서 보통으로 보낸 글은 그 창에 넣지 않고 알림(11-21: 폰 글 '1'이 질문의 답으로 들어감).
+//      '멈추고 보내기'면 그 창을 닫고 보냄
+say("Use the AskUserQuestion tool once with one question 'Color2?' (header Color2) with options Red and Blue. Then reply with the answer only.");
+q = await waitFor(() => ev.find((e) => e.t === "question"), 60000);
+await sleep(1500);
+ws.send(JSON.stringify({ type: "pi-send", text: "1", mode: "auto" }));
+ok(await waitFor(() => ev.some((e) => e.t === "notice" && /확인·질문 창이 떠 있어 보내지 않았어요/.test(e.text)), 8000), "질문 창이 떠 있으면 폰 글을 넣지 않고 알림");
+await sleep(1500);
+ok(q && !ev.some((e) => e.t === "question-done" && e.id === q.question.id) && /Esc\s+to\s+cancel/.test(tm("capture-pane", "-p", "-t", `${S}:1`)), "질문 창과 폰 카드는 그대로");
+ws.send(JSON.stringify({ type: "question-answer", id: q?.question.id, answers: ["Blue"], other: "" }));
+ok(await waitFor(() => answerOf() === "Blue", 30000), `카드 답이 그대로 들어감(${answerOf()}, 폰 글 '1'이 아님)`);
+await idle();
+say("Use the AskUserQuestion tool once with one question 'Size2?' (header Size2) with options Small and Large. Then reply with the answer only.");
+q = await waitFor(() => ev.find((e) => e.t === "question"), 60000);
+await sleep(1500);
+ws.send(JSON.stringify({ type: "pi-send", text: "Reply with exactly one word: kiwi", mode: "interrupt" }));
+ok(await waitFor(() => ev.some((e) => e.t === "question-done" && e.id === q?.question.id), 10000), "'멈추고 보내기': 질문 창을 닫음");
+ok(await waitFor(() => ev.some((e) => e.t === "upsert" && e.message?.role === "assistant" && /kiwi/i.test(JSON.stringify(e.message.blocks ?? []))), 60000), "'멈추고 보내기': 그 글이 들어가 답이 옴");
+await idle();
+await sleep(2000);
+
 // 5) 질문 하나 + 직접 입력
 say("Use the AskUserQuestion tool once with one question 'Pet?' (header Pet) with options Cat and Dog. Then reply with the answer only.");
 q = await waitFor(() => ev.find((e) => e.t === "question"), 60000);
