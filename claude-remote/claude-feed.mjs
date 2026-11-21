@@ -256,6 +256,10 @@ export function agentPanel(screen) {
   return { screen: ls.slice(0, i + 1).join("\n"), agents };
 }
 
+/** 맥 확인·질문 창의 안내 'Esc to cancel'. 폰에서 터미널을 보면 맥 탭이 폰 폭으로 좁아져 Claude Code 가 'Esc' 와 'to cancel' 을
+ *  두 줄로 접는다(11-21: 그래서 질문 창이 떠 있는데도 '맥 창이 닫혔다'고 보고 3초 만에 폰 카드를 닫았다) → 빈칸이든 줄바꿈이든 */
+export const ESC_CANCEL = /Esc\s+to\s+cancel/;
+
 /** Claude Code 가 일하는 중인지(화면 아래 12줄): 'esc to interrupt'(일부 모드의 모드 줄) 또는 진행 줄
  *  '✶ Whisking… (56m 34s · …)'. 끝나면 '✻ Sautéed for 7m 38s · done 8:36 PM' 처럼 바뀜. 자동 모드에 백그라운드 표시(⧉)가 있으면
  *  모드 줄에 'esc to interrupt' 가 없어서 진행 줄도 봄(사용자 보고 11-12).
@@ -264,7 +268,7 @@ export function agentPanel(screen) {
  *  모드 줄 아래 에이전트 목록은 떼고 본다(목록이 길면 진행 줄이 12줄 밖으로 밀림) */
 export function screenBusy(screen) {
   const tail = agentPanel(screen).screen.split("\n").filter((l) => l.trim()).slice(-12).join("\n");
-  return /esc to interrupt|[A-Za-z]+…\s*\([^)\n]*?\b(\d+h\s*)?(\d+m\s*)?\d+s\b/i.test(tail);
+  return /esc\s+to\s+interrupt|[A-Za-z]+…\s*\([^)\n]*?\b(\d+h\s*)?(\d+m\s*)?\d+s\b/i.test(tail);
 }
 
 /** 대화를 압축하는 중인지(화면 아래 12줄, 에이전트 목록은 떼고): 진행 줄이 '✽ Compacting conversation… (12s · ↓ 1.0k tokens)' 꼴일 때.
@@ -541,7 +545,7 @@ export const closeMention = (t) => (/(^|\s)@\S+$/.test(t) ? `${t} ` : t);
  *  창(1. 한도가 풀릴 때까지 멈춤 · 2. 여기서 기다렸다 이어 감 · 3. 사용 크레딧으로). 11-21: 계정을 바꾸려고 인수인계를 묻자마자
  *  개인 계정이 Fable 한도에 걸렸는데, 그 창을 몰라 인수인계를 10분 기다렸고 그동안 폰에는 그 창이 카드로 뜨지 않았다 */
 export function limitStopped(screen, error) {
-  return /Stop and wait for limit to reset|Wait here, then continue automatically/.test(String(screen ?? ""))
+  return /Stop\s+and\s+wait\s+for\s+limit\s+to\s+reset|Wait\s+here,\s+then\s+continue\s+automatically/.test(String(screen ?? ""))   // 좁은 화면에서 접혀도
     || /hit your [^\n]*limit|usage limit/i.test(String(error ?? ""));
 }
 
@@ -1207,7 +1211,7 @@ export function runFeed(pane) {
     } else {
       // 연결부가 새로 떴을 때 맥에 질문 창이 떠 있으면 답이 없는 마지막 질문을 폰 카드로(옛 질문은 열지 않음)
       const open = asks.filter((b) => !answered.has(b.id)).pop();
-      if (open && /Esc to cancel/.test(tmux("capture-pane", "-p", "-t", pane) ?? "")) {
+      if (open && ESC_CANCEL.test(tmux("capture-pane", "-p", "-t", pane) ?? "")) {
         openQuestion({ tool_use_id: open.id, tool_input: open.input });
         if (questions.has(`cc-q-${open.id}`)) logHook("새로 뜰 때 맥에 떠 있던 질문을 폰에 카드·알림");
       }
@@ -1264,7 +1268,7 @@ export function runFeed(pane) {
   /** 키를 차례로 누름: {key} 는 tmux 키 이름, {text} 는 글자 그대로.
    *  맥 창이 아직 다 뜨기 전에 누르면 키가 사라지므로, 화면에 창이 보일 때까지(최대 5초) 기다린 뒤 누름 */
   const pressKeys = async (seq) => {
-    for (let i = 0; i < 33 && !/Esc to cancel/.test(tmux("capture-pane", "-p", "-t", pane) ?? ""); i++) await sleepMs(150);
+    for (let i = 0; i < 33 && !ESC_CANCEL.test(tmux("capture-pane", "-p", "-t", pane) ?? ""); i++) await sleepMs(150);
     await sleepMs(150);
     for (const k of seq) {
       if (k.text !== undefined) tmux("send-keys", "-t", pane, "-l", k.text);
@@ -1334,7 +1338,7 @@ export function runFeed(pane) {
   setInterval(() => {
     if (!approvals.size && !questions.size) return void (dialogGone = 0);
     const scr = tmux("capture-pane", "-p", "-t", pane) ?? "";
-    dialogGone = /Esc to cancel/.test(scr) ? 0 : dialogGone + 1;
+    dialogGone = ESC_CANCEL.test(scr) ? 0 : dialogGone + 1;
     if (dialogGone >= 2) {
       dialogGone = 0;
       clearCards();
@@ -1628,7 +1632,7 @@ export function runFeed(pane) {
     const top = aboveInput(scr);
     const moving = top !== null && lastTop !== null && top !== lastTop;
     lastTop = top;
-    const busy = screenBusy(scr) || /Esc to cancel/.test(scr) || moving;
+    const busy = screenBusy(scr) || ESC_CANCEL.test(scr) || moving;
     idleSeen = !busy && readMode() ? idleSeen + 1 : 0;
     if (idleSeen < 3) return;
     idleSeen = 0;
@@ -1663,7 +1667,7 @@ export function runFeed(pane) {
   setInterval(() => {
     if (!bgResults.length || switching || working || approvals.size || questions.size) return;
     const scr = tmux("capture-pane", "-p", "-t", pane) ?? "";
-    if (/Esc to cancel/.test(scr) || !readMode() || !inputEmpty(scr)) return;
+    if (ESC_CANCEL.test(scr) || !readMode() || !inputEmpty(scr)) return;
     const r = bgResults.shift();
     const head = `[백그라운드 작업 ${r.ok === false ? "멈춤" : "끝"}] '${r.name}'(탭 ${r.window})`;
     paste(`${head}\n${String(r.text ?? "").trim()}\n\n(백그라운드 탭에서 끝난 일의 결과예요. 확인하고 한두 줄로만 답해 주세요)`);
@@ -2097,7 +2101,7 @@ export function runFeed(pane) {
   /** 답이 끝난 화면: 일하는 표시·확인 창이 없고 모드 줄이 보임(입력창은 보지 않음: 그사이 맥에서 쓰는 글이 있어도 답은 끝남) */
   const doneScreen = () => {
     const s = screenNow();
-    return !screenBusy(s) && !/Esc to cancel/.test(s) && !!shownMode(s);
+    return !screenBusy(s) && !ESC_CANCEL.test(s) && !!shownMode(s);
   };
   /** 쉬는 화면: 답이 끝났고 입력창도 빔(글을 넣어도 되는 때) */
   const idleScreen = () => doneScreen() && inputEmpty(screenNow());
@@ -2255,7 +2259,7 @@ export function runFeed(pane) {
         return;
       }
       if (!(await waitFor(() => SHELL_RE.test(paneCmd()), 15_000))) {
-        if (/Esc to cancel/.test(screenNow())) tmux("send-keys", "-t", pane, "Escape");
+        if (ESC_CANCEL.test(screenNow())) tmux("send-keys", "-t", pane, "Escape");
         pauseSwitch(30 * 60_000);
         broadcast({ t: "notice", text: `${name} 계정으로 바꾸려고 Claude Code 를 끄지 못했어요. 30분 뒤 다시 해 볼게요.${docNote()}` });
         return;
@@ -2357,7 +2361,7 @@ export function runFeed(pane) {
     // 글을 막 보낸 순간에는 '글을 받음' 훅이 아직 안 와 working 이 거짓일 수 있어 화면의 작업 표시도 본다
     // (11-19 시험: 그 순간 고른 요청이 쉬는 것으로 보고 인수인계 없이 꺼서 쓰던 답이 사라짐)
     if ((manual || want === baseAccount(cwd, pin)) && (working || screenBusy(scr))) return;
-    if (/Esc to cancel/.test(scr) || !readMode() || !inputEmpty(scr)) return;
+    if (ESC_CANCEL.test(scr) || !readMode() || !inputEmpty(scr)) return;
     // 뒤에서 도는 작업(셸·초안)이 있으면 끝날 때까지 기다림: 끄면 그 작업이 같이 죽는다(11-13 회사 탭의 23:33 대기 같은 것)
     if (backgroundShown(scr) || runsCommand(proc.pid)) return;
     manualAt = 0;   // 앱 요청은 한 번만 서두름: 실패하면 평소처럼 쉬는 때를 따름(실패한 전환을 되풀이하지 않게)

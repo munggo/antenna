@@ -98,6 +98,22 @@ ok(await waitFor(() => ev.some((e) => e.t === "question-done"), 5000), "폰에�
 ok(await waitFor(() => answerOf() === "Blue / Small, Large", 30000), `맥 질문 창에 답이 들어감(${answerOf()})`);
 await idle();
 
+// 4-1) 폰에서 터미널을 보느라 맥 탭이 폰 폭으로 좁아져도: 질문 창 안내('Esc to cancel')가 두 줄로 접혀
+//      '맥 창이 닫혔다'고 보고 3초 만에 폰 카드를 닫던 것(11-21 사용자 보고 '응답을 기다린다는데 카드가 안 온다')
+tm("resize-window", "-t", `${S}:1`, "-x", "48", "-y", "40");   // 48칸이면 안내가 'Esc to' / 'cancel' 로 접힘(11-21 확인)
+await sleep(1500);
+say("Use the AskUserQuestion tool once with one question 'Fruit?' (header Fruit) with options Apple and Pear. Then reply with the answer only.");
+q = await waitFor(() => ev.find((e) => e.t === "question"), 60000);
+const narrow = await waitFor(() => { const s = tm("capture-pane", "-p", "-t", `${S}:1`); return /Esc\s+to\s+cancel/.test(s) && !/Esc to cancel/.test(s); }, 10000);
+ok(narrow, "좁은 화면: 맥 질문 창 안내가 두 줄로 접힘(재현 조건)");
+await sleep(6000);
+ok(q && !ev.some((e) => e.t === "question-done" && e.id === q.question.id), "좁은 화면: 6초가 지나도 폰 질문 카드가 그대로");
+ws.send(JSON.stringify({ type: "question-answer", id: q?.question.id, answers: ["Pear"], other: "" }));
+ok(await waitFor(() => answerOf() === "Pear", 30000), `좁은 화면: 폰 답이 맥에 들어감(${answerOf()})`);
+await idle();
+tm("resize-window", "-t", `${S}:1`, "-x", "160", "-y", "45");
+await sleep(1500);
+
 // 5) 질문 하나 + 직접 입력
 say("Use the AskUserQuestion tool once with one question 'Pet?' (header Pet) with options Cat and Dog. Then reply with the answer only.");
 q = await waitFor(() => ev.find((e) => e.t === "question"), 60000);
@@ -133,8 +149,11 @@ writeFileSync(IMG, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAA
 ev.length = 0;
 ws.send(JSON.stringify({ type: "pi-send", text: `@${IMG}`, mode: "auto", images: [IMG] }));
 ok(await waitFor(() => ev.some((e) => e.t === "working" && e.value === true), 20000), "사진만 보내도 Claude Code 가 받아 일을 시작");
-ok(await waitFor(() => ev.some((e) => e.t === "upsert" && e.message?.role === "assistant" && e.message.stop === "stop"), 60000), "사진만 보낸 것에 답이 옴");
+const imgAnswered = await waitFor(() => ev.some((e) => e.t === "upsert" && e.message?.role === "assistant" && e.message.stop === "stop"), 60000);
+ok(imgAnswered, "사진만 보낸 것에 답이 옴");
+if (!imgAnswered) console.log(tm("capture-pane", "-p", "-t", `${S}:1`).split("\n").filter((l) => l.trim()).slice(-12).map((l) => `     | ${l}`).join("\n"));
 await idle();
+await sleep(2000);   // 답 뒤의 늦은 이벤트가 다음 단계로 넘어가지 않게
 rmSync(IMG, { force: true });
 
 // 7) 폰에서 취소 → Esc
