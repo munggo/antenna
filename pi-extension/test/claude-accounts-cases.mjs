@@ -23,6 +23,8 @@ ok(m.homeAccount(`${H}/works/companyx`) === P && m.homeAccount(`${H}/works/perso
 const U = (o) => Object.fromEntries(Object.entries(o).map(([p, c]) => [p, Object.fromEntries(Object.entries(c).map(([k, v]) => [k, typeof v === "number" ? { util: v, reset: future, at: now } : v]))]));
 ok(m.usageFor(U({ [P]: { "7d": 0.5, "7d:fable": 0.97 } }), P, "claude-opus-5-5").util === 0.5, "다른 모델 전용 한도는 빼고 봄");
 ok(m.usageFor(U({ [P]: { "7d": 0.5, "7d:fable": 0.97 } }), P, "claude-fable-5-2").util === 0.97, "그 모델 전용 한도는 포함");
+ok(m.usageFor(U({ [P]: { "7d": 0.5, "7d:oi": 1 } }), P, "claude-fable-5-2").util === 1, "Fable 한도(응답 헤더 이름 oi)는 Fable 모델에 포함");
+ok(m.usageFor(U({ [P]: { "7d": 0.5, "7d:overage_included": 1 } }), P, "claude-opus-5-5").util === 0.5, "Fable 한도(overage_included)는 다른 모델에는 빼고 봄");
 ok(m.usageFor({ [P]: { "7d": { util: 0.99, reset: Math.floor(now / 1000) - 10, at: now } } }, P, "x").util === 0, "초기화 시각이 지난 한도는 뺌");
 
 // 3. 계정 고르기

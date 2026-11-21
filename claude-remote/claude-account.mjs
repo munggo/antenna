@@ -36,13 +36,17 @@ export function homeAccount(cwd, workDirs = WORK_DIRS) {
   return workDirs.some((d) => c === d || c.startsWith(d + sep)) ? "work" : "personal";
 }
 
+/** 한도 구분 이름 → 그 한도가 걸리는 모델 이름. Fable 전용 주간 한도는 응답 헤더의 내부 이름(oi = overage_included)으로 적힌다.
+ *  이것을 모르면 Fable 한도가 차도 다른 계정으로 넘어가지 않아, 앱에서 계정을 바꾸려 할 때 이미 한도에 걸려 있었다(11-21) */
+export const SCOPE_MODEL = { oi: "fable", overage_included: "fable" };
 /** 이 모델에 걸리는 한도 중 가장 높은 사용률(초기화 시각이 지난 것은 뺌). pi 의 usageFor 와 같음 */
 export function usageFor(usage, provider, modelId = "", now = Date.now()) {
   let best = { util: 0, key: "" };
   for (const [key, c] of Object.entries(usage?.[provider] ?? {})) {
     if (!c || typeof c.util !== "number") continue;
     if (c.reset && c.reset * 1000 <= now) continue;
-    const scope = key.includes(":") ? key.slice(key.indexOf(":") + 1) : "";
+    const raw = key.includes(":") ? key.slice(key.indexOf(":") + 1) : "";
+    const scope = SCOPE_MODEL[raw] ?? raw;
     if (scope && !String(modelId).toLowerCase().includes(scope)) continue;   // 다른 모델 전용 한도
     if (c.util > best.util) best = { util: c.util, key };
   }
@@ -84,7 +88,22 @@ export function hasWorkToken() {
   }
 }
 
-export const desiredAccount = (cwd, modelId = "", pin = "") => decideAccount({ cwd, modelId, usage: readUsage(), hasWork: hasWorkToken(), pin });
+/** 모델을 모를 때(켤 때, 또는 첫 답이 한도 오류라 기록에 모델이 없을 때) 쓸 기본 모델: 환경 변수 ANTHROPIC_MODEL,
+ *  없으면 Claude Code 설정의 model(예: 별칭 'fable'). 모르면 Fable 한도가 찬 계정으로 켜져 첫 글부터 멈췄다(11-21) */
+export function defaultModel(home = HOME) {
+  if (process.env.ANTHROPIC_MODEL) return process.env.ANTHROPIC_MODEL;
+  for (const f of [`${home}/.claude/settings.local.json`, `${home}/.claude/settings.json`]) {
+    try {
+      const m = JSON.parse(readFileSync(f, "utf8"))?.model;
+      if (typeof m === "string" && m) return m;
+    } catch {
+      /* 없거나 깨짐: 다음 파일 */
+    }
+  }
+  return "";
+}
+
+export const desiredAccount = (cwd, modelId = "", pin = "") => decideAccount({ cwd, modelId: modelId || defaultModel(), usage: readUsage(), hasWork: hasWorkToken(), pin });
 
 // 직접 실행했을 때만(경로는 바로가기를 풀어서 견줌: 홈·설치 폴더가 바로가기여도 되게)
 const isMain = (() => {

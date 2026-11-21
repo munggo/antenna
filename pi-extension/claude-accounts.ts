@@ -56,12 +56,15 @@ export function homeAccount(cwd: string, workDirs = WORK_DIRS): string {
 export const otherAccount = (p: string) => (p === WORK ? PERSONAL : WORK);
 const isAccount = (p?: string) => p === PERSONAL || p === WORK;
 
+/** 한도 구분 이름 → 그 한도가 걸리는 모델 이름. Fable 전용 주간 한도는 응답 헤더의 내부 이름(oi = overage_included)으로 적힌다(11-21) */
+const SCOPE_MODEL: Record<string, string> = { oi: "fable", overage_included: "fable" };
 /** 이 모델에 걸리는 한도 중 가장 높은 사용률(초기화 시각이 지난 것은 뺌) */
 export function usageFor(usage: Usage, provider: string, modelId: string, now = Date.now()): { util: number; key: string } {
   let best = { util: 0, key: "" };
   for (const [key, c] of Object.entries(usage[provider] ?? {})) {
     if (c.reset && c.reset * 1000 <= now) continue;
-    const scope = key.includes(":") ? key.slice(key.indexOf(":") + 1) : "";
+    const raw = key.includes(":") ? key.slice(key.indexOf(":") + 1) : "";
+    const scope = SCOPE_MODEL[raw] ?? raw;
     if (scope && !modelId.toLowerCase().includes(scope)) continue;   // 다른 모델 전용 한도
     if (c.util > best.util) best = { util: c.util, key };
   }

@@ -271,8 +271,8 @@ If you have two Claude subscriptions (say personal and work), Antenna can pick o
   ```
 
   When a limit makes it switch accounts, it does not resume the same conversation under the other account (that causes problems). The feed switches in this order:
-  1. When the default account passes 95%, it stops the current work with Esc even mid-task (the remaining usage is needed to write the handoff). Switching back to the default account waits until the session is idle. Either way it waits while a permission prompt, question, running command, background job or text in the input box is present.
-  2. It asks the current session for a handoff document as its answer and saves it to `<working folder>/.work/handoff/<time>.md` (with a `.gitignore` in that folder so git ignores it). If no document arrives within 10 minutes (for example, the limit is already used up), it goes on without one.
+  1. When the default account passes 95%, it stops the current work with Esc even mid-task (the remaining usage is needed to write the handoff). It looks at the 5-hour and weekly limits and at the limit for the model the tab uses (for example the Fable limit). Switching back to the default account waits until the session is idle. Either way it waits while a permission prompt, question, running command, background job or text in the input box is present.
+  2. It asks the current session for a handoff document as its answer and saves it to `<working folder>/.work/handoff/<time>.md` (with a `.gitignore` in that folder so git ignores it). If the current account has already hit its limit and Claude Code shows a limit error or its "What do you want to do?" prompt instead of an answer, it closes that prompt right away and goes on without a document. It also goes on without one if no document arrives within 10 minutes.
   3. `/clear` → `/exit` → starts a new conversation with `claude-as.sh`.
   4. It tells the new session to read the handoff document (or, without one, the previous transcript file) and carry on.
 

@@ -58,5 +58,14 @@ const askP = handoffAsk("개인 계정 사용 한도가 95%를 넘어", "Write a
 eq([askP.includes("'다음에 할 일' 맨 앞에 이 요청을 넣으세요:\nWrite a story"), handoffAsk("x").includes("방금 보낸 요청")], [true, false], "요청 글: 답하지 못한 사용자 글을 넣음(없으면 그 말이 없음)");
 eq(handoffWithPending("# 인수인계\n본문\n", "Write a story\n"), "# 인수인계\n본문\n\n## 멈추느라 답하지 못한 사용자 요청(연결부가 덧붙임)\n\nWrite a story\n", "문서 끝에 답하지 못한 글 덧붙임");
 eq(handoffWithPending("# 인수인계\n본문\n", ""), "# 인수인계\n본문\n", "없으면 그대로");
+// 떠나는 계정이 한도에 걸려 인수인계를 쓸 수 없는지(11-21: 그 창을 몰라 10분을 기다림)
+const { limitStopped } = await import(new URL("../claude-feed.mjs", import.meta.url).pathname);
+const LIMIT_SCREEN = "  ⎿  You've hit your Fable limit · resets Nov 23 at 4pm (Asia/Seoul)\n─────\n What do you want to do?\n\n ❯ 1. Stop and wait for limit to reset\n   2. Wait here, then continue automatically at Nov 23 at 4pm\n   3. Switch to usage credits · at least 40% off one purchase · 6 days left\n\n Enter to confirm · Esc to cancel";
+eq(limitStopped(LIMIT_SCREEN, null), true, "한도 창이 뜬 화면");
+eq(limitStopped("❯ \n────\n  ⏵⏵ auto mode on", "You've hit your Fable limit · resets Nov 23 at 4pm (Asia/Seoul)"), true, "창 없이 한도 오류 답만");
+eq(limitStopped("❯ \n────\n  ⏵⏵ auto mode on", "Claude usage limit reached. Your limit will reset at 5pm"), true, "예전 문구의 한도 오류");
+eq(limitStopped(" Do you want to proceed?\n ❯ 1. Yes\n   2. No\n Esc to cancel", null), false, "다른 확인 창은 아님");
+eq(limitStopped("❯ \n────", "API Error: 500 Internal server error"), false, "다른 API 오류는 아님");
+eq(limitStopped("⏺ # 인수인계\n지금까지 한 일…", null), false, "보통 답");
 console.log(`전체 ${total}개 중 틀림 ${fail}개`);
 process.exit(fail ? 1 : 0);

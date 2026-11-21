@@ -34,6 +34,29 @@ ok(d(P, { anthropic: { "7d": c(0.99, past) } }) === "personal", "초기화 시�
 ok(d(P, { anthropic: { "7d:fable": c(0.97) } }, { modelId: "claude-opus-5-5" }) === "personal", "다른 모델 전용 한도는 무시");
 ok(d(P, { anthropic: { "7d:fable": c(0.97) } }, { modelId: "claude-fable-5-2" }) === "work", "그 모델 전용 한도 → 회사");
 ok(d(P, { anthropic: { "7d:fable": c(0.97) } }) === "personal", "모델을 모르면(켤 때) 모델 전용 한도는 무시");
+// Fable 한도는 응답 헤더 이름(oi = overage_included)으로도 적힌다(11-21: 이 이름을 몰라 한도가 차도 넘어가지 않음)
+ok(d(P, { anthropic: { "7d": c(0.89), "7d:oi": c(1) } }, { modelId: "claude-fable-5-2" }) === "work", "Fable 한도(oi) 100% → 회사");
+ok(d(P, { anthropic: { "7d": c(0.89), "7d:oi": c(1) } }, { modelId: "claude-opus-5-5" }) === "personal", "Fable 한도(oi)는 다른 모델에는 무시");
+ok(d(W, { "anthropic-work": { "7d:overage_included": c(0.96) } }, { modelId: "claude-fable-5-2" }) === "personal", "회사 Fable 한도(overage_included) 96% → 개인");
+ok(d(P, { anthropic: { "7d:oi": { at: now, ok: true } } }, { modelId: "claude-fable-5-2" }) === "personal", "풀렸다는 표시(사용률 없음)는 무시");
+// 모델을 모를 때(켤 때) 쓸 기본 모델: 환경 변수, 없으면 Claude Code 설정(로컬 설정이 먼저)
+{
+  const { defaultModel } = await import(SCRIPT);
+  const home = mkdtempSync(join(tmpdir(), "acc-home-"));
+  const keep = process.env.ANTHROPIC_MODEL;
+  delete process.env.ANTHROPIC_MODEL;
+  ok(defaultModel(home) === "", "설정이 없으면 기본 모델 없음");
+  execFileSync("mkdir", ["-p", join(home, ".claude")]);
+  writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ model: "fable" }));
+  ok(defaultModel(home) === "fable", "설정의 model(별칭)");
+  writeFileSync(join(home, ".claude", "settings.local.json"), JSON.stringify({ model: "opus" }));
+  ok(defaultModel(home) === "opus", "로컬 설정이 먼저");
+  process.env.ANTHROPIC_MODEL = "claude-sonnet-5-5";
+  ok(defaultModel(home) === "claude-sonnet-5-5", "환경 변수가 가장 먼저");
+  if (keep === undefined) delete process.env.ANTHROPIC_MODEL; else process.env.ANTHROPIC_MODEL = keep;
+  ok(d(P, { anthropic: { "7d:oi": c(1) } }, { modelId: "fable" }) === "work", "별칭 'fable' 도 Fable 한도에 걸림");
+  rmSync(home, { recursive: true, force: true });
+}
 ok(d(P, { anthropic: { 429: c(1) } }) === "work", "한도 오류 기록 → 회사");
 ok(d(P, { anthropic: { "7d": c(0.97) }, "anthropic-work": { "7d": c(0.96) } }) === "personal", "둘 다 넘음 → 기본 계정");
 ok(d(W, { "anthropic-work": { "7d": c(0.97) } }) === "personal", "회사 폴더, 회사 97% → 개인");

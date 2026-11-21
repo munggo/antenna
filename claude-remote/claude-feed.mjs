@@ -533,6 +533,14 @@ export function inputLine(screen) {
   if (i < 0 || !/^─/.test(ls[i + 1] ?? "")) return null;
   return ls[i].replace(/^❯\s?/, "").trim();
 }
+/** 지금 계정이 사용 한도에 걸려 답을 못 하는지: 한도 오류 답(대화 기록의 오류 글)이나, Claude Code 가 띄운 '어떻게 할까요'
+ *  창(1. 한도가 풀릴 때까지 멈춤 · 2. 여기서 기다렸다 이어 감 · 3. 사용 크레딧으로). 11-21: 계정을 바꾸려고 인수인계를 묻자마자
+ *  개인 계정이 Fable 한도에 걸렸는데, 그 창을 몰라 인수인계를 10분 기다렸고 그동안 폰에는 그 창이 카드로 뜨지 않았다 */
+export function limitStopped(screen, error) {
+  return /Stop and wait for limit to reset|Wait here, then continue automatically/.test(String(screen ?? ""))
+    || /hit your [^\n]*limit|usage limit/i.test(String(error ?? ""));
+}
+
 /** 답이 나오기 전에 Esc 로 멈추면 Claude Code 가 방금 보낸 글을 입력창에 되돌려 놓는다(11-18 확인).
  *  입력창 글(shown)이 그 마지막 사람 글(last)인지: 붙여 넣은 글 자리표시이거나, 빈칸을 고른 뒤 앞부분이 같음 */
 export function restoredPrompt(shown, last) {
@@ -814,6 +822,9 @@ export function createConverter() {
     lastAssistant,
     /** 마지막 답의 글(도구를 부르기 전의 진행 설명은 빼고): 작업이 끝났을 때 알림·백그라운드 보고에 씀 */
     lastAnswerText: () => (lastAssistant()?.blocks ?? []).filter((b) => b.type === "text" && !b.update).map((b) => b.text).join("\n"),
+    /** 마지막 사람 글 뒤의 답(없으면 null): 번호와, API 오류였으면 그 글(한도 오류 등) */
+    lastAnswerId: () => lastAssistant()?.id ?? null,
+    lastAnswerError: () => lastAssistant()?.error ?? null,
     /** 마지막 사람 글(계정 전환 때 입력창에 되돌아온 글인지 견줌) */
     lastPrompt: () => {
       for (let i = order.length - 1; i >= 0; i--) {
@@ -2191,6 +2202,7 @@ export function runFeed(pane) {
         //    첫 줄 '# 인수인계' 가 없으면(한도 오류 글 등) 못 받은 것
         broadcast({ t: "notice", text: `${reason} 하던 일을 멈추고 인수인계 문서를 받고 있어요(최대 ${Math.round(HANDOFF_WAIT_MS / 60_000)}분)` });
         const before = conv.lastAnswerText();
+        const beforeId = conv.lastAnswerId();
         let doc = null;
         if (await submit(handoffAsk(reason, pending))) {
           let still = 0;
@@ -2198,6 +2210,14 @@ export function runFeed(pane) {
             await sleepMs(1000);
             readNew(false);
             const text = conv.lastAnswerText();
+            // 떠나는 계정이 이미 한도에 걸림: 문서는 오지 않으니 기다리지 않고 아래에서 그 창을 닫은 뒤 앞 대화 기록으로 이어 감.
+            // 오류는 인수인계를 물은 뒤 새로 온 답만 본다(번호로 가림: 앞 답도 같은 한도 오류 글일 수 있음. 두 번째부터는 창 없이 글만 뜸)
+            const id = conv.lastAnswerId();
+            if (limitStopped(screenNow(), id && id !== beforeId ? conv.lastAnswerError() : null)) {
+              logHook("계정 전환 인수인계: 떠나는 계정이 한도에 걸려 기다리지 않음");
+              broadcast({ t: "notice", text: `${other} 계정이 사용 한도에 걸려 인수인계 문서를 쓸 수 없어요. 앞 대화 기록으로 이어 가게 할게요` });
+              break;
+            }
             still = text && text !== before && doneScreen() ? still + 1 : 0;
             if (still >= 3) {
               doc = handoffDoc(text);
@@ -2300,6 +2320,8 @@ export function runFeed(pane) {
       showAccount("@ai_account_phase", "");
     }
   };
+  /** 계정 판정에 쓸 모델: 대화 기록의 모델, 아직 없으면(막 켬·첫 답이 한도 오류) 켤 때 준 --model, 그것도 없으면 판정이 설정의 기본 모델을 씀 */
+  const modelNow = (proc) => conv.model() ?? (String(proc?.args ?? "").match(/(?:^|\s)--model[= ](\S+)/) ?? [])[1] ?? "";
   const accountTick = () => {
     if (switching) return;
     let proc;
@@ -2312,7 +2334,7 @@ export function runFeed(pane) {
     showAccount("@ai_account", proc.account);
     const pin = accountPin();
     const cwd = proc.cwd || process.cwd();
-    const want = desiredAccount(cwd, conv.model() ?? "", pin);
+    const want = desiredAccount(cwd, modelNow(proc), pin);
     if (want === proc.account) {
       manualAt = 0;
       showAccount("@ai_account_next", "");
@@ -2352,7 +2374,7 @@ export function runFeed(pane) {
       proc = null;
     }
     if (!proc) return void write(sock, { t: "notice", text: "셸에서 켠 Claude Code 가 아니라 계정을 바꿀 수 없어요. 고른 계정은 다음에 켤 때부터 써요" });
-    const want = desiredAccount(proc.cwd || process.cwd(), conv.model() ?? "", pin);
+    const want = desiredAccount(proc.cwd || process.cwd(), modelNow(proc), pin);
     const name = (a) => (a === "work" ? "회사" : "개인");
     let text;
     if (want === proc.account) {

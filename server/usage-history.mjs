@@ -135,8 +135,8 @@ export function sharedLimits(provider, personal, now = Date.now(), file = ACCOUN
 
 /**
  * 사용량 조회 응답 → 공유 파일에 적을 값들({ "5h" | "7d" | "7d:<구분>": { util, reset, at } }).
- * Fable 전용 주간 한도는 응답 헤더와 같은 구분 이름(7d:oi)으로 적는다: 계정 자동 전환 판단(claude-account.mjs·pi 확장)은
- * 구분 이름을 모델 id 에서 찾는데 oi 는 어느 모델에도 없어, 전환 판단은 전과 같게 남는다(화면에는 Fable 로 보임)
+ * Fable 전용 주간 한도는 응답 헤더와 같은 구분 이름(7d:oi)으로 적는다(화면에는 Fable 로 보임). 계정 자동 전환 판단
+ * (claude-account.mjs·pi 확장의 SCOPE_MODEL)은 oi 를 Fable 한도로 보아, Fable 을 쓰는 탭은 이 값이 95%를 넘으면 다른 계정으로 넘어간다(11-21)
  */
 export function claimsFromUsage(u, now = Date.now()) {
   const out = {};
