@@ -1,7 +1,7 @@
 // Claude Code 대화 기록 → 폰 메시지 변환 판정 시험: node claude-remote/test/convert-cases.mjs
 import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { answerKeys, cleanUserText, closeMention, CLOUDFLARE_BLOCK, CLOUDFLARE_NOTE, createConverter, describeTool, dialogOpen, ESC_CANCEL, limitStopped, screenBusy, prettyModel, questionAnswer, readStart } from "../claude-feed.mjs";
+import { answerKeys, cleanUserText, closeMention, CLOUDFLARE_BLOCK, CLOUDFLARE_NOTE, createConverter, describeTool, dialogOpen, ESC_CANCEL, limitCard, limitStopped, modelLimit, pickerEffort, resetFromText, resetText, screenBusy, prettyModel, questionAnswer, readStart } from "../claude-feed.mjs";
 
 let fail = 0;
 const ok = (c, n) => { console.log(`${c ? "통과" : "실패"}: ${n}`); if (!c) fail++; };
@@ -89,6 +89,25 @@ ok(dialogOpen(NARROW_Q), "질문 창(안내가 접힘)");
 ok(dialogOpen(" Bash command\n   touch x\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend"), "승인 창");
 ok(!dialogOpen("⏺ 질문 창 아래에는 'Enter to select · Esc to cancel' 이 보입니다.\n\n✻ Worked for 3s\n────\n❯ \n────\n  ⏵⏵ auto mode on (shift+tab to cycle)"), "지난 글에 그 글자가 있어도 입력창·모드 줄이 보이면 창이 아님");
 ok(!dialogOpen("✻ Working… (3s)\n────\n❯ \n────\n  ⏵⏵ auto mode on · esc to interrupt"), "일하는 중 화면은 창이 아님");
+
+// 3-0. 모델 전용 한도에 걸리면 다른 모델로 이어 갈지 묻는 카드(11-22 사용자 요청 '모델을 선택할 수 있는 화면')
+ok(JSON.stringify(modelLimit("You've hit your Fable limit · resets 4pm (Asia/Seoul)")) === '{"family":"Fable","reset":"4pm"}', "Fable 한도 오류: 모델과 풀리는 때");
+ok(modelLimit("You've hit your Fable limit · resets Nov 23 at 4pm (Asia/Seoul)")?.reset === "Nov 23 at 4pm", "날짜가 붙은 풀리는 때");
+ok(modelLimit("You've hit your limit · resets 5pm (Asia/Seoul)") === null && modelLimit("You've hit your weekly limit") === null && modelLimit("API Error: 500") === null, "모든 모델에 걸리는 한도·다른 오류는 아님(모델을 바꿔도 소용없음)");
+// 풀리는 때: 정확한 날짜·시각(11-22 사용자 '정확하게 언제 끝나는지')
+const at = (y, mo, d, h, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime();
+ok(resetText(at(2026, 11, 23, 16) / 1000) === "11월 23일(월) 오후 4시" && resetText(at(2026, 11, 26, 14, 30) / 1000) === "11월 26일(목) 오후 2시 30분" && resetText(at(2026, 11, 24, 0) / 1000) === "11월 24일(화) 오전 12시", "풀리는 때를 날짜·요일·오전/오후로");
+ok(resetFromText("4pm", at(2026, 11, 22, 17, 44)) * 1000 === at(2026, 11, 23, 16), "시각만 있으면 다가오는 그 시각(지났으면 다음 날)");
+ok(resetFromText("4pm", at(2026, 11, 22, 15, 0)) * 1000 === at(2026, 11, 22, 16) && resetFromText("4:30am", at(2026, 11, 22, 15, 0)) * 1000 === at(2026, 11, 23, 4, 30), "아직 안 지났으면 오늘, 분까지");
+ok(resetFromText("Nov 23 at 4pm", at(2026, 11, 21, 12)) * 1000 === at(2026, 11, 23, 16) && resetFromText("Jan 2 at 9am", at(2026, 12, 30, 12)) * 1000 === at(2027, 1, 2, 9), "날짜가 있으면 그 날(해를 넘기면 다음 해)");
+ok(resetFromText("soon") === null, "모르는 모양은 없음");
+const LC = limitCard({ family: "Fable", reset: "4pm" }, { waiting: true, resetAt: at(2026, 11, 23, 16) / 1000, account: "personal", otherResetAt: at(2026, 11, 26, 14) / 1000, effort: "xhigh" });
+ok(LC.items.length === 2 && LC.items[0].options.map((o) => o.label).join(",") === "Opus,Sonnet,Haiku,기다리기", "카드 질문 1: 걸린 모델을 뺀 모델들과 기다리기");
+ok(LC.items[0].question.includes("개인 계정은 11월 23일(월) 오후 4시에 풀려요") && LC.items[0].question.includes("회사 계정도 Fable 한도라 11월 26일(목) 오후 2시에 풀려요"), `카드: 정확한 날짜와 두 계정(${LC.items[0].question})`);
+ok(/저절로 이어 해요/.test(LC.items[0].options[3].description) && LC.items[0].options[3].description.includes("11월 23일(월) 오후 4시"), "기다리기: 저절로 이어 가는 때");
+ok(LC.items[1].options.map((o) => o.label).join(",") === "낮음 (low),보통 (medium),높음 (high),아주 높음 (xhigh),최대 (max)" && /지금 이 탭/.test(LC.items[1].options[3].description), "카드 질문 2: 생각 깊이(지금 깊이 표시)");
+ok(limitCard({ family: "Opus", reset: "" }, {}).items[0].options.map((o) => o.label).join(",") === "Fable,Sonnet,Haiku,기다리기", "Opus 한도면 Opus 를 뺌, 때를 모르면 적지 않음");
+ok(pickerEffort("  ◐ Medium effort (default) ←/→ to adjust") === 1 && pickerEffort("  ◉ xHigh effort ←/→ to adjust") === 3 && pickerEffort("  ● High effort ←/→ to adjust") === 2 && pickerEffort("Select model") === -1, "모델 고르기 목록의 깊이 줄 읽기");
 
 // 3-0. 사진만 보낼 때('@사진경로' 한 줄): 끝에 빈칸을 붙여 Claude Code 의 파일 고르기 목록을 닫음(11-21 사용자 보고 '이미지만 올리면 응답이 없다')
 ok(closeMention("@/x/.cache/pi-remote/img-1.jpg") === "@/x/.cache/pi-remote/img-1.jpg ", "사진 하나만: 빈칸 붙임");

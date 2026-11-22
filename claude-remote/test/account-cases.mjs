@@ -39,6 +39,14 @@ ok(d(P, { anthropic: { "7d": c(0.89), "7d:oi": c(1) } }, { modelId: "claude-fabl
 ok(d(P, { anthropic: { "7d": c(0.89), "7d:oi": c(1) } }, { modelId: "claude-opus-5-5" }) === "personal", "Fable 한도(oi)는 다른 모델에는 무시");
 ok(d(W, { "anthropic-work": { "7d:overage_included": c(0.96) } }, { modelId: "claude-fable-5-2" }) === "personal", "회사 Fable 한도(overage_included) 96% → 개인");
 ok(d(P, { anthropic: { "7d:oi": { at: now, ok: true } } }, { modelId: "claude-fable-5-2" }) === "personal", "풀렸다는 표시(사용률 없음)는 무시");
+// 그 계정의 모델 전용 한도가 풀리는 정확한 때(카드에 날짜로 적음. 11-22)
+{
+  const { limitResetAt } = await import(SCRIPT);
+  const U = { anthropic: { "7d": c(0.91), "7d:oi": c(1, fut + 100), "7d:fable": c(0.5, fut + 999) }, "anthropic-work": { "7d:overage_included": c(0.97, fut + 50) } };
+  ok(limitResetAt("personal", "Fable", U, now) === fut + 100, "Fable 한도(oi)가 풀리는 때, 95% 안 된 값은 뺌");
+  ok(limitResetAt("work", "fable", U, now) === fut + 50 && limitResetAt("personal", "Opus", U, now) === null, "회사 Fable 한도, 없는 모델은 없음");
+  ok(limitResetAt("personal", "Fable", { anthropic: { "7d:oi": c(1, past) } }, now) === null, "이미 지난 때는 없음");
+}
 // 모델을 모를 때(켤 때) 쓸 기본 모델: 환경 변수, 없으면 Claude Code 설정(로컬 설정이 먼저)
 {
   const { defaultModel } = await import(SCRIPT);

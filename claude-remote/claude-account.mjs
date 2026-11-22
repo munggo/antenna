@@ -103,6 +103,22 @@ export function defaultModel(home = HOME) {
   return "";
 }
 
+/** 그 계정의 그 모델 전용 한도(family: 'Fable' 등)가 풀리는 때(초). 공유 파일에 95% 이상으로 적힌 것 가운데 가장 늦은 것, 없으면 null.
+ *  Claude Code 는 24시간 안이면 'resets 4pm' 처럼 시각만 적어 날짜를 알 수 없어 이 값을 쓴다(11-22 사용자 '정확한 날짜와 시간') */
+export function limitResetAt(account, family, usage = readUsage(), now = Date.now()) {
+  let at = null;
+  for (const [key, c] of Object.entries(usage?.[KEY[account]] ?? {})) {
+    if (!c || typeof c.util !== "number" || c.util < THRESHOLD || !c.reset || c.reset * 1000 <= now) continue;
+    const raw = key.includes(":") ? key.slice(key.indexOf(":") + 1) : "";
+    if ((SCOPE_MODEL[raw] ?? raw) !== String(family ?? "").toLowerCase()) continue;
+    at = Math.max(at ?? 0, c.reset);
+  }
+  return at;
+}
+
+/** 그 계정이 이 모델에 대해 지금 쓰는 비율(공유 파일 기준, 0~1) */
+export const accountUsage = (account, modelId = "") => usageFor(readUsage(), KEY[account], modelId || defaultModel()).util;
+
 export const desiredAccount = (cwd, modelId = "", pin = "") => decideAccount({ cwd, modelId: modelId || defaultModel(), usage: readUsage(), hasWork: hasWorkToken(), pin });
 
 // 직접 실행했을 때만(경로는 바로가기를 풀어서 견줌: 홈·설치 폴더가 바로가기여도 되게)

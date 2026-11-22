@@ -48,6 +48,11 @@ eq([noDoc.includes("남기지 못했습니다"), noDoc.includes("앞 대화 기�
 eq(inputLine(box("❯ Write a story")), "Write a story", "입력창 첫 줄");
 eq(inputLine(box("❯ ")), "", "빈 입력창 → 빈 글");
 eq(inputLine("입력창 없음"), null, "입력창이 안 보이면 null");
+// 폰 폭으로 좁아진 탭에서 입력창 글이 접힘(11-22: 되돌아온 글을 못 알아봐 계정 전환이 멈춤)
+eq(inputLine(box("❯ Write a 1500-word short story about a sailor\n  named Mina. Do not use any tools.")), "Write a 1500-word short story about a sailor named Mina. Do not use any tools.", "접힌 입력창 글을 이어 붙임");
+eq(restoredPrompt(inputLine(box("❯ Write a 1500-word short story about a sailor\n  named Mina. Do not use any tools.")), "Write a 1500-word short story about a sailor named Mina. Do not use any tools."), true, "접힌 입력창의 되돌아온 글을 알아봄");
+eq(inputLine("무엇을 고를까요?\n❯ 1. Apple\n     사과\n  2. Pear\n──────────\n  Chat about this"), null, "질문 창의 '❯ 1.' 은 입력창이 아님(위 테두리 없음)");
+eq(inputEmpty(box("❯ first line\n\n  third line")), false, "빈 줄이 섞인 여러 줄 글도 안 빈 것");
 eq(restoredPrompt("Write a 1500-word short story about a", "Write a 1500-word short story about a lighthouse keeper named Ilsu. Do not use any tools."), true, "되돌아온 글(화면에서 줄이 접혀 앞부분만 보임)");
 eq(restoredPrompt("[Pasted text #2 +7 lines]", "[계정 전환] …\n넣을 것: …"), true, "붙여 넣은 글 자리표시");
 eq(restoredPrompt("첫 줄  둘째", "첫 줄\n둘째 줄"), true, "줄바꿈·빈칸은 하나로 보고 견줌");

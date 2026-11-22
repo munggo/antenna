@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { baseAccount, desiredAccount, hasWorkToken } from "./claude-account.mjs";
+import { accountUsage, baseAccount, desiredAccount, hasWorkToken, limitResetAt, THRESHOLD } from "./claude-account.mjs";
 import { bgInfo, bgLine, bgTabsFrom, prettyModel } from "./bg-launch.mjs";
 
 // ── 코드의 판: 연결부를 고쳐 설치해도 돌던 것은 옛 코드로 남아, 탭마다 다른 판이 돌았다(2026-11) ──
@@ -536,13 +536,22 @@ export function inputEmpty(screen) {
   const t = inputLine(screen);
   return t !== null && (t === "" || /^Try ".*"$/.test(t));
 }
-/** 입력창의 마지막 줄 글(❯ 뒤, 앞뒤 빈칸 뺌). 입력창이 안 보이면 null */
+/** 입력창의 글(❯ 뒤, 앞뒤 빈칸 뺌). 입력창이 안 보이면 null.
+ *  폭이 좁아 접혔거나 여러 줄이면, 위아래 입력창 테두리(─) 사이의 들여쓴 줄을 빈칸 하나로 이어 붙인다
+ *  (11-22: 폰 폭으로 좁아진 탭에서 입력창에 되돌아온 글이 두 줄로 접혀 '입력창 없음'으로 보고 계정 전환이 멈춤) */
 export function inputLine(screen) {
   const ls = String(screen ?? "").split("\n");
   let i = ls.length - 1;
   while (i >= 0 && !/^❯/.test(ls[i])) i--;
-  if (i < 0 || !/^─/.test(ls[i + 1] ?? "")) return null;
-  return ls[i].replace(/^❯\s?/, "").trim();
+  if (i < 0) return null;
+  const first = ls[i].replace(/^❯\s?/, "").trim();
+  if (/^─/.test(ls[i + 1] ?? "")) return first;
+  if (!/^─/.test(ls[i - 1] ?? "")) return null;   // 위 테두리가 없으면 입력창이 아님(질문 창의 '❯ 1. 고르기' 등)
+  const more = [];
+  let j = i + 1;
+  for (; j < ls.length && j - i <= 40 && (/^\s{2}/.test(ls[j]) || ls[j] === ""); j++) more.push(ls[j].trim());
+  if (!/^─/.test(ls[j] ?? "")) return null;
+  return [first, ...more].filter(Boolean).join(" ");
 }
 /** 글이 '@경로'로 끝나면 끝에 빈칸을 붙인다. Claude Code 는 그때 파일 고르기 목록을 열어 두어 Enter 를 그 목록이 먹고
  *  보내지 않는다(11-21 재현: 앱에서 글 없이 사진만 보내면 '@사진경로' 한 줄이라 아무 응답이 없었다) */
@@ -907,6 +916,71 @@ export const MODEL_CHOICES = [
   { id: "sonnet", name: "Sonnet" },
   { id: "haiku", name: "Haiku" },
 ];
+/** 한도 오류 글 → 모델 전용 한도면 { family: 'Fable', reset: '4pm' }, 아니면 null.
+ *  5시간·주간처럼 모든 모델에 걸리는 한도('hit your limit')는 모델을 바꿔도 소용없어 뺀다 */
+export function modelLimit(error) {
+  const m = String(error ?? "").match(/hit your (\w+) limit(?:\s*·\s*resets\s+([^(\n]+))?/i);
+  if (!m || !MODEL_CHOICES.some((c) => c.id !== "default" && c.id === m[1].toLowerCase())) return null;
+  return { family: m[1], reset: (m[2] ?? "").trim() };
+}
+/** Claude Code 가 적는 풀리는 때('4pm', '4:30am', 'Nov 23 at 4pm') → 그 시각(초). 날짜가 없으면 from 뒤로 가장 가까운 그 시각.
+ *  모르는 모양은 null. 공유 사용량 파일에 정확한 값이 없을 때만 쓴다(limitResetAt) */
+export function resetFromText(t, from = Date.now()) {
+  const MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  const m = String(t ?? "").trim().match(/^(?:([A-Za-z]{3})\w*\s+(\d{1,2})\s+at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  if (!m) return null;
+  const h = (Number(m[3]) % 12) + (m[5].toLowerCase() === "pm" ? 12 : 0), min = Number(m[4] ?? 0);
+  const base = new Date(from);
+  let d;
+  if (m[1] && MON[m[1].toLowerCase()]) {
+    d = new Date(base.getFullYear(), MON[m[1].toLowerCase()] - 1, Number(m[2]), h, min);
+    if (d.getTime() < from - 86_400_000) d.setFullYear(d.getFullYear() + 1);   // 해를 넘김
+  } else {
+    d = new Date(base.getFullYear(), base.getMonth(), base.getDate(), h, min);
+    if (d.getTime() <= from) d.setDate(d.getDate() + 1);
+  }
+  return Math.floor(d.getTime() / 1000);
+}
+/** 초 → '11월 23일(월) 오후 4시'(이 맥의 시간대) */
+export function resetText(sec) {
+  const d = new Date(sec * 1000);
+  const h = d.getHours(), m = d.getMinutes();
+  return `${d.getMonth() + 1}월 ${d.getDate()}일(${"일월화수목금토"[d.getDay()]}) ${h < 12 ? "오전" : "오후"} ${h % 12 === 0 ? 12 : h % 12}시${m ? ` ${m}분` : ""}`;
+}
+/** 생각 깊이(Claude Code effort). 모델 고르기 목록의 ←/→ 차례와 같음 */
+export const EFFORT_CHOICES = [
+  { id: "low", name: "낮음", description: "빠르고 가볍게" },
+  { id: "medium", name: "보통", description: "보통" },
+  { id: "high", name: "높음", description: "깊게" },
+  { id: "xhigh", name: "아주 높음", description: "더 깊게" },
+  { id: "max", name: "최대", description: "가장 깊게" },
+];
+export const effortLabel = (c) => `${c.name} (${c.id})`;
+/** 모델 한도에 걸려 멈췄을 때 폰 카드(사용자 요청 11-22 '이 상황에서 모델을 선택할 수 있는 화면', '정확한 날짜와 시간', '생각 깊이도 같이'):
+ *  질문 1 모델(한도에 걸린 모델을 뺀 모델들과 기다리기), 질문 2 생각 깊이.
+ *  ctx: waiting('저절로 이어 감' 대기 중), resetAt(풀리는 때, 초), account(지금 계정), otherResetAt(다른 계정도 같은 한도면 풀리는 때), effort(지금 깊이) */
+export const LIMIT_WAIT_LABEL = "기다리기";
+export function limitCard(lim, { waiting = false, resetAt = null, account = "", otherResetAt = null, effort = "" } = {}) {
+  const who = account === "work" ? "회사" : account === "personal" ? "개인" : "";
+  const when = resetAt ? resetText(resetAt) : "";
+  const other = who && otherResetAt ? ` ${who === "회사" ? "개인" : "회사"} 계정도 ${lim.family} 한도라 ${resetText(otherResetAt)}에 풀려요.` : "";
+  const head = `${lim.family} 한도에 걸려 멈췄어요.${when ? ` ${who ? `${who} 계정은 ` : ""}${when}에 풀려요.` : ""}${other}`;
+  const models = MODEL_CHOICES.filter((c) => c.id !== "default" && c.id !== lim.family.toLowerCase())
+    .map((c) => ({ label: c.name, description: "이 모델로 바꾸고 멈춘 요청을 이어서 해요(이 세션만)" }));
+  models.push({ label: LIMIT_WAIT_LABEL, description: waiting ? `맥이 한도가 풀리면${when ? `(${when})` : ""} 저절로 이어 해요` : "그대로 둬요" });
+  const efforts = EFFORT_CHOICES.map((c) => ({ label: effortLabel(c), description: c.id === effort ? `${c.description} · 지금 이 탭` : c.description }));
+  const items = [
+    { question: `${head} 다른 모델로 바꿔 이어 할까요?`, options: models, multiSelect: false },
+    { question: "생각 깊이는요? ('기다리기'를 골랐으면 쓰지 않아요)", options: efforts, multiSelect: false },
+  ];
+  return { question: [`질문 2개 · ${lim.family} 한도`, `1. ${head}`, "2. 생각 깊이"].join("\n"), items };
+}
+/** 모델 고르기 목록의 깊이 줄('● High effort ←/→ to adjust') → EFFORT_CHOICES 의 차례. 줄이 없으면 -1 */
+export function pickerEffort(screen) {
+  const line = String(screen ?? "").split("\n").find((l) => /effort\b.*to adjust/i.test(l)) ?? "";
+  const m = line.match(/(\S+)\s+effort\b/i);
+  return m ? EFFORT_CHOICES.findIndex((c) => c.id === m[1].toLowerCase()) : -1;
+}
 const EFFORT = { off: "low", minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" };
 const COMMANDS = [
   { name: "compact", description: "대화를 요약해 컨텍스트 줄이기" },
@@ -967,6 +1041,7 @@ export function runFeed(pane) {
   const approvals = new Map();   // 승인 창: id → 폰 카드 항목
   const questions = new Map();   // 질문 창: id → {item, qs}
   let screenAsk = null;          // 훅 없이 묻는 맥 화면 창(피드백 초안 종료 안내 등) → 폰 질문 카드 하나: {id, sig, item, press}
+  let limitAsk = null;           // 모델 전용 한도(예: Fable)에 걸려 멈춤 → 다른 모델로 이어 갈지 묻는 폰 카드: {id, errId, lim, item}
   let lastCardAt = 0;            // 승인·질문 카드가 닫힌 때(그 답으로 맥 창의 키를 누르는 동안 화면 창으로 잘못 보지 않게)
   let todosSent = "[]";
 
@@ -1042,7 +1117,7 @@ export function runFeed(pane) {
     return {
       t: "snapshot", v: FEED_VERSION, agent: "claude", messages: msgs.slice(-MAX_MESSAGES), truncated: Math.max(0, msgs.length - MAX_MESSAGES),
       working, queue: q, canSend: true, notice: null, context: contextNow(), compacting: !!compactSince, since: working ? workSince : null,
-      approvals: [...approvals.values()], questions: [...[...questions.values()].map((q) => q.item), ...(screenAsk ? [screenAsk.item] : [])], todos: visibleTodos(), planMode: permMode === "plan", compactSince: compactSince || null,
+      approvals: [...approvals.values()], questions: [...[...questions.values()].map((q) => q.item), ...(screenAsk ? [screenAsk.item] : []), ...(limitAsk ? [limitAsk.item] : [])], todos: visibleTodos(), planMode: permMode === "plan", compactSince: compactSince || null,
       permMode, modelChoices: MODEL_CHOICES, rev: CODE_REV,
     };
   };
@@ -1304,6 +1379,7 @@ export function runFeed(pane) {
   /** 맥 창이 닫혔으면(맥에서 먼저 답함·작업 끝) 남은 카드 지우기 */
   const clearCards = () => {
     questionWaiting.length = 0;
+    limitAskDone();
     for (const id of [...approvals.keys()]) approvalDone(id);
     for (const id of [...questions.keys()]) questionDone(id);
   };
@@ -1373,6 +1449,12 @@ export function runFeed(pane) {
     screenAsk = null;
     if (!approvals.size && !questions.size && tmux("show-options", "-w", "-v", "-t", pane, "@pi_status") === "asking") setStatus(working ? "working" : viewing() ? "" : "yourturn");
   };
+  const limitAskDone = () => {
+    if (!limitAsk) return;
+    broadcast({ t: "question-done", id: limitAsk.id });
+    limitAsk = null;
+    if (!approvals.size && !questions.size && !screenAsk && tmux("show-options", "-w", "-v", "-t", pane, "@pi_status") === "asking") setStatus(working ? "working" : viewing() ? "" : "yourturn");
+  };
   const openScreenAsk = (d) => {
     const quiet = flowNotified;
     const card = dialogCard(d);
@@ -1407,7 +1489,7 @@ export function runFeed(pane) {
   };
   setInterval(() => {
     if (switching) return;
-    const busy = approvals.size > 0 || questions.size > 0 || Date.now() - lastCardAt < 4000;
+    const busy = approvals.size > 0 || questions.size > 0 || !!limitAsk || Date.now() - lastCardAt < 4000;
     const d = busy ? null : screenDialog(tmux("capture-pane", "-p", "-t", pane) ?? "");
     if (!d) {
       if (!busy) {
@@ -1917,6 +1999,7 @@ export function runFeed(pane) {
       case "question-answer": {
         const id = String(o.id ?? "");
         if (screenAsk?.id === id) return void answerScreenAsk(o);
+        if (limitAsk?.id === id) return void answerLimitAsk(o);
         const q = questions.get(id);
         if (!q) return;
         questionDone(id);
@@ -2010,6 +2093,15 @@ export function runFeed(pane) {
   } catch {
     /* 적지 못해도 동작은 그대로 */
   }
+  // 처리 못 한 오류로 꺼질 때 까닭을 칸별 파일에 남김(연결부는 출력이 버려져 이것이 없으면 왜 꺼졌는지 모름. 11-22)
+  process.on("uncaughtException", (e) => {
+    try {
+      appendFileSync(`${dir}/${pane.replace(/\W/g, "")}.crash.log`, `${new Date().toISOString()} ${e?.stack ?? e}\n`);
+    } catch {
+      /* 남기지 못해도 그대로 끔 */
+    }
+    process.exit(1);
+  });
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
     process.on(sig, () => {
       try {
@@ -2222,12 +2314,14 @@ export function runFeed(pane) {
           await sleepMs(500);
           readNew(false);
           const shown = inputLine(screenNow());
+          logHook(`계정 전환: 멈춘 뒤 입력창 '${String(shown ?? "(없음)").slice(0, 40)}' · 마지막 글 '${String(conv.lastPrompt() ?? "").slice(0, 40)}'`);
           if (!inputEmpty(screenNow()) && restoredPrompt(shown, conv.lastPrompt())) {
             pending = conv.lastPrompt();
             tmux("send-keys", "-t", pane, "C-u");
           }
         }
         if (!(await waitFor(idleScreen, 30_000))) {
+          logHook(`계정 전환: 쉬는 화면이 되지 않아 5분 쉼(입력창 '${String(inputLine(screenNow()) ?? "(없음)").slice(0, 40)}')`);
           pauseSwitch(5 * 60_000);
           return;
         }
@@ -2386,7 +2480,8 @@ export function runFeed(pane) {
     // 글을 막 보낸 순간에는 '글을 받음' 훅이 아직 안 와 working 이 거짓일 수 있어 화면의 작업 표시도 본다
     // (11-19 시험: 그 순간 고른 요청이 쉬는 것으로 보고 인수인계 없이 꺼서 쓰던 답이 사라짐)
     if ((manual || want === baseAccount(cwd, pin)) && (working || screenBusy(scr))) return;
-    if (ESC_CANCEL.test(scr) || !readMode() || !inputEmpty(scr)) return;
+    // 한도에 걸려 '저절로 이어 감'으로 기다리는 줄에도 'Esc to cancel' 이 있어 그것으로는 막지 않음(진짜 확인·질문 창만. 11-22)
+    if (dialogOpen(scr) || !readMode() || !inputEmpty(scr)) return;
     // 뒤에서 도는 작업(셸·초안)이 있으면 끝날 때까지 기다림: 끄면 그 작업이 같이 죽는다(11-13 회사 탭의 23:33 대기 같은 것)
     if (backgroundShown(scr) || runsCommand(proc.pid)) return;
     manualAt = 0;   // 앱 요청은 한 번만 서두름: 실패하면 평소처럼 쉬는 때를 따름(실패한 전환을 되풀이하지 않게)
@@ -2422,6 +2517,109 @@ export function runFeed(pane) {
     }
     broadcast({ t: "notice", text });
     accountTick();
+  };
+
+  // ── 모델 전용 한도(예: Fable)에 걸려 멈추면 다른 모델로 이어 갈지 폰에서 고르기(사용자 요청 11-22) ──
+  // 마지막 답이 그 한도 오류이고 맥이 그 일로 멈춰 있을 때(한도 창·'저절로 이어 감' 대기·멈춤) 카드를 한 번 연다.
+  // 다른 계정이 그 모델을 쓸 수 있으면 계정 자동 전환이 맡으므로 열지 않는다(11-22: 두 계정 모두 Fable 한도가 참)
+  const LIMIT_WAITING = /continuing\s+automatically\s+at/i;
+  let limitAskedFor = null;   // 카드를 연 오류 답의 번호(같은 오류에는 한 번만. 취소해도 다시 열지 않음)
+  setInterval(() => {
+    if (switching) return;
+    const scr = screenNow();
+    // 일하는 중(진행 표시)에는 보지 않음: 한도 상황이 아니고, 이때 기록을 읽으면 계정 전환이 글을 막 보낸 순간에
+    // 멈추는 흐름과 겹쳐 되돌아온 글을 놓쳤다(11-22 계정 전환 실제 시험 10번이 가끔 실패)
+    if (!limitStopped(scr, null) && !LIMIT_WAITING.test(scr) && screenBusy(scr)) return;
+    readNew(false);
+    const errId = conv.lastAnswerId();
+    const lim = modelLimit(conv.lastAnswerError());
+    let proc = null;
+    try {
+      proc = lim ? claudeProc() : null;
+    } catch {
+      proc = null;   // 계정을 모르면 화면만 보고 정함
+    }
+    // 한도 창·대기 화면이면 그것이 증거. 멈춘 채 쉬는 화면이면 공유 사용량으로 아직 한도인지 봄(이미 풀렸는데 묻지 않게)
+    const onScreen = limitStopped(scr, null) || LIMIT_WAITING.test(scr);
+    const stopped = !!lim && (onScreen || (doneScreen() && (!proc || accountUsage(proc.account, modelNow(proc)) >= THRESHOLD)));
+    if (limitAsk && (!stopped || limitAsk.errId !== errId)) limitAskDone();   // 맥에서 먼저 풀었거나 새 글이 들어감
+    if (!stopped || limitAsk || limitAskedFor === errId || approvals.size || questions.size) return;
+    if (proc && desiredAccount(proc.cwd || process.cwd(), modelNow(proc), accountPin()) !== proc.account) return;   // 계정 전환이 맡음
+    limitAskedFor = errId;
+    screenAskDone();
+    // 풀리는 때는 공유 사용량 파일의 정확한 값(Claude Code 글은 24시간 안이면 '4pm' 처럼 시각만 적음), 없으면 그 글에서 계산
+    const resetAt = (proc && limitResetAt(proc.account, lim.family)) || resetFromText(lim.reset);
+    const otherResetAt = proc ? limitResetAt(proc.account === "work" ? "personal" : "work", lim.family) : null;
+    const effort = String(tmux("show-options", "-w", "-v", "-t", pane, "@ai_thinking") ?? "").trim();
+    const card = limitCard(lim, { waiting: LIMIT_WAITING.test(scr), resetAt, account: proc?.account ?? "", otherResetAt, effort });
+    const id = `cc-l-${Date.now()}`;
+    limitAsk = { id, errId, lim, item: { id, question: card.question, options: [], multiSelect: false, since: Date.now(), items: card.items } };
+    broadcast({ t: "question", question: limitAsk.item });
+    setStatus("asking");
+    logHook(`모델 한도 카드: ${lim.family} 한도`);
+    askNotify("choice", `${lim.family} 한도에 걸렸어요`, "다른 모델로 바꿔 이어 할지 골라 주세요");
+  }, Number(process.env.PI_REMOTE_LIMIT_TICK_MS ?? 3000));
+  /** 한도 카드의 답: 모델을 고르면 한도 창·대기를 닫고 그 모델로 바꾼 뒤 멈춘 요청을 이어 가라는 글을 넣음. 기다리기·취소는 그대로 */
+  const answerLimitAsk = (o) => {
+    const a = limitAsk;
+    if (!a) return;
+    limitAskDone();
+    // 앱의 여러 질문 카드는 질문별 답(items)으로 보냄: 1 모델, 2 생각 깊이
+    const pick = (i) => String(((Array.isArray(o.items) ? o.items[i]?.answers : i === 0 ? o.answers : null) ?? [])[0] ?? "");
+    const choice = o.cancel === true ? null : MODEL_CHOICES.find((c) => c.id !== "default" && c.name === pick(0));
+    if (!choice) return;   // 기다리기·취소
+    const effort = EFFORT_CHOICES.find((c) => effortLabel(c) === pick(1)) ?? null;
+    void (async () => {
+      for (let k = 0; k < 3 && !doneScreen(); k++) {
+        tmux("send-keys", "-t", pane, "Escape");   // 한도 창(멈춤)이나 '저절로 이어 감' 대기를 닫음
+        await waitFor(doneScreen, 3000);
+      }
+      if (!doneScreen()) return void broadcast({ t: "notice", text: "맥 Claude Code 의 한도 창을 닫지 못해 모델을 바꾸지 못했어요" });
+      await sleepMs(500);
+      readNew(false);
+      // 답이 나오기 전에 멈추면 보낸 글이 입력창에 되돌아옴 → 이어 가라는 글로 다시 묻게 되니 지움
+      if (!inputEmpty(screenNow()) && restoredPrompt(inputLine(screenNow()), conv.lastPrompt())) tmux("send-keys", "-t", pane, "C-u");
+      if (!(await waitFor(() => inputEmpty(screenNow()), 2000))) return void broadcast({ t: "notice", text: "맥 입력창에 쓰던 글이 있어 모델을 바꾸지 않았어요" });
+      if (!(await switchModelForSession(choice.name, effort?.id ?? ""))) {
+        tmux("send-keys", "-t", pane, "Escape");
+        return void broadcast({ t: "notice", text: `맥 Claude Code 에서 ${choice.name} 모델로 바꾸지 못했어요` });
+      }
+      await waitFor(idleScreen, 5000);
+      if (effort) setThinkingChip(effort.id);
+      if (!(await submit(`[모델 변경] ${a.lim.family} 한도에 걸려 이 세션의 모델을 ${choice.name}${effort ? `(생각 깊이 ${effort.id})` : ""} 로 바꿨습니다. 한도 때문에 멈춘 앞 요청을 이어서 해 주세요.`))) {
+        return void broadcast({ t: "notice", text: `${choice.name} 모델로 바꿨지만 이어 가라는 글을 넣지 못했어요. 폰에서 '계속'이라고 보내 주세요` });
+      }
+      logHook(`모델 한도 카드: 이 세션만 ${choice.name}${effort ? ` · ${effort.id}` : ""} 로 바꿔 이어 감`);
+      broadcast({ t: "notice", text: `이 세션만 ${choice.name}${effort ? `(생각 깊이 ${effort.name})` : ""} 로 바꿔 이어 해요. 한도가 풀린 뒤에도 그대로라 필요하면 다시 바꿔 주세요` });
+    })();
+  };
+  /** 이 세션만 모델 바꾸기: '/model' 고르기 목록에서 그 모델 줄로 옮겨 's'(이 세션만).
+   *  '/model 이름' 으로 바로 치면 새 세션의 기본값(~/.claude/settings.json 의 model)까지 바뀐다(11-22 시험으로 확인, 문서 model-config).
+   *  캐시가 살아 있으면 '모델을 바꿀까요?' 확인 창이 뜨므로 1(예). 바뀌었으면 참 */
+  const switchModelForSession = async (name, effort = "") => {
+    paste("/model");
+    if (!(await waitFor(() => /s to use this session only/.test(screenNow()), 6000))) return false;
+    const row = new RegExp(`❯\\s*\\d+\\.\\s+${name}\\b`, "i");   // '❯ 4.  Sonnet 5.5' (기본 줄 설명의 'Opus' 와 헷갈리지 않게 번호 바로 뒤)
+    for (let i = 0; i < 12 && !row.test(screenNow()); i++) {
+      tmux("send-keys", "-t", pane, "Down");
+      await sleepMs(200);
+    }
+    if (!row.test(screenNow())) return false;
+    // 생각 깊이: 그 줄에서 ←/→ 로 맞춤(목록의 's' 가 모델과 깊이를 함께 이 세션에만 적용. '/effort 수준' 은 기본값으로 저장됨)
+    const want = EFFORT_CHOICES.findIndex((c) => c.id === effort);
+    for (let k = 0; want >= 0 && k < 8; k++) {
+      const cur = pickerEffort(screenNow());
+      if (cur < 0 || cur === want) break;   // 깊이 줄이 없는 모델이면 그대로
+      tmux("send-keys", "-t", pane, cur < want ? "Right" : "Left");
+      await sleepMs(200);
+    }
+    tmux("send-keys", "-t", pane, "s");
+    await sleepMs(800);
+    if (/Switch model\?/.test(screenNow())) {
+      tmux("send-keys", "-t", pane, "1");
+      await sleepMs(800);
+    }
+    return waitFor(() => new RegExp(`Set model to ${name}[^\\n]*for this session only`, "i").test(screenNow()), 5000);
   };
 
   // ── 새 판으로 스스로 바꾸기 ──
