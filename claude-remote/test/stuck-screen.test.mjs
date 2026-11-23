@@ -40,10 +40,14 @@ setInterval(() => {
   const progress = mode === "moving" ? "✢ Cooking… [" + n + "s]"
     : mode === "hooks" ? "✢ Cooking… (running PostToolUse hooks… 1/2 · 8m 49s · ↓ 43.8k tokens)"
     : mode === "ask" ? "스매시가 약하게 느껴지는 것은?\\n❯ 1. 닿는 거리\\nEnter to select · Tab/Arrow keys to navigate · Esc to cancel"
+    : mode === "escnote" ? "  대기 줄의 'Esc to cancel' 에 막히지 않게\\n✻ Cooked for 2s · done 10:00 PM"
+    : mode === "waitlimit" ? "⏺ Usage limit reached · set to continue automatically at 4pm"
     : "✻ Cooked for 2s · done 10:00 PM";
   const line = "─".repeat(60);
+  // 한도 '저절로 이어 감' 대기 안내는 입력창 아래·모드 줄 위에 뜬다(실제 Claude Code 2.1.330, 11-23)
+  const below = mode === "waitlimit" ? ["  ⚠ Usage limit reached · limit resets 4pm", "    Continuing automatically at 4pm · Esc to cancel · /usage-credits to continue now"] : [];
   // 화면을 통째로 지우지 않고 줄마다 덮어씀(지운 직후를 읽으면 빈 화면이 잡혀 시험이 흔들림)
-  const rows = ["⏺ 답 줄", ...progress.split("\\n"), line, "❯ ", line, "  ~/x [main] Opus 5.5 · 개인 " + (n % 100) + "%", "  ⏵⏵ auto mode on (shift+tab to cycle)"];
+  const rows = ["⏺ 답 줄", ...progress.split("\\n"), line, "❯ ", line, ...below, "  ~/x [main] Opus 5.5 · 개인 " + (n % 100) + "%", "  ⏵⏵ auto mode on (shift+tab to cycle)"];
   process.stdout.write("\\x1b[H" + rows.map((r) => r + "\\x1b[K").join("\\r\\n") + "\\x1b[J");
 }, 500);
 `);
@@ -151,6 +155,18 @@ try {
   // 5) 끝 훅 → 쉬는 중
   hook({ hook_event_name: "Stop" });
   ok(Boolean(await waitFor(() => working === false, 3000)), "5) 끝 훅 → 쉬는 중");
+  // 5-1) 한도 '저절로 이어 감' 대기(입력창 아래 'Esc to cancel'): 끝 훅을 못 받은 채 조용해도 작업 중을 끄지 않음
+  mode("waitlimit");
+  hook({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_use_id: "s-2", tool_input: { command: "sleep 600" } });
+  ok(Boolean(await waitFor(() => working === true, 3000)), "5-1) 도구 시작 훅 → 작업 중");
+  dropped = false;
+  for (let t = 0; t < 30_000 && !dropped; t += 500) { await sleep(500); dropped = working === false; }
+  ok(!dropped, "5-1) 입력창 아래에 한도 대기 안내가 있는 30초 동안 작업 중을 끄지 않음");
+  // 5-2) 대화 글(입력창 위)에 'Esc to cancel' 글자가 있는 끝난 화면은 바로잡음(11-23: 화면 전체에서 찾아 막혔던 것)
+  mode("escnote");
+  ok(Boolean(await waitFor(() => working === false, 15_000)), "5-2) 대화 글에 'Esc to cancel' 글자가 보여도 끝난 화면이면 쉬는 중으로 되돌림");
+  mode("still");
+  hook({ hook_event_name: "Stop" });
 
   // 6~9) 훅이 빠져도 대화 기록이 이어지면 작업 중(11-14: 한 탭에서 끝 훅이 21번 중 17번, 시작 훅도 여럿 연결부에 닿지 않음)
   const tr = `${HOME}/t.jsonl`;

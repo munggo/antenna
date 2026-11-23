@@ -350,6 +350,21 @@ export function aboveInput(screen) {
   return null;
 }
 
+/** 입력창 아래(마지막 테두리 줄 밑): 한도 대기 안내('Continuing automatically at 4pm · Esc to cancel …')와 모드 줄이 뜨는 자리.
+ *  답 글은 늘 입력창 위에 있어 여기에 섞이지 않는다. 테두리를 못 찾으면 화면 전체(예전처럼 봄) */
+export function belowInput(screen) {
+  const ls = String(screen ?? "").split("\n");
+  for (let i = ls.length - 1; i >= 0; i--) if (/^─{20,}/.test(ls[i].trim())) return ls.slice(i + 1).join("\n");
+  return ls.join("\n");
+}
+
+/** 답이 끝난 화면: 일하는 표시가 없고, 모드 줄이 보이고(확인·질문 창이 아님), 입력창 아래에 한도 대기 안내도 없음.
+ *  입력창은 보지 않는다(그사이 맥에서 쓰는 글이 있어도 답은 끝남). 대기 안내는 입력창 아래에서만 찾는다
+ *  (11-23: 화면 전체에서 찾다가, 인수인계 답 글 속 'Esc to cancel' 글자 때문에 10분 내내 답이 안 끝났다고 보고 문서를 버렸다) */
+export function answerDone(screen) {
+  return !screenBusy(screen) && !ESC_CANCEL.test(belowInput(screen)) && !!shownMode(screen);
+}
+
 /**
  * 그냥 끄면 안 되는 것의 화면 표시: 맨 아래 두 줄(상태 줄·모드 줄)의 '· 1 shell', '· 1 feedback draft' 같은 것.
  * 뒤에서 도는 셸은 Claude Code 를 끄면 같이 죽고, 보내지 않은 피드백 초안은 /exit 가 묻는 화면에서 멈춘다.
@@ -1721,7 +1736,8 @@ export function runFeed(pane) {
     const top = aboveInput(scr);
     const moving = top !== null && lastTop !== null && top !== lastTop;
     lastTop = top;
-    const busy = screenBusy(scr) || ESC_CANCEL.test(scr) || moving;
+    // 한도 대기 안내는 입력창 아래에서만 찾음(답 글 속 같은 글자에 막혀 바로잡지 못하지 않게. answerDone 참고)
+    const busy = screenBusy(scr) || ESC_CANCEL.test(belowInput(scr)) || moving;
     idleSeen = !busy && readMode() ? idleSeen + 1 : 0;
     if (idleSeen < 3) return;
     idleSeen = 0;
@@ -2215,11 +2231,8 @@ export function runFeed(pane) {
   };
   // 인수인계 문서를 기다리는 최대 시간(사용자 결정 11-18: 10분). 넘으면 못 받은 것으로 보고 앞 대화 기록으로 이어 감
   const HANDOFF_WAIT_MS = Number(process.env.PI_REMOTE_HANDOFF_WAIT_SEC ?? 600) * 1000;
-  /** 답이 끝난 화면: 일하는 표시·확인 창이 없고 모드 줄이 보임(입력창은 보지 않음: 그사이 맥에서 쓰는 글이 있어도 답은 끝남) */
-  const doneScreen = () => {
-    const s = screenNow();
-    return !screenBusy(s) && !ESC_CANCEL.test(s) && !!shownMode(s);
-  };
+  /** 답이 끝난 화면(answerDone) */
+  const doneScreen = () => answerDone(screenNow());
   /** 쉬는 화면: 답이 끝났고 입력창도 빔(글을 넣어도 되는 때) */
   const idleScreen = () => doneScreen() && inputEmpty(screenNow());
   /** '/명령'을 쓰고, 정확히 그 글만 들어갔는지 본 뒤 Enter(그사이 맥에서 글을 쓰기 시작했으면 지우고 false) */

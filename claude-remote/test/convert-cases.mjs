@@ -1,7 +1,7 @@
 // Claude Code 대화 기록 → 폰 메시지 변환 판정 시험: node claude-remote/test/convert-cases.mjs
 import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { answerKeys, cleanUserText, closeMention, CLOUDFLARE_BLOCK, CLOUDFLARE_NOTE, createConverter, describeTool, dialogOpen, ESC_CANCEL, limitCard, limitStopped, modelLimit, pickerEffort, resetFromText, resetText, screenBusy, prettyModel, questionAnswer, readStart } from "../claude-feed.mjs";
+import { answerDone, answerKeys, belowInput, cleanUserText, closeMention, CLOUDFLARE_BLOCK, CLOUDFLARE_NOTE, createConverter, describeTool, dialogOpen, ESC_CANCEL, limitCard, limitStopped, modelLimit, pickerEffort, resetFromText, resetText, screenBusy, prettyModel, questionAnswer, readStart } from "../claude-feed.mjs";
 
 let fail = 0;
 const ok = (c, n) => { console.log(`${c ? "통과" : "실패"}: ${n}`); if (!c) fail++; };
@@ -89,6 +89,25 @@ ok(dialogOpen(NARROW_Q), "질문 창(안내가 접힘)");
 ok(dialogOpen(" Bash command\n   touch x\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend"), "승인 창");
 ok(!dialogOpen("⏺ 질문 창 아래에는 'Enter to select · Esc to cancel' 이 보입니다.\n\n✻ Worked for 3s\n────\n❯ \n────\n  ⏵⏵ auto mode on (shift+tab to cycle)"), "지난 글에 그 글자가 있어도 입력창·모드 줄이 보이면 창이 아님");
 ok(!dialogOpen("✻ Working… (3s)\n────\n❯ \n────\n  ⏵⏵ auto mode on · esc to interrupt"), "일하는 중 화면은 창이 아님");
+
+// 3-0. 답이 끝난 화면인지(계정 전환이 인수인계 문서를 받을 때). 화면은 실제 Claude Code 2.1.330 에서 찍은 줄(11-23).
+// 11-23 사용자 계정 전환: 인수인계 답 글 속 'Esc to cancel' 글자를 화면 전체에서 찾아 10분 내내 답이 안 끝났다고 보고 문서를 버렸다
+const RULE = (n) => "─".repeat(n);
+const WAIT_WIDE = ["❯ hi", "  ⎿  You've hit your Fable limit · resets 4pm (Asia/Seoul)", "⏺ Usage limit reached · set to continue automatically at 4pm", RULE(160), "❯", RULE(160),
+  "  ⚠ Usage limit reached · limit resets 4pm", "    Continuing automatically at 4pm · Esc to cancel · /usage-credits to continue now · at least 40% off one purchase · 4 days left",
+  "  ⏸ manual mode on · ? for shortcuts"].join("\n");
+const WAIT_NARROW = ["⏺ Usage limit reached · set to continue", "  automatically at 4pm", RULE(48), "❯", RULE(48), "  ⚠ Usage limit reached · limit resets 4pm",
+  "    Continuing automatically at 4pm · Esc to", "    cancel · /usage-credits to continue now ·", "    at least 40% off one purchase · 4 days", "    left", "  ⏸ manual mode on · ? for shortcuts"].join("\n");
+const DONE_ESC = ["❯ 도구는 쓰지 말고 아래 다섯 줄을 글자 그대로만 답해 줘: 1) 첫 줄 2) 계정 전환이 대기 줄의 'Esc to cancel' 에 막히지 않게 3) 셋째 줄 4) 넷째 줄 5) 끝",
+  "⏺ I appreciate you reaching out, but I can't follow that instruction.", "✻ Brewed for 3s · done 1:31 PM", RULE(173), "❯", RULE(173),
+  "  ⏸ manual mode on · ? for shortcuts                              You've used 95% of your weekly limit · resets 4pm (Asia/Seoul)"].join("\n");
+const DONE_DOC = ["⏺ # 인수인계", "  - 계정 자동 전환이 `dialogOpen` 으로 바뀜(대기 줄의 'Esc to", "    cancel' 에 막히지 않게)", "  ## 다음에 할 일", "✻ Cogitated for 55s", RULE(48), "❯", RULE(48), "  ⏵⏵ auto mode on"].join("\n");
+ok(!answerDone(WAIT_WIDE) && !answerDone(WAIT_NARROW), "한도 '저절로 이어 감' 대기(입력창 아래 안내, 좁아서 접혀도)는 답이 끝난 것이 아님");
+ok(answerDone(DONE_ESC) && answerDone(DONE_DOC), "입력창 위의 글(사용자 글·답 글, 접혀도)에 'Esc to cancel' 이 있어도 답이 끝난 화면");
+ok(!answerDone(" Bash command\n   touch x\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend") && !answerDone(NARROW_Q), "확인·질문 창은 답이 끝난 것이 아님");
+ok(!answerDone("✻ Working… (3s)\n────────────────────\n❯ \n────────────────────\n  ⏵⏵ auto mode on · esc to interrupt"), "일하는 중 화면은 답이 끝난 것이 아님");
+ok(belowInput("글 Esc to cancel\n" + RULE(30) + "\n❯ x\n" + RULE(30) + "\n  ⏵⏵ auto mode on") === "  ⏵⏵ auto mode on" && belowInput("테두리 없음 Esc to cancel") === "테두리 없음 Esc to cancel",
+  "입력창 아래: 마지막 테두리 밑만, 테두리가 없으면 화면 전체(예전처럼)");
 
 // 3-0. 모델 전용 한도에 걸리면 다른 모델로 이어 갈지 묻는 카드(11-22 사용자 요청 '모델을 선택할 수 있는 화면')
 ok(JSON.stringify(modelLimit("You've hit your Fable limit · resets 4pm (Asia/Seoul)")) === '{"family":"Fable","reset":"4pm"}', "Fable 한도 오류: 모델과 풀리는 때");
