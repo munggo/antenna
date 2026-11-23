@@ -44,7 +44,7 @@ On the same Wi-Fi the phone finds the Mac by itself (Bonjour). Away from it, the
 - A Mac with [tmux](https://github.com/tmux/tmux) and [Node.js](https://nodejs.org) 20 or newer (`brew install tmux node`). It has to stay awake while you use it from the phone: when the Mac sleeps, the bridge stops
 - Claude Code and/or pi on that Mac
 - An iPhone or iPad on iOS 16 or newer
-- To build the app yourself (not needed if you get it through a TestFlight invitation): Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`), and a paid Apple Developer Program membership
+- To build the app: Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`), and a paid Apple Developer Program membership
 
 ## Quick start
 
@@ -64,9 +64,7 @@ On a Mac with pi, the pi extensions the phone needs are installed into `~/.pi/ag
 
 **2. Put the app on your phone**
 
-The prebuilt app comes through a TestFlight invitation. To get one, tell the person who invited you to this repository the email address of your Apple Account. Install the TestFlight app on the phone, then open the link in the invitation email on the phone and get Antenna. An app installed this way gets no notifications (see [Status](#status)).
-
-To use it without an invitation, build it yourself:
+Each person builds the app and installs it. You need a paid Apple Developer account (the app uses the push notification entitlement, which a free account can't sign).
 
 ```sh
 cp ios/Local.xcconfig.example ios/Local.xcconfig   # put your Apple team ID and your own identifier prefix in it
@@ -145,8 +143,8 @@ A personal tool that grew up; expect rough edges.
 - macOS and iOS only.
 - The author uses it daily on macOS 26 with tmux 3.5a (Homebrew), Claude Code 2.1 and pi 1.5. Older versions have not been tested.
 - Parts of a Claude Code tab (the number of background tasks, the cards read off the screen, whether it is working) depend on what Claude Code draws in the terminal. When a new version of Claude Code changes its screen, they can be off until this is updated.
-- The prebuilt app is shared only by TestFlight invitation for now. Without an invitation you build and sign it yourself.
-- Notifications need your own Apple developer push key. So they come only to an app you built yourself, not to one installed from TestFlight.
+- There is no prebuilt app to share. Everyone builds and signs it themselves, and builds it again for a new release.
+- Notifications need your own Apple developer push key (see [Notifications](./docs/setup.md#notifications)).
 
 ## License
 

@@ -44,7 +44,7 @@
 - [tmux](https://github.com/tmux/tmux)와 [Node.js](https://nodejs.org) 20 이상이 있는 맥(`brew install tmux node`). 폰으로 쓰는 동안 깨어 있어야 한다: 맥이 잠들면 브리지도 멈춘다
 - 그 맥의 Claude Code 나 pi
 - iOS 16 이상의 아이폰·아이패드
-- 앱을 직접 빌드하려면(TestFlight 초대로 받으면 필요 없다): Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen)(`brew install xcodegen`), Apple Developer Program 가입(유료)
+- 앱을 빌드할 Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen)(`brew install xcodegen`), Apple Developer Program 가입(유료)
 
 ## 빠른 시작
 
@@ -64,9 +64,7 @@ pi 를 쓰는 맥에는 폰 화면에 필요한 pi 확장이 `~/.pi/agent/extens
 
 **2. 폰에 앱 넣기**
 
-미리 빌드된 앱은 TestFlight 초대로 받는다. 초대가 필요하면 이 저장소에 초대해 준 사람에게 내 Apple 계정의 메일 주소를 알려 준다. 폰에 TestFlight 앱을 깔고, 받은 초대 메일의 링크를 폰에서 열어 Antenna 를 받는다. 이렇게 받은 앱에는 알림이 오지 않는다([지금 상태](#지금-상태)).
-
-초대 없이 쓰려면 직접 빌드한다.
+앱은 각자 직접 빌드해 넣는다. 유료 Apple 개발자 계정이 있어야 한다(앱이 푸시 알림 권한을 써서 무료 계정으로는 서명이 안 된다).
 
 ```sh
 cp ios/Local.xcconfig.example ios/Local.xcconfig   # Apple 팀 번호와 내 식별자 앞부분을 적는다
@@ -145,8 +143,8 @@ sh test.sh                     # 시험 묶음: 모델을 부르지 않고, 쓰�
 - macOS 와 iOS 만 된다.
 - 작성자가 날마다 쓰는 판은 macOS 26, tmux 3.5a(Homebrew), Claude Code 2.1, pi 1.5 이다. 더 옛 판으로는 시험하지 않았다.
 - Claude Code 탭의 일부(백그라운드 작업 수, 화면에서 읽어 보여 주는 카드, 일하는 중인지)는 Claude Code 의 터미널 화면 모양에 기댄다. Claude Code 가 새 판에서 화면을 바꾸면 고칠 때까지 어긋날 수 있다.
-- 미리 빌드된 앱은 아직 TestFlight 초대로만 나눈다. 초대가 없으면 직접 빌드하고 서명해야 한다.
-- 알림은 내 Apple 개발자 푸시 키가 있어야 한다. 그래서 직접 빌드한 앱에서만 오고, TestFlight 로 받은 앱에서는 오지 않는다.
+- 미리 빌드된 앱은 나누지 않는다. 각자 직접 빌드하고 서명한다. 새 판이 나오면 다시 빌드해 넣는다.
+- 알림은 내 Apple 개발자 푸시 키가 있어야 한다([알림](./docs/setup.ko.md#알림)).
 
 ## 라이선스
 

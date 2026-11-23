@@ -138,9 +138,7 @@ sh install.sh --host <그 주소>
 
 ## 앱 빌드
 
-TestFlight 초대로 앱을 받았으면 이 절은 필요 없다.
-
-Xcode, XcodeGen, 그리고 Apple Developer Program 가입(유료)이 필요하다. 앱이 푸시 알림 권한을 쓰는데, 무료 계정으로는 서명할 수 없다.
+앱은 각자 빌드해 넣는다. Xcode, XcodeGen, 그리고 Apple Developer Program 가입(유료)이 필요하다. 앱이 푸시 알림 권한을 쓰는데, 무료 계정으로는 서명할 수 없다.
 
 - 작성자는 Xcode 27.2 로 빌드한다. 더 옛 판으로는 시험하지 않았다.
 - 터미널 화면(SwiftTerm)이 Metal 셰이더를 써서 Xcode 의 Metal 툴체인이 있어야 한다. 없으면 `xcodebuild -downloadComponent MetalToolchain` 으로 받는다.
@@ -153,7 +151,9 @@ cp ios/Local.xcconfig.example ios/Local.xcconfig
 `ios/Local.xcconfig` 에 두 값을 채운다. 이 파일은 git 에 올라가지 않는다.
 
 - `DEVELOPMENT_TEAM` — 팀 번호(10글자. developer.apple.com 멤버십 세부사항에 있음)
-- `BUNDLE_ID_PREFIX` — 나만 쓰는 앞부분(예: 가진 도메인을 거꾸로 적은 것). 앱 식별자는 `<앞부분>.piremote` 가 된다
+- `BUNDLE_ID_PREFIX` — 나만 쓰는 앞부분(예: 가진 도메인을 거꾸로 적은 것). 앱 식별자는 `<앞부분>.piremote` 가 되고, 함께 들어가는 작업 표시 위젯과 알림 확장은 `<앞부분>.piremote.widgets`·`<앞부분>.piremote.notify` 가 된다
+
+Xcode › 설정 › 계정에 그 개발자 계정으로 로그인해 둔다. 처음 폰에 넣을 때 Xcode 가 세 식별자를 계정에 등록하고 프로필을 만든다.
 
 **Xcode 로**
 
@@ -215,7 +215,7 @@ Claude Code 만 쓰면 아직 그 값을 적어 주는 것이 없어서, 화면�
 
 쓰는 법: 단축어 앱에서 새 단축어를 만들고, 동작 추가에서 Antenna 의 '맥의 AI 에게 일 시키기'를 고른다. 폰의 사건에 걸려면 단축어 앱의 자동화 탭에서 조건(시간, 도착, 충전기 연결, NFC 태그 등)을 고르고 이 동작을 넣는다. Siri 에게 "Antenna에 일 시키기"라고 말하거나 Spotlight 에서 찾아 실행할 수도 있다.
 
-시작한 일은 앱 서랍의 '백그라운드' 칸에 '단축어로 시킴'으로 보인다. [알림](#알림)을 설정했으면 끝났을 때 걸린 시간과 상관없이 알림이 온다. 알림이 오지 않는 앱(TestFlight 로 받은 앱)에서는 그 칸에서 끝났는지 본다.
+시작한 일은 앱 서랍의 '백그라운드' 칸에 '단축어로 시킴'으로 보인다. [알림](#알림)을 설정했으면 끝났을 때 걸린 시간과 상관없이 알림이 온다. 알림을 설정하지 않았으면 그 칸에서 끝났는지 본다.
 
 알아 둘 것:
 
@@ -335,7 +335,7 @@ sh install.sh
 
 `install.sh` 는 다시 돌려도 된다. 설정은 그대로 두고, Claude Code 연결부와 pi 확장을 새 판으로 바꾸고, 브리지 코드가 바뀌었으면 브리지를 다시 시작한다(폰 연결이 잠깐 끊겼다 다시 붙는다). 켜져 있던 Claude Code 탭의 연결부는 그 탭이 쉴 때 스스로 새 판으로 바뀐다. 켜져 있던 pi 는 `/reload` 해야 새 확장을 읽는다.
 
-폰: TestFlight 로 받았으면 TestFlight 앱에서 새 판을 받는다(자동 업데이트를 켜 두면 저절로 받는다). 직접 빌드했으면 다시 빌드해 넣는다.
+폰: 앱을 다시 빌드해 넣는다([앱 빌드](#앱-빌드)).
 
 올린 뒤 `node deploy/doctor.mjs` 를 돌려 확인한다.
 

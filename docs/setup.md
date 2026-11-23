@@ -138,9 +138,7 @@ Once the path is open, the rest is [the steps in common](#the-steps-in-common). 
 
 ## Building the app
 
-Skip this section if you got the app through a TestFlight invitation.
-
-You need Xcode, XcodeGen and a paid membership in the Apple Developer Program (the app declares the push notification capability, which free accounts cannot sign).
+Each person builds the app and installs it. You need Xcode, XcodeGen and a paid membership in the Apple Developer Program (the app declares the push notification capability, which free accounts cannot sign).
 
 - The author builds with Xcode 27.2. Older versions have not been tested.
 - The terminal view (SwiftTerm) uses Metal shaders, so Xcode's Metal toolchain has to be installed. If it is missing, get it with `xcodebuild -downloadComponent MetalToolchain`.
@@ -153,7 +151,9 @@ cp ios/Local.xcconfig.example ios/Local.xcconfig
 Fill in two values in `ios/Local.xcconfig`. The file is ignored by git.
 
 - `DEVELOPMENT_TEAM` — your team ID (10 characters, shown under Membership details at developer.apple.com)
-- `BUNDLE_ID_PREFIX` — a prefix of your own, for example your domain reversed. The app becomes `<prefix>.piremote`.
+- `BUNDLE_ID_PREFIX` — a prefix of your own, for example your domain reversed. The app becomes `<prefix>.piremote`, and the lock-screen widget and notification extension that ship with it become `<prefix>.piremote.widgets` and `<prefix>.piremote.notify`.
+
+Sign in to Xcode › Settings › Accounts with that developer account. The first time you run on the phone, Xcode registers the three identifiers in your account and makes the profiles.
 
 **With Xcode**
 
@@ -215,7 +215,7 @@ Installing the app adds one action to the Shortcuts app: **맥의 AI 에게 일 
 
 To use it, create a shortcut in the Shortcuts app, tap Add Action, and pick the action under Antenna. To run it on an event, open the Automation tab of the Shortcuts app, choose a trigger (a time of day, arriving somewhere, connecting the charger, an NFC tag and so on) and add this action. You can also say "Antenna에 일 시키기" to Siri, or find the action in Spotlight.
 
-The task shows up in the background section of the app's drawer, marked '단축어로 시킴' (started by a shortcut). If [notifications](#notifications) are set up, you are notified when it finishes, however long it ran. In an app that gets no notifications (one installed from TestFlight), check that section to see whether it has finished.
+The task shows up in the background section of the app's drawer, marked '단축어로 시킴' (started by a shortcut). If [notifications](#notifications) are set up, you are notified when it finishes, however long it ran. If notifications aren't set up, check that section to see whether it has finished.
 
 Things to know:
 
@@ -335,7 +335,7 @@ sh install.sh
 
 `install.sh` is safe to run again. It keeps your settings, replaces the Claude Code feed and the pi extensions with the new version, and restarts the bridge if the bridge code changed (the phone disconnects for a moment and reconnects). The feed of a Claude Code tab that is already running switches to the new version by itself when that tab is idle. A pi that is already running needs `/reload` to pick up the new extensions.
 
-On the phone: if you got the app from TestFlight, get the new build in the TestFlight app (it arrives by itself if automatic updates are on). If you built it yourself, build and install it again.
+On the phone: build and install the app again (see [Building the app](#building-the-app)).
 
 Afterwards run `node deploy/doctor.mjs` to check.
 
