@@ -58,6 +58,8 @@
 	<string>pi·Claude Code가 보낸 사진·동영상을 사진 앱에 저장합니다.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>PushKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)$(BUNDLE_ID_PREFIX).piremote.shared</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchScreen</key>

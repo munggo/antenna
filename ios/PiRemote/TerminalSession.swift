@@ -455,10 +455,12 @@ final class TerminalSession: NSObject, ObservableObject {
 
     // MARK: - 폰 알림
 
-    /// 맥 브리지에 이 폰의 알림 주소 등록(연결될 때마다)
+    /// 맥 브리지에 이 폰의 알림 주소 등록(연결될 때마다). pk: 알림 중계로 보낼 때 본문을 잠글 공개 키(PushCrypto)
     func registerPush() {
         guard status == .connected, let t = PushManager.shared.token else { return }
-        sendControl(["type": "push-register", "token": t, "env": PushManager.env])
+        var msg: [String: Any] = ["type": "push-register", "token": t, "env": PushManager.env]
+        if let pk = PushCrypto.publicKey() { msg["pk"] = pk }
+        sendControl(msg)
     }
 
     /// 알림을 눌러 열었으면 그 탭으로

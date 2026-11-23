@@ -2,19 +2,27 @@
 // - 폰 앱이 기기 주소(device token)를 등록하면 ~/.config/pi-remote/push.json 에 보관
 // - pi 확장은 로컬 소켓(notify-<tmux세션>.sock)으로 알림을 요청
 // 설정(~/.config/pi-remote/env): PI_REMOTE_APNS_KEY(.p8 경로), PI_REMOTE_APNS_KEY_ID, PI_REMOTE_APNS_TEAM, PI_REMOTE_APNS_TOPIC
+// 자기 키가 없으면(팀원 맥) 알림 중계(relay/index.mjs)로 보낸다: 본문은 폰 공개 키로 잠그고(push-seal.mjs), 작업 표시는 상태만.
+// 중계 주소는 PI_REMOTE_PUSH_RELAY(없거나 빈 값이면 끔)
 import http2 from "node:http2";
 import { createPrivateKey, sign } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname } from "node:path";
+import { isPushKey, sealFor } from "./push-seal.mjs";
 
 const KEY_PATH = process.env.PI_REMOTE_APNS_KEY || "";
 const KEY_ID = process.env.PI_REMOTE_APNS_KEY_ID || "";
 const TEAM = process.env.PI_REMOTE_APNS_TEAM || "";
 const TOPIC = process.env.PI_REMOTE_APNS_TOPIC || "com.munggo.piremote";
 const STORE = process.env.PI_REMOTE_PUSH_FILE || `${process.env.HOME}/.config/pi-remote/push.json`;
+// 기본은 끔: 팀원은 각자 빌드해 자기 키로 직접 보낸다(사용자 결정 11-23). 중계를 쓰려면 relay/deploy.sh 로 올린 주소를 PI_REMOTE_PUSH_RELAY 에
+const DEFAULT_RELAY = "";
+const RELAY = process.env.PI_REMOTE_PUSH_RELAY ?? DEFAULT_RELAY;
 
-export const pushEnabled = !!(KEY_PATH && KEY_ID && TEAM && existsSync(KEY_PATH));
+/** direct: 이 맥의 키로 Apple 에 직접 · relay: 알림 중계로 · "": 끔 */
+export const pushMode = KEY_PATH && KEY_ID && TEAM && existsSync(KEY_PATH) ? "direct" : RELAY ? "relay" : "";
+export const pushEnabled = !!pushMode;
 
 // done: 작업이 끝났을 때도 알림(질문·승인·확인 창은 항상), doneMinSec: 이보다 오래 걸린 작업만(기본 1시간, 사용자가 정함)
 // live: 작업 표시(Live Activity) — start: 시작용 토큰들, acts: 탭(창 번호)마다 지금 떠 있는 표시의 갱신용 토큰
@@ -31,11 +39,11 @@ const save = () => {
   chmodSync(STORE, 0o600);
 };
 
-/** 폰이 보낸 기기 주소 등록(같은 주소는 갱신, 최근 5대만) */
-export function registerToken(token, env) {
+/** 폰이 보낸 기기 주소 등록(같은 주소는 갱신, 최근 5대만). pk: 폰의 알림 공개 키(중계로 보낼 때 본문을 잠금. 예전 앱은 없음) */
+export function registerToken(token, env, pk) {
   if (typeof token !== "string" || !/^[0-9a-f]{64,200}$/i.test(token)) return false;
   store.tokens = store.tokens.filter((t) => t.token !== token);
-  store.tokens.push({ token, env: env === "production" ? "production" : "sandbox", updatedAt: Date.now() });
+  store.tokens.push({ token, env: env === "production" ? "production" : "sandbox", ...(isPushKey(pk) ? { pk } : {}), updatedAt: Date.now() });
   store.tokens = store.tokens.slice(-5);
   save();
   return true;
@@ -122,6 +130,33 @@ function sendOne(t, payload, { collapseId, pushType = "alert", topic = TOPIC, pr
   });
 }
 
+/** 알림 중계로 보내기(relay/index.mjs 의 요청 모양). 결과는 Apple 의 { status, reason } 그대로 */
+let relayPost = async (body) => {
+  try {
+    const r = await fetch(RELAY, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
+    const j = await r.json().catch(() => ({}));
+    return r.ok ? { status: Number(j.status) || 0, reason: String(j.reason ?? "") } : { status: 0, reason: `relay ${r.status} ${j.error ?? ""}`.trim() };
+  } catch (e) {
+    return { status: 0, reason: `relay ${e?.name === "TimeoutError" ? "timeout" : String(e?.message ?? e)}` };
+  }
+};
+/** 시험용: 중계 주소 대신 함수로 받기 */
+export function setRelayForTest(fn) {
+  relayPost = fn;
+}
+/** 글을 UTF-8 바이트 기준으로 자름(중계의 암호문 크기 제한 안에 들게) */
+const clipBytes = (s, n) => {
+  const t = String(s ?? "");
+  const b = Buffer.from(t, "utf8");
+  return b.length <= n ? t : `${b.subarray(0, n).toString("utf8").replace(/�+$/, "")}…`;
+};
+/** 중계로 보낼 알림 요청 하나: 본문(제목·부제·내용·종류·탭)은 그 폰의 공개 키로 잠금. 공개 키가 없는 예전 앱은 고정 문구만 감 */
+export function relayAlert(t, { title, subtitle, body, kind, window, urgent }) {
+  const w = Number.isInteger(window) ? window : null;
+  const plain = { t: clipBytes(title ?? "pi", 200), s: clipBytes(subtitle ?? "", 200), b: clipBytes(body ?? "", 1500), k: kind, w };
+  return { v: 1, type: "alert", token: t.token, env: t.env, urgent: urgent === true, window: w, ...(t.pk ? { e: sealFor(t.pk, plain) } : {}) };
+}
+
 /**
  * 등록된 모든 기기에 알림.
  * kind: approval(승인) | prompt(확인 창) | choice(고르는 질문) | question(질문) | done(작업 끝) | error(멈춤) | test
@@ -148,7 +183,7 @@ export async function notify({ title, subtitle, body, kind = "done", window, dur
   };
   const results = [];
   for (const t of [...store.tokens]) {
-    const r = await sendOne(t, payload);
+    const r = pushMode === "relay" ? await relayPost(relayAlert(t, { title, subtitle, body, kind, window, urgent })) : await sendOne(t, payload);
     results.push(r);
     if (r.status === 410 || r.reason === "BadDeviceToken" || r.reason === "Unregistered") {
       store.tokens = store.tokens.filter((x) => x.token !== t.token);   // 더 이상 없는 기기
@@ -212,10 +247,19 @@ export function livePayload(event, { window, tabName, state, now = Math.floor(Da
 /** 피드 확장이 보낸 작업 표시 신호 처리 */
 export async function liveActivity({ event, window, tabName = "pi", status = "working", detail = "", startedAt }) {
   if (!pushEnabled || !Number.isInteger(window) || !["start", "update", "end"].includes(event)) return [];
+  // 시험: 알림처럼 보내지 않고 기록만(키 없는 시험 브리지가 기본 중계로 보내지 않게)
+  if (process.env.PI_REMOTE_PUSH_DRYRUN === "1") {
+    console.log(`[pi-remote] 작업 표시(시험·안 보냄) ${event} 창 ${window}`);
+    return [];
+  }
   const now = Math.floor(Date.now() / 1000);
   const state = { status: String(status), detail: String(detail).slice(0, 120), startedAt: Number(startedAt) || now, endedAt: event === "end" ? now : null };
   const cur = store.live.acts[window];
   const opts = (priority) => ({ pushType: "liveactivity", topic: LIVE_TOPIC, priority });
+  // 중계로 보낼 때는 상태·시각·탭 번호만(탭 이름·하는 일은 싣지 않음. 중계가 '탭 N'·빈 글로 채움. 사용자 결정 11-23)
+  const out = (t, e) => pushMode === "relay"
+    ? relayPost({ v: 1, type: "live", token: t.token, env: t.env, event: e, window, state: { status: state.status, startedAt: state.startedAt, endedAt: state.endedAt } })
+    : liveSend(t, livePayload(e, { window, tabName: String(tabName), state, now }), opts(e === "update" ? "5" : "10"));
   const results = [];
   let ev = event;
   // 이미 떠 있는 표시(토큰 있음)에 다시 시작이 오면 새로 띄우지 않고 갱신
@@ -224,7 +268,7 @@ export async function liveActivity({ event, window, tabName = "pi", status = "wo
     store.live.acts[window] = { token: null, env: null, at: Date.now(), ended: false };
     save();
     for (const t of [...store.live.start]) {
-      const r = await liveSend(t, livePayload("start", { window, tabName: String(tabName), state, now }), opts("10"));
+      const r = await out(t, "start");
       results.push(r);
       if (r.status === 410 || r.reason === "BadDeviceToken" || r.reason === "ExpiredToken") {
         store.live.start = store.live.start.filter((x) => x.token !== t.token);
@@ -232,7 +276,7 @@ export async function liveActivity({ event, window, tabName = "pi", status = "wo
       }
     }
   } else if (cur?.token) {
-    const r = await liveSend(cur, livePayload(ev, { window, tabName: String(tabName), state, now }), opts(ev === "end" ? "10" : "5"));
+    const r = await out(cur, ev);
     results.push(r);
     if (ev === "end" || r.status === 410 || r.reason === "BadDeviceToken" || r.reason === "ExpiredToken") {
       delete store.live.acts[window];

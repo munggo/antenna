@@ -85,10 +85,13 @@ struct PiWorkLiveActivity: Widget {
                             .multilineTextAlignment(.trailing)
                             .frame(maxWidth: 90, alignment: .trailing)
                     }
-                    Text(s.detail)
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
+                    // 알림 중계로 온 표시는 하는 일을 싣지 않아 비어 있음(상태만. 사용자 결정 11-23)
+                    if !s.detail.isEmpty {
+                        Text(s.detail)
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                    }
                 }
             }
             .padding(16)
@@ -111,7 +114,7 @@ struct PiWorkLiveActivity: Widget {
                         .frame(maxWidth: 80, alignment: .trailing)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text("\(WorkStyle.label(s.status)) · \(s.detail)")
+                    Text(s.detail.isEmpty ? WorkStyle.label(s.status) : "\(WorkStyle.label(s.status)) · \(s.detail)")
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
                         .lineLimit(2)

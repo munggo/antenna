@@ -94,6 +94,7 @@ run usage-auth "사용량 조회용 로그인: 만료가 가까우면 pi 의 방
 run usage-login "회사 계정 조회용 로그인 명령: 회사 계정만 저장(개인 계정으로 승인하면 저장 안 함), 토큰을 찍지 않음" "$NODE" server/test/usage-login.test.mjs
 run status-line "맥 화면 상태 줄에서 모델·생각 깊이 읽기, 입력창이 비었는지" "$NODE" server/test/status-line.test.mjs
 run live-activity "작업 표시(잠금 화면)" "$NODE" server/test/live-activity.test.mjs
+run relay "알림 중계: 본문은 폰만 풀게 잠그고, 중계가 알림 모양을 직접 만들고(받은 글은 싣지 않음), 작업 표시는 상태만" "$NODE" server/test/relay.test.mjs
 run battery "맥북 배터리 읽기(잔량·충전기·낮음)" "$NODE" server/test/battery.test.mjs
 run mac-prompts "맥에 뜬 권한 창 알림: 감지·어느 탭·무슨 권한·한 번만·맥을 쓰는 중이면 미룸(탭 찾기는 따로 띄운 tmux 서버에서)" "$NODE" server/test/mac-prompts.test.mjs
 run advertise "브리지가 죽지 않는지(자동 발견 오류·죽음 기록)" "$NODE" server/test/advertise.test.mjs
@@ -122,10 +123,16 @@ fi
 inline_markdown() {
   xcrun swiftc -parse-as-library ios/PiRemote/InlineMarkdown.swift ios/test/inline-markdown.swift -o "$OUT/inline-markdown" && "$OUT/inline-markdown"
 }
+# 알림 본문 잠금(브리지)·풀기(앱 CryptoKit)가 서로 맞는지: 앱의 풀기 파일을 맥에서 컴파일해 브리지가 잠근 것을 풀어 봄
+push_crypto() {
+  xcrun swiftc -parse-as-library ios/Shared/PushCrypto.swift ios/test/push-crypto.swift -o "$OUT/push-crypto" && "$NODE" server/test/push-crypto.test.mjs "$OUT/push-crypto"
+}
 if xcrun -f swiftc >/dev/null 2>&1; then
   run inline-markdown "앱의 글 꾸밈: 물결표 하나짜리(7~12개월)는 취소선이 아님, 코드·링크는 그대로" inline_markdown
+  run push-crypto "알림 본문: 브리지가 잠근 것을 앱(CryptoKit)이 풂, 다른 폰 키·건드린 암호문은 안 풀림" push_crypto
 else
   skip inline-markdown "swift(Xcode 명령줄 도구)가 없음"
+  skip push-crypto "swift(Xcode 명령줄 도구)가 없음"
 fi
 # 이 저장소에만 있는 내 시험이 있으면 함께 돌린다(test.local.sh 안에서 run 으로 더함)
 if [ -f test.local.sh ]; then

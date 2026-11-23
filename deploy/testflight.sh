@@ -43,6 +43,7 @@ cat > "$OUT/export.plist" <<PLIST
   <dict>
     <key>com.munggo.piremote</key><string>Antenna AppStore</string>
     <key>com.munggo.piremote.widgets</key><string>Antenna Widget AppStore</string>
+    <key>com.munggo.piremote.notify</key><string>Antenna Notify AppStore</string>
   </dict>
   <key>uploadSymbols</key><true/>
 </dict>

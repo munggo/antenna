@@ -23,7 +23,7 @@ import { installCrashLog } from "./crash-log.mjs";
 import { createDeviceStore, sameHex } from "./devices.mjs";
 import { createDualServer, ensureCert } from "./tls.mjs";
 import { outsideReach, parseHosts, reachText } from "./reach.mjs";
-import { getPrefs, notify, pushEnabled, registerActivity, registerLiveStart, registerToken, setNotifyGate, setPrefs, startNotifySocket } from "./push.mjs";
+import { getPrefs, notify, pushEnabled, pushMode, registerActivity, registerLiveStart, registerToken, setNotifyGate, setPrefs, startNotifySocket } from "./push.mjs";
 import { readBattery } from "./battery.mjs";
 import { createPromptWatch, readRequests, readWindows, tabFinder } from "./mac-prompts.mjs";
 import { launchBackground } from "../claude-remote/bg-launch.mjs";
@@ -794,7 +794,7 @@ server.listen(PORT, HOST);
 // pi 확장이 폰 알림을 요청하는 로컬 소켓(이 브리지가 맡은 tmux 세션 전용)
 startNotifySocket(`${process.env.HOME}/.cache/pi-remote/notify-${SESSION}.sock`);
 setNotifyGate(gateNotify);
-console.log(`[pi-remote] 폰 알림: ${pushEnabled ? "켜짐(Apple 푸시)" : "꺼짐(APNs 설정 없음)"}`);
+console.log(`[pi-remote] 폰 알림: ${pushMode === "direct" ? "켜짐(Apple 푸시)" : pushMode === "relay" ? "켜짐(알림 중계)" : "꺼짐(APNs 설정 없음)"}`);
 
 server.on("listening", () => {
   const how = !tlsCert ? "암호화 없음" : TLS_ONLY ? "암호화 연결만" : "암호화 연결, 예전 앱용으로 암호화 없는 연결도";
@@ -1145,7 +1145,7 @@ wss.on("connection", (ws, req) => {
         }
         if (msg.type === "push-register") {
           // 폰 앱이 보낸 알림용 기기 주소 등록
-          const ok = registerToken(String(msg.token ?? ""), String(msg.env ?? "sandbox"));
+          const ok = registerToken(String(msg.token ?? ""), String(msg.env ?? "sandbox"), msg.pk);
           if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "push-status", enabled: pushEnabled, registered: ok, prefs: getPrefs() }));
           return;
         }

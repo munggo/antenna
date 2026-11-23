@@ -18,6 +18,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 const TARGETS = [
   { identifier: "com.munggo.piremote", profile: "Antenna AppStore", label: "Antenna" },
   { identifier: "com.munggo.piremote.widgets", profile: "Antenna Widget AppStore", label: "Antenna Widgets" },
+  // 알림 중계로 온 알림의 본문 풀기(11-23). 앱과 함께 보는 키체인 묶음은 배포 프로필에 기본으로 들어 있어 따로 켤 것 없음
+  { identifier: "com.munggo.piremote.notify", profile: "Antenna Notify AppStore", label: "Antenna Notify" },
 ];
 const GROUP = "개발";   // 내부 테스트 그룹 이름
 const HOME = process.env.HOME;

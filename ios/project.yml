@@ -28,12 +28,16 @@ targets:
     dependencies:
       - package: SwiftTerm
       - target: PiRemoteWidgets
+      - target: PiRemoteNotify
     entitlements:
       path: PiRemote/PiRemote.entitlements
       properties:
         # 폰 알림(Apple 푸시, Xcode 설치판은 개발용 서버)과 집중 모드에서도 보이는 승인 알림
         aps-environment: development
         com.apple.developer.usernotifications.time-sensitive: true
+        # 알림 확장과 함께 보는 키체인 묶음(알림 본문을 푸는 개인 키. 배포 프로필에 팀 접두어 묶음은 기본으로 들어 있어 따로 켤 것 없음)
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)$(BUNDLE_ID_PREFIX).piremote.shared
     info:
       path: PiRemote/Info.plist
       properties:
@@ -72,6 +76,8 @@ targets:
         LegacyHost: $(LEGACY_HOST)
         # 맥 pi 작업 표시(잠금 화면·다이내믹 아일랜드)
         NSSupportsLiveActivities: true
+        # 알림 본문을 푸는 개인 키를 두는 키체인 묶음(앱·알림 확장이 함께 봄. Shared/PushCrypto.swift)
+        PushKeychainGroup: $(AppIdentifierPrefix)$(BUNDLE_ID_PREFIX).piremote.shared
         # 작업 표시를 누르면 그 탭으로(piremote://tab/<창 번호>)
         CFBundleURLTypes:
           - CFBundleURLName: $(BUNDLE_ID_PREFIX).piremote
@@ -109,6 +115,39 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID_PREFIX).piremote.widgets
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+
+  # 알림 중계로 온 알림의 본문 풀기(Notification Service Extension). 팀원 맥은 Apple 푸시 키가 없어 알림 중계로 보내는데,
+  # 중계·Apple 이 본문을 읽지 못하게 잠겨 온다(server/push-seal.mjs)
+  PiRemoteNotify:
+    type: app-extension
+    platform: iOS
+    sources:
+      - PiRemoteNotify
+      - Shared/PushCrypto.swift
+    entitlements:
+      path: PiRemoteNotify/PiRemoteNotify.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)$(BUNDLE_ID_PREFIX).piremote.shared
+    info:
+      path: PiRemoteNotify/Info.plist
+      properties:
+        CFBundleDisplayName: Antenna
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        PushKeychainGroup: $(AppIdentifierPrefix)$(BUNDLE_ID_PREFIX).piremote.shared
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID_PREFIX).piremote.notify
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
