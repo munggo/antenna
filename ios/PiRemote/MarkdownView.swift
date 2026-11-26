@@ -107,7 +107,7 @@ struct CodeBlockView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(Theme.muted)
                 Spacer()
-                CopyButton(text: code, label: "코드 복사")
+                CopyButton(text: code, label: String(localized: "코드 복사"))
                     .frame(width: 28)
             }
             .padding(.leading, 12)

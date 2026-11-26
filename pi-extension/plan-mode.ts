@@ -11,13 +11,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { isReadOnlyCommand } from "./lib/readonly.ts";
+import { LANG, tr } from "./lib/lang.mjs";   // 폰에 보이는 글의 언어(PI_REMOTE_LANG)
 
 export { isReadOnlyCommand };
 
 /** 답에서 계획('계획:' 아래 번호 목록) 단계들 */
 export function extractPlan(text: string): string[] {
   const t = String(text ?? "");
-  const at = t.search(/(^|\n)\s*(#+\s*)?(\*\*)?계획(\*\*)?\s*[:：]?\s*(\*\*)?\s*\n/);
+  const at = t.search(/(^|\n)\s*(#+\s*)?(\*\*)?(계획|Plan)(\*\*)?\s*[:：]?\s*(\*\*)?\s*\n/i);
   if (at < 0) return [];
   const steps: string[] = [];
   for (const line of t.slice(at).split("\n").slice(1)) {
@@ -28,9 +29,11 @@ export function extractPlan(text: string): string[] {
   return steps;
 }
 
+// 계획은 폰 카드에 보이므로 폰 글의 언어로(PI_REMOTE_LANG). 머리 줄은 '계획:' 이나 'Plan:'(extractPlan 이 둘 다 읽음)
+const PLAN_HEAD = LANG === "en" ? "Plan:" : "계획:";
 const GUIDE =
   "PLAN MODE IS ON. Only investigate: read files and run read-only commands; do not modify, create or delete anything, and do " +
-  "not ask for approval to modify. When you are ready, write the plan in Korean as a numbered list under a line '계획:' " +
+  `not ask for approval to modify. When you are ready, write the plan in ${LANG === "en" ? "English" : "Korean"} as a numbered list under a line '${PLAN_HEAD}' ` +
   "(concise steps, each one line). Do not ask whether to proceed; the system will ask the user.";
 
 export default function (pi: ExtensionAPI) {
@@ -61,15 +64,15 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("plan", {
-    description: "계획 모드 켜기·끄기(읽기만 하며 계획을 세우고, 승인받으면 실행)",
+    description: tr("계획 모드 켜기·끄기(읽기만 하며 계획을 세우고, 승인받으면 실행)", "Plan mode on/off (read only and make a plan; runs once approved)"),
     handler: async (args: string, ctx: any) => {
       const a = String(args ?? "").trim();
       set(a === "on" ? true : a === "off" ? false : !on, ctx);
-      ctx.ui.notify(on ? "계획 모드를 켰어요. 읽기만 하며 계획을 세워요" : "계획 모드를 껐어요", "info");
+      ctx.ui.notify(on ? tr("계획 모드를 켰어요. 읽기만 하며 계획을 세워요", "Plan mode is on. Reading only and making a plan") : "계획 모드를 껐어요", "info");
     },
   });
   try {
-    pi.registerShortcut("ctrl+alt+p" as any, { description: "계획 모드 켜기·끄기", handler: async (ctx: any) => set(!on, ctx) } as any);
+    pi.registerShortcut("ctrl+alt+p" as any, { description: tr("계획 모드 켜기·끄기", "Plan mode on/off"), handler: async (ctx: any) => set(!on, ctx) } as any);
   } catch {
     /* 단축키를 못 쓰면 /plan 으로 */
   }
@@ -78,7 +81,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event: any) => {
     if (!on) return undefined;
     const name = String(event.toolName);
-    const why = (what: string) => ({ block: true, reason: `Blocked by plan mode: ${what}. Only investigate now and present the plan under '계획:'.` });
+    const why = (what: string) => ({ block: true, reason: `Blocked by plan mode: ${what}. Only investigate now and present the plan under '${PLAN_HEAD}'.` });
     if (name === "edit" || name === "write") return why("files cannot be changed");
     if (name === "bash" && !isReadOnlyCommand(String(event.input?.command ?? ""))) return why("only read-only commands are allowed");
     if (name === "subagent") {
@@ -117,19 +120,19 @@ export default function (pi: ExtensionAPI) {
     }
     const steps = extractPlan(text);
     if (!steps.length) return;
-    pi.events.emit("pi-remote:notify", { kind: "choice", title: "계획을 확인해 주세요", body: `${steps.length}단계 · ${steps[0]}` });
-    const GO = "계획대로 진행";
-    const EDIT = "계획 고치기";
-    const STOP = "그만두기";
-    const choice = await ctx.ui.select(`계획대로 진행할까요?\n\n${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`, [GO, EDIT, STOP]);
+    pi.events.emit("pi-remote:notify", { kind: "choice", title: tr("계획을 확인해 주세요", "Review the plan"), body: tr(`${steps.length}단계 · ${steps[0]}`, `${steps.length} steps · ${steps[0]}`) });
+    const GO = tr("계획대로 진행", "Go ahead with the plan");
+    const EDIT = tr("계획 고치기", "Change the plan");
+    const STOP = tr("그만두기", "Stop");
+    const choice = await ctx.ui.select(tr(`계획대로 진행할까요?\n\n${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`, `Go ahead with this plan?\n\n${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`), [GO, EDIT, STOP]);
     if (choice === GO) {
       set(false, ctx);
       pi.sendUserMessage(
-        `계획대로 진행해 줘. 먼저 todo_write 로 아래 단계를 할 일 목록으로 만들고 차례로 해:\n${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`,
+        tr(`계획대로 진행해 줘. 먼저 todo_write 로 아래 단계를 할 일 목록으로 만들고 차례로 해:\n${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`, `Go ahead with the plan. First turn these steps into a to-do list with todo_write, then do them in order:\n${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`),
       );
     } else if (choice === EDIT) {
-      const note = await ctx.ui.input("어떻게 고칠까요?", "");
-      if (note?.trim()) pi.sendUserMessage(`계획을 이렇게 고쳐 줘: ${note.trim()}`);
+      const note = await ctx.ui.input(tr("어떻게 고칠까요?", "How should it change?"), "");
+      if (note?.trim()) pi.sendUserMessage(tr(`계획을 이렇게 고쳐 줘: ${note.trim()}`, `Change the plan like this: ${note.trim()}`));
     } else if (choice === STOP) {
       set(false, ctx);
       ctx.ui.notify("계획 모드를 껐어요", "info");

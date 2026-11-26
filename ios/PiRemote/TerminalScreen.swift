@@ -399,11 +399,11 @@ struct TerminalScreen: View {
 
     private var statusText: String {
         switch session.status {
-        case .connected: return session.isWorking ? "작업 중" : "연결됨"
-        case .connecting: return "연결 중"
-        case .closed: return "종료됨"
-        case .idle: return "대기"
-        case .failed(let m): return "실패: \(m)"
+        case .connected: return session.isWorking ? String(localized: "작업 중") : String(localized: "연결됨")
+        case .connecting: return String(localized: "연결 중")
+        case .closed: return String(localized: "종료됨")
+        case .idle: return String(localized: "대기")
+        case .failed(let m): return String(localized: "실패: \(m)")
         }
     }
 }
@@ -457,7 +457,7 @@ struct MacBatteryLabel: View {
 
     /// "맥 배터리 94%" · "맥 배터리 94%, 충전기 연결됨" · "맥 배터리 18%, 낮음"(VoiceOver·시험용)
     static func spoken(_ b: MacBattery) -> String {
-        "맥 배터리 \(b.percent)%" + (b.plugged ? ", 충전기 연결됨" : b.low ? ", 낮음" : "")
+        String(localized: "맥 배터리 \(b.percent)%") + (b.plugged ? String(localized: ", 충전기 연결됨") : b.low ? String(localized: ", 낮음") : "")
     }
 }
 

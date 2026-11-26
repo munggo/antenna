@@ -35,17 +35,17 @@ struct SlashCommand: Identifiable, Equatable, Decodable {
     /// 맥 화면에 방향키로 고르는 창을 띄우는 명령(/tree·/fork·/settings·/scoped-models·/mcp)은 폰에서 조작할 수 없어 뺐고,
     /// 대화 전체를 밖으로 올리는 /share 도 뺐다. /resume 은 폰의 '지난 대화' 화면을 연다.
     static let builtins: [SlashCommand] = [
-        .init("compact", "대화 압축 — 앞부분을 요약해 공간 확보"),
-        .init("new", "새 대화 시작"),
-        .init("resume", "지난 대화 이어하기"),
-        .init("clone", "지금 대화 복제"),
-        .init("name", "대화 이름 정하기", needsArg: true),
-        .init("session", "대화 정보·통계", terminal: true),
-        .init("export", "대화 내보내기(HTML)", terminal: true),
-        .init("copy", "마지막 답을 맥 클립보드로 복사"),
-        .init("reload", "확장·스킬 다시 불러오기"),
-        .init("hotkeys", "단축키 보기", terminal: true),
-        .init("changelog", "pi 변경 내역", terminal: true),
+        .init("compact", String(localized: "대화 압축 — 앞부분을 요약해 공간 확보")),
+        .init("new", String(localized: "새 대화 시작")),
+        .init("resume", String(localized: "지난 대화 이어하기")),
+        .init("clone", String(localized: "지금 대화 복제")),
+        .init("name", String(localized: "대화 이름 정하기"), needsArg: true),
+        .init("session", String(localized: "대화 정보·통계"), terminal: true),
+        .init("export", String(localized: "대화 내보내기(HTML)"), terminal: true),
+        .init("copy", String(localized: "마지막 답을 맥 클립보드로 복사")),
+        .init("reload", String(localized: "확장·스킬 다시 불러오기")),
+        .init("hotkeys", String(localized: "단축키 보기"), terminal: true),
+        .init("changelog", String(localized: "pi 변경 내역"), terminal: true),
     ]
 
     /// 입력한 글(`/` 다음)로 고르기: 이름이 그 글로 시작하는 것 먼저, 그다음 이름·설명에 포함된 것

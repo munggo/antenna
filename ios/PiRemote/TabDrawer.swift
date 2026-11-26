@@ -14,9 +14,9 @@ enum TabStatus {
 
     static func label(_ s: String) -> String {
         switch s {
-        case "working": return "작업 중"
-        case "asking": return "답을 기다려요"
-        case "yourturn": return "끝났어요"
+        case "working": return String(localized: "작업 중")
+        case "asking": return String(localized: "답을 기다려요")
+        case "yourturn": return String(localized: "끝났어요")
         default: return ""
         }
     }
@@ -27,37 +27,37 @@ enum BackgroundText {
     /// 걸린 시간: "40초", "12분", "1시간 5분", "2일"
     static func duration(_ sec: Int) -> String {
         let s = max(0, sec)
-        if s < 60 { return "\(s)초" }
-        if s < 3600 { return "\(s / 60)분" }
+        if s < 60 { return String(localized: "\(s)초") }
+        if s < 3600 { return String(localized: "\(s / 60)분") }
         if s < 86400 {
             let m = s % 3600 / 60
-            return m == 0 ? "\(s / 3600)시간" : "\(s / 3600)시간 \(m)분"
+            return m == 0 ? String(localized: "\(s / 3600)시간") : String(localized: "\(s / 3600)시간 \(m)분")
         }
-        return "\(s / 86400)일"
+        return String(localized: "\(s / 86400)일")
     }
 
     static func title(_ w: TmuxWindow) -> String {
         let n = w.name.hasPrefix("bg ") ? String(w.name.dropFirst(3)) : w.name
-        return n.isEmpty ? "창 \(w.index)" : n
+        return n.isEmpty ? String(localized: "창 \(w.index)") : n
     }
 
     /// 뒤에서 도는 일(맥 연결부가 적은 "셸 1개 · 에이전트 2개")을 "백그라운드 작업 3" 처럼 종류를 따지지 않고 합한 수로. 없으면 ""
     static func jobs(_ s: String) -> String {
         if s.isEmpty { return "" }
         let n = s.split(separator: "·").compactMap { Int($0.filter(\.isNumber)) }.reduce(0, +)
-        return n > 0 ? "백그라운드 작업 \(n)" : "백그라운드 작업"
+        return n > 0 ? String(localized: "백그라운드 작업 \(n)") : String(localized: "백그라운드 작업")
     }
 
     /// 생각 깊이 → 짧은 한글(맥 화면의 '백그라운드: …' 줄과 같은 낱말, claude-remote/bg-launch.mjs thinkingKo). 모르는 값은 ""
     static func thinking(_ level: String) -> String {
         switch level {
-        case "off": return "생각 끔"
-        case "minimal": return "최소"
-        case "low": return "낮음"
-        case "medium": return "보통"
-        case "high": return "높음"
-        case "xhigh": return "매우 높음"
-        case "max": return "최대"
+        case "off": return String(localized: "생각 끔")
+        case "minimal": return String(localized: "최소")
+        case "low": return String(localized: "낮음")
+        case "medium": return String(localized: "보통")
+        case "high": return String(localized: "높음")
+        case "xhigh": return String(localized: "매우 높음")
+        case "max": return String(localized: "최대")
         default: return ""
         }
     }
@@ -73,19 +73,19 @@ enum BackgroundText {
         guard let b = w.bg else { return "" }
         var parts: [String] = []
         switch w.status {
-        case "working": parts.append(b.started > 0 ? "작업 중 · \(duration(now - b.started))" : "작업 중")
-        case "asking": parts.append("답을 기다려요")
+        case "working": parts.append(b.started > 0 ? String(localized: "작업 중 · \(duration(now - b.started))") : String(localized: "작업 중"))
+        case "asking": parts.append(String(localized: "답을 기다려요"))
         default:
-            if b.done > 0 { parts.append(now - b.done < 60 ? "끝남 · 방금" : "끝남 · \(duration(now - b.done)) 전") }
-            else if w.status == "yourturn" { parts.append("끝났어요") }
-            else { parts.append("쉬는 중") }
+            if b.done > 0 { parts.append(now - b.done < 60 ? String(localized: "끝남 · 방금") : String(localized: "끝남 · \(duration(now - b.done)) 전")) }
+            else if w.status == "yourturn" { parts.append(String(localized: "끝났어요")) }
+            else { parts.append(String(localized: "쉬는 중")) }
         }
-        let from = b.fromName.isEmpty ? (b.from.map { "창 \($0)" } ?? "") : b.fromName
+        let from = b.fromName.isEmpty ? (b.from.map { String(localized: "창 \($0)") } ?? "") : b.fromName
         switch b.by {
-        case "ai": parts.append(from.isEmpty ? "AI가 시킴" : "\(from)의 AI가 시킴")
-        case "phone": parts.append("폰에서 시킴")
-        case "shortcut": parts.append("단축어로 시킴")   // 단축어 동작 '맥의 AI 에게 일 시키기'(시킨 탭이 없음)
-        default: if !from.isEmpty { parts.append("\(from)에서 시킴") }
+        case "ai": parts.append(from.isEmpty ? String(localized: "AI가 시킴") : String(localized: "\(from)의 AI가 시킴"))
+        case "phone": parts.append(String(localized: "폰에서 시킴"))
+        case "shortcut": parts.append(String(localized: "단축어로 시킴"))   // 단축어 동작 '맥의 AI 에게 일 시키기'(시킨 탭이 없음)
+        default: if !from.isEmpty { parts.append(String(localized: "\(from)에서 시킴")) }
         }
         return parts.joined(separator: " · ")
     }
@@ -137,11 +137,11 @@ struct TabDrawerButton: View {
 
     /// "탭 목록, 다른 탭: 답을 기다림 1, 작업 중 1"(VoiceOver·시험용)
     private var summary: String {
-        let parts = [("asking", "답을 기다림"), ("yourturn", "끝남"), ("working", "작업 중")].compactMap { key, name -> String? in
+        let parts = [("asking", String(localized: "답을 기다림")), ("yourturn", String(localized: "끝남")), ("working", String(localized: "작업 중"))].compactMap { key, name -> String? in
             let n = others.filter { $0.status == key }.count
             return n > 0 ? "\(name) \(n)" : nil
         }
-        return parts.isEmpty ? "탭 목록" : "탭 목록, 다른 탭: " + parts.joined(separator: ", ")
+        return parts.isEmpty ? String(localized: "탭 목록") : String(localized: "탭 목록, 다른 탭: ") + parts.joined(separator: ", ")
     }
 }
 
@@ -214,8 +214,8 @@ struct TabDrawer: View {
                 .padding(.bottom, 10)
             Rectangle().fill(Theme.border).frame(height: 1)
             VStack(spacing: 2) {
-                menuRow("지난 대화", icon: "clock.arrow.circlepath", id: "drawerPast", action: onPastSessions)
-                menuRow("연결 설정", icon: "gearshape", id: "drawerSettings", action: onSettings)
+                menuRow(String(localized: "지난 대화"), icon: "clock.arrow.circlepath", id: "drawerPast", action: onPastSessions)
+                menuRow(String(localized: "연결 설정"), icon: "gearshape", id: "drawerSettings", action: onSettings)
             }
             .padding(8)
         }
@@ -272,7 +272,7 @@ struct TabDrawer: View {
     /// 뒤에서 도는 일이 있으면 그 아래 따로 누르는 '백그라운드 작업 N ›'(줄 단추 안에 단추를 겹치지 않게 둘로 나눔)
     private func row(_ w: TmuxWindow, now: Int = 0) -> some View {
         let isBg = w.bg != nil
-        let title = isBg ? BackgroundText.title(w) : (w.name.isEmpty ? "창 \(w.index)" : w.name)
+        let title = isBg ? BackgroundText.title(w) : (w.name.isEmpty ? String(localized: "창 \(w.index)") : w.name)
         let sub = isBg ? BackgroundText.line(w, now: now) : TabStatus.label(w.status)
         let model = isBg ? BackgroundText.model(w) : ""
         let jobs = BackgroundText.jobs(w.jobs)

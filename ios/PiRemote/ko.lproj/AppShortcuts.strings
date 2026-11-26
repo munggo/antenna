@@ -1,0 +1,3 @@
+/* Siri·단축어 문구(Shortcuts.swift 의 phrases 와 같은 글이어야 함) */
+"${applicationName}에 일 시키기" = "${applicationName}에 일 시키기";
+"${applicationName}로 일 시키기" = "${applicationName}로 일 시키기";

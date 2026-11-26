@@ -23,7 +23,7 @@ if [ "${1:-}" != "--remove" ]; then
   # 계정을 바꿔 다시 켤 때 연결부가 셸에 치는 실행 파일(정한 계정으로 claude 를 켬)
   chmod +x "$DEST/claude-as.sh"
   # 관리자 권한(sudo) 탭 화면과 판정 함수는 pi 확장과 같은 것을 씀
-  cp "$HERE/../pi-extension/sudo-tab.sh" "$HERE/../pi-extension/lib/sudo-rules.mjs" "$DEST/"
+  cp "$HERE/../pi-extension/sudo-tab.sh" "$HERE/../pi-extension/lib/sudo-rules.mjs" "$HERE/../pi-extension/lib/lang.mjs" "$DEST/"
   # 셸 함수 claude() 가 켤 때 부르는 계정 고르기(노드 경로를 박아 둠: 셸의 node 는 nvm 을 늦게 불러와 0.8초 걸림)
   printf '#!/bin/sh\nexec "%s" "%s/claude-account.mjs" "$@"\n' "$NODE" "$DEST" > "$DEST/claude-account"
   chmod +x "$DEST/claude-account"

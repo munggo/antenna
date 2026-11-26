@@ -19,6 +19,11 @@ const TMUX = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"].find((p) => exist
 
 const FEED = join(dirname(fileURLToPath(import.meta.url)), "claude-feed.mjs");
 const SUDO_RUN = join(dirname(fileURLToPath(import.meta.url)), "sudo-run.mjs");
+// 폰·Claude Code 에 보일 글의 언어(PI_REMOTE_LANG). 훅은 도구마다 불리므로 글이 필요한 갈래에서만 불러온다
+const langMod = async () => {
+  const f = ["lang.mjs", "../pi-extension/lib/lang.mjs"].map((p) => join(dirname(fileURLToPath(import.meta.url)), p)).find((p) => existsSync(p));
+  return f ? import(f) : { tr: (ko) => ko };
+};
 const feedFile = (ext) => `${process.env.HOME}/.cache/pi-remote/feed/${pane.replace(/\W/g, "")}.${ext}`;
 // 연결부에 넘기지 못하고 끝난 훅의 기록(원인 찾기용). 11-14: 한 탭에서 끝 훅이 21번 중 17번 연결부에 닿지 않았는데 까닭을 몰랐다
 const miss = (event, why) => {
@@ -113,12 +118,13 @@ process.stdin.on("end", async () => {
     const bg = ev.hook_event_name === "UserPromptSubmit" ? String(ev.prompt ?? "").match(/^\/bgtab(?:\s+([\s\S]*))?$/) : null;
     if (bg) {
       let reason;
+      const { tr } = await langMod();
       try {
         const { launchBackground } = await import("./bg-launch.mjs");
         const r = launchBackground({ agent: "claude", cwd: ev.cwd || process.cwd(), task: bg[1] ?? "", originPane: pane, by: "user" });
-        reason = `백그라운드 탭 ${r.window}(${r.name})에서 시작했어요. 끝나면 결과를 여기로 알려 드려요`;
+        reason = tr(`백그라운드 탭 ${r.window}(${r.name})에서 시작했어요. 끝나면 결과를 여기로 알려 드려요`, `Started in background tab ${r.window} (${r.name}). The result comes back here when it's done`);
       } catch (e) {
-        reason = `백그라운드 탭을 열지 못했어요: ${e?.message ?? e}`;
+        reason = tr(`백그라운드 탭을 열지 못했어요: ${e?.message ?? e}`, `Couldn't open a background tab: ${e?.message ?? e}`);
       }
       process.stdout.write(JSON.stringify({ decision: "block", reason }));
       return process.exit(0);
@@ -130,12 +136,13 @@ process.stdin.on("end", async () => {
         const { sudoNeedsPassword } = await import("./sudo-check.mjs");
         const cmd = String(ev.tool_input.command);
         if (sudoNeedsPassword(cmd)) {
+          const { tr } = await langMod();
           const job = Buffer.from(JSON.stringify({ cmd, explain: String(ev.tool_input.description ?? "") })).toString("base64");
           process.stdout.write(JSON.stringify({
             hookSpecificOutput: {
               hookEventName: "PreToolUse",
               permissionDecision: "allow",
-              permissionDecisionReason: "관리자 권한 명령: 새 탭(🔐sudo)에서 사용자가 확인하고 실행해요",
+              permissionDecisionReason: tr("관리자 권한 명령: 새 탭(🔐sudo)에서 사용자가 확인하고 실행해요", "Admin command: you confirm and run it in a new tab (🔐sudo)"),
               updatedInput: { ...ev.tool_input, command: `"${process.execPath}" "${SUDO_RUN}" ${job}`, timeout: 600_000 },
             },
           }));

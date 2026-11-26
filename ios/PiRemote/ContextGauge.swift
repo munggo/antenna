@@ -110,11 +110,11 @@ struct ContextSheet: View {
                     .accessibilityIdentifier("contextRing")
 
                     VStack(spacing: 10) {
-                        row("사용 중", c.tokens.map { "\(ContextInfo.tokens($0)) / \(ContextInfo.tokens(c.window)) 토큰" }
-                            ?? "압축 직후라 다음 답변 뒤에 다시 계산돼요")
-                        row("자동 압축", c.auto
-                            ? "\(Int(c.autoAt.rounded()))%(\(ContextInfo.tokens(max(0, c.window - c.reserve))))에서 시작"
-                            : "꺼져 있음")
+                        row(String(localized: "사용 중"), c.tokens.map { String(localized: "\(ContextInfo.tokens($0)) / \(ContextInfo.tokens(c.window)) 토큰") }
+                            ?? String(localized: "압축 직후라 다음 답변 뒤에 다시 계산돼요"))
+                        row(String(localized: "자동 압축"), c.auto
+                            ? String(localized: "\(Int(c.autoAt.rounded()))%(\(ContextInfo.tokens(max(0, c.window - c.reserve))))에서 시작")
+                            : String(localized: "꺼져 있음"))
                     }
 
                     Text("대화가 길어져 자동 압축 지점에 닿으면 \(meta.agentName == "Claude" ? "Claude Code" : "pi")가 앞부분을 요약해 공간을 비워요. 요약된 앞부분의 자세한 내용은 잊을 수 있어요.")

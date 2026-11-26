@@ -62,12 +62,12 @@ struct ChatView: View {
                             WaitingBubble(text: p.text, caption: WaitingBubble.caption(p.mode))
                         }
                         if session.status != .connected {
-                            StatusRow(label: "연결 중", since: nil, animated: false)
+                            StatusRow(label: String(localized: "연결 중"), since: nil, animated: false)
                         } else if store.compacting {
-                            StatusRow(label: "대화를 압축하는 중", since: store.compactingSince)
+                            StatusRow(label: String(localized: "대화를 압축하는 중"), since: store.compactingSince)
                         } else if store.working {
-                            StatusRow(label: !meta.approvals.isEmpty ? "승인을 기다리는 중"
-                                      : !meta.questions.isEmpty ? "답을 기다리는 중" : workingLabel, since: store.workingSince,
+                            StatusRow(label: !meta.approvals.isEmpty ? String(localized: "승인을 기다리는 중")
+                                      : !meta.questions.isEmpty ? String(localized: "답을 기다리는 중") : workingLabel, since: store.workingSince,
                                       onTap: liveThinking.map { t in { stepsPresenter.open(groupId: nil, steps: [t]) } })
                         }
                     }
@@ -257,13 +257,13 @@ struct ChatView: View {
 
     /// 하단 작업 상태 문구: 답변을 쓰는 중 / 생각 중 / 도구 실행 중
     private var workingLabel: String {
-        guard let last = store.messages.last else { return "작업 중" }
+        guard let last = store.messages.last else { return String(localized: "작업 중") }
         if last.role == "assistant", last.stop == "pending" {
             let blocks = last.blocks ?? []
-            if blocks.last?.type == "thinking" { return "생각 중" }
-            if blocks.last?.type == "text" { return "답변 중" }
+            if blocks.last?.type == "thinking" { return String(localized: "생각 중") }
+            if blocks.last?.type == "text" { return String(localized: "답변 중") }
         }
-        return "작업 중"
+        return String(localized: "작업 중")
     }
 }
 
@@ -406,7 +406,7 @@ enum ChatItemBuilder {
                             pendingThinking = []
                             groupId = group.first?.id ?? callId
                         }
-                        group.append(ToolCallInfo(id: callId, name: b.name ?? "도구",
+                        group.append(ToolCallInfo(id: callId, name: b.name ?? String(localized: "도구"),
                                                   summary: b.summary ?? "", desc: b.desc ?? "",
                                                   output: result?.output, state: state,
                                                   stats: b.stats, image: b.image ?? false,
@@ -426,9 +426,9 @@ enum ChatItemBuilder {
                     }
                 }
                 if m.stop == "error", let err = m.error, !err.isEmpty {
-                    flush(); items.append(.notice(id: "\(m.id)-err", text: "오류: \(err)", isError: true))
+                    flush(); items.append(.notice(id: "\(m.id)-err", text: String(localized: "오류: \(err)"), isError: true))
                 } else if m.stop == "aborted" {
-                    flush(); items.append(.notice(id: "\(m.id)-abort", text: "중단됨", isError: false))
+                    flush(); items.append(.notice(id: "\(m.id)-abort", text: String(localized: "중단됨"), isError: false))
                 }
             case "bash":
                 flush()
@@ -487,7 +487,7 @@ struct ChatItemView: View, Equatable {
                 .foregroundColor(isError ? Theme.red : Theme.muted)
                 .textSelection(.enabled)
         case .copy(_, let text):
-            CopyButton(text: text, label: "답변 복사")
+            CopyButton(text: text, label: String(localized: "답변 복사"))
         }
     }
 }
@@ -566,8 +566,8 @@ struct CopyButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(copied ? "복사됨" : label)
-        .accessibilityIdentifier(label == "코드 복사" ? "copyCode" : "copyAnswer")
+        .accessibilityLabel(copied ? String(localized: "복사됨") : label)
+        .accessibilityIdentifier(label == String(localized: "코드 복사") ? "copyCode" : "copyAnswer")
     }
 }
 
@@ -581,10 +581,10 @@ struct WaitingBubble: View {
     static func caption(_ mode: String?) -> String? {
         switch mode {
         case nil: return nil
-        case "auto": return "곧 전달돼요"
-        case "followUp": return "작업이 끝나면 실행돼요"
-        case "interrupt": return "지금 작업을 멈추고 실행해요"
-        default: return "다음 단계에서 전달돼요"
+        case "auto": return String(localized: "곧 전달돼요")
+        case "followUp": return String(localized: "작업이 끝나면 실행돼요")
+        case "interrupt": return String(localized: "지금 작업을 멈추고 실행해요")
+        default: return String(localized: "다음 단계에서 전달돼요")
         }
     }
 
@@ -843,10 +843,10 @@ struct StatusRow: View {
     /// 59초까지 "N초", 60초부터 "1분" / "1분 5초", 1시간부터 "1시간 2분"
     static func elapsed(_ t: TimeInterval) -> String {
         let s = max(0, Int(t))
-        if s < 60 { return "\(s)초" }
-        if s < 3600 { return s % 60 == 0 ? "\(s / 60)분" : "\(s / 60)분 \(s % 60)초" }
+        if s < 60 { return String(localized: "\(s)초") }
+        if s < 3600 { return s % 60 == 0 ? String(localized: "\(s / 60)분") : String(localized: "\(s / 60)분 \(s % 60)초") }
         let m = (s % 3600) / 60
-        return m == 0 ? "\(s / 3600)시간" : "\(s / 3600)시간 \(m)분"
+        return m == 0 ? String(localized: "\(s / 3600)시간") : String(localized: "\(s / 3600)시간 \(m)분")
     }
 }
 

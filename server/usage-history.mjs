@@ -2,6 +2,7 @@
 // 터미널 하단 줄·/usage 는 요약·기록 파일을 읽고, 앱은 usage 응답에 실린 기록을 그린다.
 // 기록 폴더: PI_REMOTE_USAGE_DIR(시험용) 또는 ~/.cache/pi-remote
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { tr } from "../pi-extension/lib/lang.mjs";   // 폰에 보내는 글의 언어(PI_REMOTE_LANG)
 
 const DIR = process.env.PI_REMOTE_USAGE_DIR || `${process.env.HOME}/.cache/pi-remote`;
 const USAGE_HISTORY = `${DIR}/usage-history.jsonl`;
@@ -103,7 +104,7 @@ export function sharedLimits(provider, personal, now = Date.now(), file = ACCOUN
   const out = [];
   const ageOf = (c) => {
     const ageMin = Math.round((now - (c.at ?? now)) / 60_000);
-    return ageMin >= 10 && !c.hit ? ` (${ageMin >= 120 ? `${Math.round(ageMin / 60)}시간` : `${ageMin}분`} 전 기준)` : "";
+    return ageMin >= 10 && !c.hit ? tr(` (${ageMin >= 120 ? `${Math.round(ageMin / 60)}시간` : `${ageMin}분`} 전 기준)`, ` (as of ${ageMin >= 120 ? `${Math.round(ageMin / 60)}h` : `${ageMin}m`} ago)`) : "";
   };
   const commonOf = (c, base) => ({ percent: Math.round(c.util * 1000) / 10, resetsAt: c.reset ? new Date(c.reset * 1000).toISOString() : null, session: base === "5h", severity: "normal" });
   let fable = null;   // Fable 한도는 구분이 여럿이라 가장 최근에 적힌 값 하나만
@@ -119,18 +120,18 @@ export function sharedLimits(provider, personal, now = Date.now(), file = ACCOUN
     const age = ageOf(c), common = commonOf(c, base);
     if (personal) {
       if (model) continue;
-      out.push({ key: base === "5h" ? "session" : "week", label: `${base === "5h" ? "현재 세션 (5시간)" : "주간 한도 · 모든 모델"}${age}`, ...common });
+      out.push({ key: base === "5h" ? "session" : "week", label: tr(`${base === "5h" ? "현재 세션 (5시간)" : "주간 한도 · 모든 모델"}${age}`, `${base === "5h" ? "Current session (5 hours)" : "Weekly limit · all models"}${age}`), ...common });
     } else {
-      const name = base === "7d" ? (modelName ? `주간 한도 · ${modelName}` : "주간 한도") : "현재 세션 (5시간)";
-      out.push({ key: `work:${k}`, label: `회사 계정 · ${name}${age}`, ...common });
+      const name = base === "7d" ? (modelName ? tr(`주간 한도 · ${modelName}`, `Weekly limit · ${modelName}`) : tr("주간 한도", "Weekly limit")) : tr("현재 세션 (5시간)", "Current session (5 hours)");
+      out.push({ key: `work:${k}`, label: tr(`회사 계정 · ${name}${age}`, `Work account · ${name}${age}`), ...common });
     }
   }
   // 개인 계정은 사용량 조회 결과와 같은 차례로: 세션, 주간, 모델별
   if (personal) out.sort((a, b) => (a.key === "session" ? 0 : 1) - (b.key === "session" ? 0 : 1));
   if (fable) {
     out.push(personal
-      ? { key: "week:Fable", label: `주간 한도 · Fable${ageOf(fable)}`, ...commonOf(fable, "7d") }
-      : { key: "work:7d:Fable", label: `회사 계정 · 주간 한도 · Fable${ageOf(fable)}`, ...commonOf(fable, "7d") });
+      ? { key: "week:Fable", label: tr(`주간 한도 · Fable${ageOf(fable)}`, `Weekly limit · Fable${ageOf(fable)}`), ...commonOf(fable, "7d") }
+      : { key: "work:7d:Fable", label: tr(`회사 계정 · 주간 한도 · Fable${ageOf(fable)}`, `Work account · Weekly limit · Fable${ageOf(fable)}`), ...commonOf(fable, "7d") });
   }
   return out;
 }
@@ -227,16 +228,16 @@ export function mixedDirection(now = Date.now(), file = ACCOUNTS_FILE) {
 /** 섞였을 때 폰 알림·점검 명령에 쓸 글 */
 export const MIXED_TEXT = {
   "work-on-personal": {
-    title: "회사 탭이 개인 계정으로 돌고 있어요",
-    body: "회사 탭에서 /login 을 하면 그 탭은 회사 토큰 대신 이 맥의 공유 로그인을 써요. 그 회사 탭을 같은 대화로 다시 켜 주세요(/exit 뒤 claude --continue)",
+    title: tr("회사 탭이 개인 계정으로 돌고 있어요", "A work tab is running on the personal account"),
+    body: tr("회사 탭에서 /login 을 하면 그 탭은 회사 토큰 대신 이 맥의 공유 로그인을 써요. 그 회사 탭을 같은 대화로 다시 켜 주세요(/exit 뒤 claude --continue)", "Running /login in a work tab makes it use this Mac's shared login instead of the work token. Restart that work tab with the same conversation (/exit, then claude --continue)"),
   },
   "personal-on-work": {
-    title: "개인 탭이 회사 계정으로 돌고 있어요",
-    body: "이 맥의 Claude Code 로그인이 회사 계정으로 바뀌었어요. 개인 탭에서 /login 으로 개인 계정에 다시 로그인해 주세요(회사 탭에서는 /login 하지 마세요)",
+    title: tr("개인 탭이 회사 계정으로 돌고 있어요", "A personal tab is running on the work account"),
+    body: tr("이 맥의 Claude Code 로그인이 회사 계정으로 바뀌었어요. 개인 탭에서 /login 으로 개인 계정에 다시 로그인해 주세요(회사 탭에서는 /login 하지 마세요)", "This Mac's Claude Code login switched to the work account. Log in to the personal account again with /login in a personal tab (don't run /login in work tabs)"),
   },
   unknown: {
-    title: "개인·회사 계정이 섞였어요",
-    body: "한쪽 탭이 다른 계정으로 돌고 있어요. 회사 탭에서 /login 을 했다면 그 탭을 같은 대화로 다시 켜고, 이 맥의 로그인이 회사 계정이면 개인 탭에서 /login 으로 개인 계정에 다시 로그인해 주세요",
+    title: tr("개인·회사 계정이 섞였어요", "Personal and work accounts got mixed up"),
+    body: tr("한쪽 탭이 다른 계정으로 돌고 있어요. 회사 탭에서 /login 을 했다면 그 탭을 같은 대화로 다시 켜고, 이 맥의 로그인이 회사 계정이면 개인 탭에서 /login 으로 개인 계정에 다시 로그인해 주세요", "Some tabs are running on the other account. If you ran /login in a work tab, restart it with the same conversation; if this Mac's login is the work account, log in to the personal account again with /login in a personal tab"),
   },
 };
 

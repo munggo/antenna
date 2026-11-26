@@ -16,6 +16,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// 폰에 보일 글의 언어(PI_REMOTE_LANG). 설치본은 같은 폴더, 저장소에서는 pi-extension/lib/
+const LANG_FILE = ["lang.mjs", "../pi-extension/lib/lang.mjs"].map((f) => join(dirname(fileURLToPath(import.meta.url)), f)).find((p) => existsSync(p));
+const { tr } = LANG_FILE ? await import(LANG_FILE) : { tr: (ko) => ko };
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 // 설치본(~/.claude/pi-remote)은 같은 폴더에, 저장소에서는 pi 확장 폴더에 있다
 const SUDO_TAB = [join(HERE, "sudo-tab.sh"), join(HERE, "../pi-extension/sudo-tab.sh")].find((p) => existsSync(p));
@@ -44,7 +48,7 @@ const cleanup = () => rmSync(dir, { recursive: true, force: true });
 writeFileSync(join(dir, "cmd"), String(job.cmd), { mode: 0o600 });
 writeFileSync(join(dir, "cwd"), process.cwd());
 // 탭에는 명령 대신 설명(코드는 v 를 눌러야 보임)
-writeFileSync(join(dir, "explain"), String(job.explain ?? "").trim() || "Claude Code가 관리자 권한으로 명령을 실행하려고 해요.");
+writeFileSync(join(dir, "explain"), String(job.explain ?? "").trim() || tr("Claude Code가 관리자 권한으로 명령을 실행하려고 해요.", "Claude Code wants to run a command with admin rights."));
 
 let session = "";
 let winId = "";
@@ -90,7 +94,7 @@ await new Promise((res) => {
     res();
   };
   c.on("error", done);
-  c.on("connect", () => c.end(`${JSON.stringify({ kind: "prompt", title: "관리자 비밀번호가 필요해요", body: `${winIndex}번 탭(🔐sudo)에서 Enter를 누르고 비밀번호를 입력해 주세요`, window: Number(winIndex) })}\n`, done));
+  c.on("connect", () => c.end(`${JSON.stringify({ kind: "prompt", title: tr("관리자 비밀번호가 필요해요", "Admin password needed"), body: tr(`${winIndex}번 탭(🔐sudo)에서 Enter를 누르고 비밀번호를 입력해 주세요`, `Press Enter in tab ${winIndex} (🔐sudo) and type the password`), window: Number(winIndex) })}\n`, done));
 });
 
 const end = Date.now() + WAIT_MS;

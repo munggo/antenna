@@ -35,7 +35,7 @@ struct ImageViewer: View {
                 SaveButton(media: true, host: "image", file: { use in
                     guard paths.indices.contains(index) else { return }
                     thumbs.bestFile(paths[index]) { u in
-                        if let u { use(u) } else { SaveCenter.shared.say("사진을 아직 받지 못했어요. 잠시 뒤 다시 해 주세요") }
+                        if let u { use(u) } else { SaveCenter.shared.say(String(localized: "사진을 아직 받지 못했어요. 잠시 뒤 다시 해 주세요")) }
                     }
                 }) {
                     Image(systemName: "square.and.arrow.down")

@@ -100,7 +100,7 @@ enum TaskSender {
         if reply["type"] as? String == "task-started" {
             return Started(window: reply["window"] as? Int ?? -1, name: reply["name"] as? String ?? "bg")
         }
-        throw Failure.rejected(reply["message"] as? String ?? "맥이 일을 시작하지 못했어요")
+        throw Failure.rejected(reply["message"] as? String ?? String(localized: "맥이 일을 시작하지 못했어요"))
     }
 }
 
@@ -144,7 +144,7 @@ final class BridgeAsk {
     func ask(_ body: [String: Any], settings: ConnectionSettings, hosts: [String], answers: Set<String>,
              timeout: TimeInterval = 12) async throws -> [String: Any] {
         guard let data = try? JSONSerialization.data(withJSONObject: body), let text = String(data: data, encoding: .utf8) else {
-            throw TaskSender.Failure.rejected("보낼 글을 만들지 못했어요")
+            throw TaskSender.Failure.rejected(String(localized: "보낼 글을 만들지 못했어요"))
         }
         return try await withCheckedThrowingContinuation { continuation in
             let cfg = URLSessionConfiguration.ephemeral

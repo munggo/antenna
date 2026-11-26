@@ -11,6 +11,7 @@
  */
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { tr } from "../pi-extension/lib/lang.mjs";   // 폰에 보내는 글의 언어(PI_REMOTE_LANG)
 
 const OWNER = "UserNotificationCenter";
 const JXA = `ObjC.import("CoreGraphics");
@@ -24,39 +25,39 @@ const OSA_PREFLIGHT = new Set(["kTCCServiceScreenCapture", "kTCCServicePostEvent
 const noise = (x) => NOISE.has(x.service) || (OSA_PREFLIGHT.has(x.service) && /\/osascript$/.test(x.binary ?? ""));
 
 const LABELS = {
-  kTCCServiceSystemPolicyDesktopFolder: "데스크탑 폴더 접근",
-  kTCCServiceSystemPolicyDocumentsFolder: "문서 폴더 접근",
-  kTCCServiceSystemPolicyDownloadsFolder: "다운로드 폴더 접근",
-  kTCCServiceSystemPolicyNetworkVolumes: "네트워크 드라이브 접근",
-  kTCCServiceSystemPolicyRemovableVolumes: "외장 저장 장치 접근",
-  kTCCServiceSystemPolicyAppData: "다른 앱의 데이터 접근",
-  kTCCServiceSystemPolicyAppDataDetailed: "다른 앱의 데이터 접근",
-  kTCCServiceSystemPolicyAppBundles: "앱 수정·삭제",
-  kTCCServiceFileProviderDomain: "iCloud Drive 같은 파일 저장소 접근",
-  kTCCServicePhotos: "사진 접근",
-  kTCCServicePhotosAdd: "사진 추가",
-  kTCCServiceAddressBook: "연락처 접근",
-  kTCCServiceCalendar: "캘린더 접근",
-  kTCCServiceReminders: "미리 알림 접근",
-  kTCCServiceMediaLibrary: "미디어 보관함 접근",
-  kTCCServiceCamera: "카메라 사용",
-  kTCCServiceMicrophone: "마이크 사용",
-  kTCCServiceScreenCapture: "화면 기록",
-  kTCCServiceAccessibility: "손쉬운 사용(키보드·마우스 제어)",
-  kTCCServicePostEvent: "키보드·마우스 제어",
+  kTCCServiceSystemPolicyDesktopFolder: tr("데스크탑 폴더 접근", "access to the Desktop folder"),
+  kTCCServiceSystemPolicyDocumentsFolder: tr("문서 폴더 접근", "access to the Documents folder"),
+  kTCCServiceSystemPolicyDownloadsFolder: tr("다운로드 폴더 접근", "access to the Downloads folder"),
+  kTCCServiceSystemPolicyNetworkVolumes: tr("네트워크 드라이브 접근", "access to network volumes"),
+  kTCCServiceSystemPolicyRemovableVolumes: tr("외장 저장 장치 접근", "access to removable volumes"),
+  kTCCServiceSystemPolicyAppData: tr("다른 앱의 데이터 접근", "access to other apps' data"),
+  kTCCServiceSystemPolicyAppDataDetailed: tr("다른 앱의 데이터 접근", "access to other apps' data"),
+  kTCCServiceSystemPolicyAppBundles: tr("앱 수정·삭제", "permission to modify or delete apps"),
+  kTCCServiceFileProviderDomain: tr("iCloud Drive 같은 파일 저장소 접근", "access to file providers such as iCloud Drive"),
+  kTCCServicePhotos: tr("사진 접근", "access to Photos"),
+  kTCCServicePhotosAdd: tr("사진 추가", "permission to add to Photos"),
+  kTCCServiceAddressBook: tr("연락처 접근", "access to Contacts"),
+  kTCCServiceCalendar: tr("캘린더 접근", "access to Calendar"),
+  kTCCServiceReminders: tr("미리 알림 접근", "access to Reminders"),
+  kTCCServiceMediaLibrary: tr("미디어 보관함 접근", "access to the media library"),
+  kTCCServiceCamera: tr("카메라 사용", "camera access"),
+  kTCCServiceMicrophone: tr("마이크 사용", "microphone access"),
+  kTCCServiceScreenCapture: tr("화면 기록", "screen recording"),
+  kTCCServiceAccessibility: tr("손쉬운 사용(키보드·마우스 제어)", "Accessibility (keyboard and mouse control)"),
+  kTCCServicePostEvent: tr("키보드·마우스 제어", "keyboard and mouse control"),
 };
 const APPS = {
   "com.apple.finder": "Finder",
   "com.apple.systemevents": "System Events",
   "com.apple.Safari": "Safari",
-  "com.apple.Terminal": "터미널",
-  "com.apple.Photos": "사진",
-  "com.apple.Notes": "메모",
-  "com.apple.reminders": "미리 알림",
-  "com.apple.iCal": "캘린더",
-  "com.apple.mail": "메일",
-  "com.apple.MobileSMS": "메시지",
-  "com.apple.Music": "음악",
+  "com.apple.Terminal": tr("터미널", "Terminal"),
+  "com.apple.Photos": tr("사진", "Photos"),
+  "com.apple.Notes": tr("메모", "Notes"),
+  "com.apple.reminders": tr("미리 알림", "Reminders"),
+  "com.apple.iCal": tr("캘린더", "Calendar"),
+  "com.apple.mail": tr("메일", "Mail"),
+  "com.apple.MobileSMS": tr("메시지", "Messages"),
+  "com.apple.Music": tr("음악", "Music"),
   "com.google.Chrome": "Chrome",
   "com.googlecode.iterm2": "iTerm",
 };
@@ -64,7 +65,7 @@ const APPS = {
 /** 요청 → 사람이 읽는 권한 이름 */
 export function labelOf(req) {
   if (!req) return "";
-  if (req.service === "kTCCServiceAppleEvents") return `${APPS[req.target] ?? req.target ?? "다른 앱"} 제어`;
+  if (req.service === "kTCCServiceAppleEvents") return tr(`${APPS[req.target] ?? req.target ?? "다른 앱"} 제어`, `permission to control ${APPS[req.target] ?? req.target ?? "another app"}`);
   return LABELS[req.service] ?? req.service.replace(/^kTCCService/, "");
 }
 
@@ -117,11 +118,11 @@ export function parseRequests(text, skip = new Set()) {
 
 /** 알림 글: { title, body, window } */
 export function promptMessage(req, tab) {
-  const who = tab ? `'${tab.name}' 탭(${tab.index}번)이 ` : "";
-  const what = req ? `${labelOf(req)} 권한을 기다려요` : "권한 창이 답을 기다려요";
+  const who = tab ? tr(`'${tab.name}' 탭(${tab.index}번)이 `, `Tab '${tab.name}' (${tab.index}): `) : "";
+  const what = req ? tr(`${labelOf(req)} 권한을 기다려요`, `Waiting for ${labelOf(req)}`) : tr("권한 창이 답을 기다려요", "A permission prompt is waiting");
   return {
-    title: "맥에 권한 창이 떠 있어요",
-    body: `${who}${what}. 맥에서 '허용'이나 '허용 안 함'을 눌러야 작업이 이어져요`,
+    title: tr("맥에 권한 창이 떠 있어요", "A permission prompt is open on the Mac"),
+    body: tr(`${who}${what}. 맥에서 '허용'이나 '허용 안 함'을 눌러야 작업이 이어져요`, `${who}${what}. Click Allow or Don't Allow on the Mac to continue`),
     window: tab ? tab.index : undefined,
   };
 }

@@ -14,7 +14,7 @@ set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 AGENT="$HOME/.pi/agent"
 EXT="$AGENT/extensions"
-BASE="pi-remote-feed.ts send-guard.ts ask-user.ts todos.ts plan-mode.ts artifacts.ts bgtab.ts sudo-tab.sh lib/choice-box.ts lib/readonly.ts lib/sudo-rules.mjs"
+BASE="pi-remote-feed.ts send-guard.ts ask-user.ts todos.ts plan-mode.ts artifacts.ts bgtab.ts sudo-tab.sh lib/choice-box.ts lib/readonly.ts lib/sudo-rules.mjs lib/lang.mjs"
 OPTIONAL="compact-tools web subagent claude-accounts"
 
 WITH=""

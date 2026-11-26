@@ -29,5 +29,7 @@ cp "$HERE/../todos.ts" "$TMP/todos.ts"
 TODO_PATH="$TMP/todos.ts" node --experimental-strip-types --no-warnings "$HERE/todos-cases.mjs"
 cp "$HERE/../plan-mode.ts" "$TMP/plan-mode.ts"
 PLAN_PATH="$TMP/plan-mode.ts" node --experimental-strip-types --no-warnings "$HERE/plan-mode-cases.mjs"
+# 폰 글이 영어일 때(분류 이름·카드 항목·계획 확인 창)
+PI_REMOTE_LANG=en GUARD_PATH="$TMP/send-guard.ts" PLAN_PATH="$TMP/plan-mode.ts" node --experimental-strip-types --no-warnings "$HERE/lang-en-cases.mjs"
 cp "$HERE/../web.ts" "$TMP/web.ts"
 WEB_PATH="$TMP/web.ts" node --experimental-strip-types --no-warnings "$HERE/web-cases.mjs"

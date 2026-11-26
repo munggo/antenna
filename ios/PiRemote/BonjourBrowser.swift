@@ -5,7 +5,7 @@ import Network
 /// 사용자가 IP 를 몰라도 앱이 알아서 찾는다.
 final class BonjourBrowser: ObservableObject {
     @Published var hosts: [String] = []
-    @Published var debugStatus: String = "대기"
+    @Published var debugStatus: String = String(localized: "대기")
     /// 짝짓기 때 받은 맥 주소(VPN 주소 등). 따로 시도하므로 발견 목록에는 넣지 않는다
     var known: [String] = []
 
@@ -22,7 +22,7 @@ final class BonjourBrowser: ObservableObject {
         }
         b.browseResultsChangedHandler = { [weak self] results, _ in
             NSLog("[piremote] Bonjour results: \(results.count)")
-            DispatchQueue.main.async { self?.debugStatus = "검색중 · 결과 \(results.count)개" }
+            DispatchQueue.main.async { self?.debugStatus = String(localized: "검색중 · 결과 \(results.count)개") }
             for result in results {
                 self?.resolve(result.endpoint)
             }

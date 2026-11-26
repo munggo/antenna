@@ -10,6 +10,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSy
 import { createServer } from "node:net";
 import { dirname } from "node:path";
 import { isPushKey, sealFor } from "./push-seal.mjs";
+import { tr } from "../pi-extension/lib/lang.mjs";   // 폰에 보내는 글의 언어(PI_REMOTE_LANG)
 
 const KEY_PATH = process.env.PI_REMOTE_APNS_KEY || "";
 const KEY_ID = process.env.PI_REMOTE_APNS_KEY_ID || "";
@@ -237,7 +238,7 @@ export function livePayload(event, { window, tabName, state, now = Math.floor(Da
   if (event === "start") {
     aps["attributes-type"] = "PiWorkAttributes";
     aps.attributes = { window, tabName };
-    aps.alert = { title: tabName, body: `작업 중 · ${state.detail}` };   // 시작 때만 필요(소리 없음)
+    aps.alert = { title: tabName, body: tr(`작업 중 · ${state.detail}`, `Working · ${state.detail}`) };   // 시작 때만 필요(소리 없음)
   }
   if (event !== "end") aps["stale-date"] = now + LIVE_STALE_SEC;
   else aps["dismissal-date"] = now + LIVE_DISMISS_SEC;

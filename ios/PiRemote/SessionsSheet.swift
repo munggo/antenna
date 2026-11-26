@@ -23,7 +23,7 @@ struct PastSession: Decodable, Identifiable, Equatable {
         let parts = ImageTokens.split(first)
         let t = parts.text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !t.isEmpty { return t }
-        return parts.paths.isEmpty ? "(내용 없음)" : "사진"
+        return parts.paths.isEmpty ? String(localized: "(내용 없음)") : String(localized: "사진")
     }
 
     /// 홈이 아닌 폴더에서 연 대화면 끝 두 단계(예: works/company)
@@ -37,19 +37,19 @@ struct PastSession: Decodable, Identifiable, Equatable {
     static func when(_ ms: Double, now: Date = Date()) -> String {
         let d = Date(timeIntervalSince1970: ms / 1000)
         let s = now.timeIntervalSince(d)
-        if s < 60 { return "방금" }
-        if s < 3600 { return "\(Int(s / 60))분 전" }
+        if s < 60 { return String(localized: "방금") }
+        if s < 3600 { return String(localized: "\(Int(s / 60))분 전") }
         let cal = Calendar.current
-        if cal.isDateInToday(d) { return "\(Int(s / 3600))시간 전" }
+        if cal.isDateInToday(d) { return String(localized: "\(Int(s / 3600))시간 전") }
         let f = DateFormatter()
-        f.locale = Locale(identifier: "ko_KR")
+        f.locale = Locale(identifier: Bundle.main.preferredLocalizations.first == "ko" ? "ko_KR" : "en_US")   // 앱 언어에 맞춘 월·요일·오전오후
         if cal.isDateInYesterday(d) {
-            f.dateFormat = "'어제' a h:mm"
+            f.dateFormat = String(localized: "'어제' a h:mm")
             return f.string(from: d)
         }
         let days = cal.dateComponents([.day], from: cal.startOfDay(for: d), to: cal.startOfDay(for: now)).day ?? 0
-        if days < 7 { return "\(days)일 전" }
-        f.dateFormat = cal.isDate(d, equalTo: now, toGranularity: .year) ? "M월 d일" : "yyyy년 M월 d일"
+        if days < 7 { return String(localized: "\(days)일 전") }
+        f.dateFormat = cal.isDate(d, equalTo: now, toGranularity: .year) ? String(localized: "M월 d일") : String(localized: "yyyy년 M월 d일")
         return f.string(from: d)
     }
 }
@@ -149,7 +149,7 @@ struct SessionsSheet: View {
         let currentIndex = session.windows.first(where: \.active)?.index
         let isCurrent = s.open?.here == true && s.open?.index == currentIndex
         let elsewhere = s.open != nil && s.open?.here == false
-        let meta = [PastSession.when(s.modified), "메시지 \(s.count)개", s.folder].compactMap { $0 }.joined(separator: " · ")
+        let meta = [PastSession.when(s.modified), String(localized: "메시지 \(s.count)개"), s.folder].compactMap { $0 }.joined(separator: " · ")
         let recent = Date().timeIntervalSince1970 * 1000 - s.modified < Self.recentMinutes * 60 * 1000
         return Button {
             if isCurrent {
@@ -170,11 +170,11 @@ struct SessionsSheet: View {
                 HStack(spacing: 6) {
                     Text(meta)
                     if isCurrent {
-                        tag("지금 대화")
+                        tag(String(localized: "지금 대화"))
                     } else if let o = s.open, o.here {
-                        tag("열린 탭 · \(o.name)")
+                        tag(String(localized: "열린 탭 · \(o.name)"))
                     } else if elsewhere {
-                        tag("다른 곳에서 열림")
+                        tag(String(localized: "다른 곳에서 열림"))
                     }
                 }
                 .font(.system(size: Typo.caption))

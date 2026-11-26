@@ -16,17 +16,17 @@ struct ArtifactRef: Codable, Equatable, Identifiable, Hashable {
     var fileName: String { (path as NSString).lastPathComponent }
     var kindLabel: String {
         switch kind {
-        case "web": return "웹페이지"
-        case "markdown": return "문서"
+        case "web": return String(localized: "웹페이지")
+        case "markdown": return String(localized: "문서")
         case "pdf": return "PDF"
-        case "image": return "이미지"
-        case "document": return "문서"
-        case "spreadsheet": return "표"
-        case "slides": return "발표 자료"
-        case "text": return "글"
-        case "video": return "동영상"
-        case "audio": return "소리"
-        default: return "파일"
+        case "image": return String(localized: "이미지")
+        case "document": return String(localized: "문서")
+        case "spreadsheet": return String(localized: "표")
+        case "slides": return String(localized: "발표 자료")
+        case "text": return String(localized: "글")
+        case "video": return String(localized: "동영상")
+        case "audio": return String(localized: "소리")
+        default: return String(localized: "파일")
         }
     }
     /// 사진 앱에 저장할 수 있는 것(사진·동영상)
@@ -89,9 +89,9 @@ final class ArtifactCenter: ObservableObject {
     /// 파일이 준비되면 then(없으면 받아 온 뒤). 못 받으면 안내
     func withFile(_ ref: ArtifactRef, _ then: @escaping (URL) -> Void) {
         if case .ready(let url) = files[ref.path], FileManager.default.fileExists(atPath: url.path) { then(url); return }
-        SaveCenter.shared.say("맥에서 받아 오는 중…")
+        SaveCenter.shared.say(String(localized: "맥에서 받아 오는 중…"))
         waiters[ref.path, default: []].append { u in
-            if let u { then(u) } else { SaveCenter.shared.say("맥에서 받아 오지 못했어요") }
+            if let u { then(u) } else { SaveCenter.shared.say(String(localized: "맥에서 받아 오지 못했어요")) }
         }
         load(ref)
     }
@@ -99,7 +99,7 @@ final class ArtifactCenter: ObservableObject {
     func receive(path: String, name: String?, data: Data?, error: String?,
                  size: Int? = nil, offset: Int? = nil, done: Bool? = nil, mtime: Double? = nil) {
         guard case .loading = files[path] else { return }   // 실패·완료 뒤 늦게 온 조각
-        guard let data else { fail(path, error ?? "열지 못했어요"); return }
+        guard let data else { fail(path, error ?? String(localized: "열지 못했어요")); return }
         let fm = FileManager.default
         if offset == nil || offset == 0 {
             close(path)
@@ -109,15 +109,15 @@ final class ArtifactCenter: ObservableObject {
             try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
             let url = dir.appendingPathComponent(name ?? (path as NSString).lastPathComponent)
             guard fm.createFile(atPath: url.path, contents: nil), let h = try? FileHandle(forWritingTo: url) else {
-                fail(path, "폰에 저장하지 못했어요"); return
+                fail(path, String(localized: "폰에 저장하지 못했어요")); return
             }
             // 예전 피드(위치 없음)는 통째로 한 번
             partial[path] = Partial(url: url, handle: h, size: size ?? data.count, mtime: mtime, got: 0)
         }
         guard var p = partial[path], p.got == (offset ?? 0), p.mtime == mtime else {
-            fail(path, "받는 중에 맥 파일이 바뀌었어요. 다시 열어 주세요"); return
+            fail(path, String(localized: "받는 중에 맥 파일이 바뀌었어요. 다시 열어 주세요")); return
         }
-        do { try p.handle.write(contentsOf: data) } catch { fail(path, "폰에 저장할 자리가 모자라요"); return }
+        do { try p.handle.write(contentsOf: data) } catch { fail(path, String(localized: "폰에 저장할 자리가 모자라요")); return }
         p.got += data.count
         partial[path] = p
         if offset == nil || done == true || p.got >= p.size {
@@ -138,7 +138,7 @@ final class ArtifactCenter: ObservableObject {
         stall[path]?.cancel()
         let w = DispatchWorkItem { [weak self] in
             guard let self, case .loading = self.files[path] else { return }
-            self.fail(path, "맥에서 받다가 끊겼어요. 다시 열어 주세요")
+            self.fail(path, String(localized: "맥에서 받다가 끊겼어요. 다시 열어 주세요"))
         }
         stall[path] = w
         DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: w)

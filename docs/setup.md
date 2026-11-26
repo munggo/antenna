@@ -27,6 +27,7 @@ Everything lives in one file, `~/.config/pi-remote/env` (mode 600), read by the 
 | `PI_REMOTE_TLS_ONLY` | `1` | Accept encrypted connections only. Remove the line only if you still use an old build of the app that connects without encryption. |
 | `PI_REMOTE_NODE` | found by `install.sh` | The Node binary that runs the bridge. Background jobs do not have your shell's `PATH`, so the path is written down. |
 | `PI_REMOTE_HOSTS` | empty | IP addresses the phone uses outside your Wi-Fi, comma-separated, no spaces. Goes into the pairing QR. |
+| `PI_REMOTE_LANG` | your Mac's first language (`ko` if Korean, otherwise `en`) | Language of the Mac side's text on the phone: tool steps, cards, notices and notifications. `install.sh` writes it when it creates the file. After changing it, restart the bridge; Claude Code and pi tabs pick it up when they start next. The app's own screens follow the iPhone's language (Korean, or English for every other language). |
 
 After editing the file, restart the bridge. If the port or addresses changed, pair the phone again.
 

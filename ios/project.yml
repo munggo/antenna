@@ -47,10 +47,12 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # TestFlight 수출 규정 질문에 미리 답함: 운영체제가 주는 것 말고 따로 쓰는 암호화 없음
         ITSAppUsesNonExemptEncryption: false
-        # 앱 화면이 한국어 → 시스템 버튼(뒤로·복사·붙여넣기 등)도 한국어로
-        CFBundleDevelopmentRegion: ko
+        # 앱 화면은 한국어(원본)와 영어(Localizable.xcstrings). 폰 언어가 한국어면 한국어, 그 밖의 언어는 영어로
+        # (시스템 버튼 — 뒤로·복사·붙여넣기 등 — 도 같은 언어로)
+        CFBundleDevelopmentRegion: en
         CFBundleLocalizations:
           - ko
+          - en
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -108,6 +110,11 @@ targets:
       path: PiRemoteWidgets/Info.plist
       properties:
         CFBundleDisplayName: Antenna
+        # 앱과 같게: 한국어 폰은 한국어, 그 밖은 영어(PiRemoteWidgets/Localizable.xcstrings)
+        CFBundleDevelopmentRegion: en
+        CFBundleLocalizations:
+          - ko
+          - en
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:

@@ -105,6 +105,9 @@ if [ ! -f "$ENV_FILE" ]; then
       echo "PI_REMOTE_NODE=$NODE"
       echo "# 폰이 같은 Wi-Fi 밖에서 붙을 맥의 IP 주소(Tailscale·VPN 주소, 쉼표로 여러 개·빈칸 없이). 바꾸면 QR 을 다시 찍는다"
       if [ -n "$HOSTS" ]; then echo "PI_REMOTE_HOSTS=$HOSTS"; else echo "# PI_REMOTE_HOSTS=100.64.0.1"; fi
+      echo "# 폰에 보이는 맥 쪽 글(알림·카드·단계 설명)의 언어: ko 또는 en. 처음에 macOS 첫 언어로 정함."
+      echo "# 바꾸면 브리지를 다시 시작한다(Claude Code·pi 탭은 새로 켤 때부터). 앱 화면은 폰 언어를 따른다"
+      echo "PI_REMOTE_LANG=$("$NODE" "$HERE/pi-extension/lib/lang.mjs" --mac 2>/dev/null || echo ko)"
     } > "$ENV_FILE"
   )
   CHANGED=1

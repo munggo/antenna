@@ -10,6 +10,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { LANG, tr } from "./lib/lang.mjs";   // 폰에 보이는 글의 언어(PI_REMOTE_LANG)
 
 const GUIDE =
   "For work with three or more distinct steps, call todo_write first with the steps (short Korean phrases), keep exactly one " +
@@ -112,7 +113,7 @@ export default function (pi: ExtensionAPI) {
         Type.Object({
           content: Type.String({ description: "The step in Korean (short, imperative or noun phrase)" }),
           status: Type.Union(STATUSES.map((s) => Type.Literal(s))),
-          activeForm: Type.Optional(Type.String({ description: "Korean progressive form shown while in progress, e.g. '시험 돌리는 중'" })),
+          activeForm: Type.Optional(Type.String({ description: LANG === "en" ? "Present-continuous form shown while in progress, e.g. 'Running tests'" : "Korean progressive form shown while in progress, e.g. '시험 돌리는 중'" })),
         }),
         { maxItems: 30 },
       ),
@@ -137,7 +138,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("todos", {
-    description: "할 일 목록 펼치기·접기(목록이 없으면 마지막 목록 보기)",
+    description: tr("할 일 목록 펼치기·접기(목록이 없으면 마지막 목록 보기)", "Expand or collapse the to-do list (shows the last list if there is none)"),
     handler: async (_args: string, ctx: any) => {
       if (toggle(ctx)) return;
       const todos = latestTodos(ctx.sessionManager?.getBranch?.() ?? []);

@@ -69,7 +69,7 @@ struct TabAccount: Equatable {
     /// wait: 하던 일이 끝나기를 기다림 | switch: 인수인계 문서를 받고 다시 켜는 중 | ""
     let phase: String
 
-    static func name(_ a: String) -> String { a == "work" ? "회사" : a == "personal2" ? "추가 개인" : "개인" }
+    static func name(_ a: String) -> String { a == "work" ? String(localized: "회사") : a == "personal2" ? String(localized: "추가 개인") : String(localized: "개인") }
 }
 
 struct BackgroundInfo: Equatable {
@@ -220,7 +220,7 @@ final class TerminalSession: NSObject, ObservableObject {
             let path = "toolimg-\(id)"
             if let data {
                 self.thumbs.store(path, .large, data: data)
-            } else if (error ?? "").contains("찾지 못") {
+            } else if (error ?? "").contains("찾지 못") || (error ?? "").contains("not found") {   // 맥 글이 영어(PI_REMOTE_LANG=en)면 'not found'
                 self.thumbs.markMissing(path)
             } else {
                 self.thumbs.forget(path, .large)   // 연결 문제 → 다음에 다시 요청
@@ -765,7 +765,7 @@ final class TerminalSession: NSObject, ObservableObject {
             // 브리지가 새 토큰을 만들어 줌 → 저장(키체인). 브리지가 다시 시작하면 새 토큰으로 다시 붙음
             DispatchQueue.main.async {
                 self.settings?.token = t
-                SaveCenter.shared.say("연결 토큰을 새로 바꿨어요. 곧 다시 연결돼요")
+                SaveCenter.shared.say(String(localized: "연결 토큰을 새로 바꿨어요. 곧 다시 연결돼요"))
             }
             return true
         }
@@ -785,7 +785,7 @@ final class TerminalSession: NSObject, ObservableObject {
             let info = try? JSONDecoder().decode(UsageInfo.self, from: Data(s.utf8))
             DispatchQueue.main.async {
                 self.usage = info ?? UsageInfo(plan: nil, limits: nil, extra: nil, fetchedAt: nil,
-                                               error: "사용량 응답을 해석하지 못했어요", history: nil, daily: nil, accounts: nil)
+                                               error: String(localized: "사용량 응답을 해석하지 못했어요"), history: nil, daily: nil, accounts: nil)
                 self.usageLoading = false
             }
             return true
@@ -816,7 +816,7 @@ final class TerminalSession: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 if let data { self.thumbs.store(path, size, data: data) }
                 // 답 속 경로를 눌러 본 맥의 그림이 없거나 그림이 아니면 까닭을 보임(그 밖에는 전처럼 다음에 다시 요청)
-                else if ThumbStore.isMacFile(path) { self.thumbs.fail(path, size, why ?? "맥에서 그림을 받지 못했어요") }
+                else if ThumbStore.isMacFile(path) { self.thumbs.fail(path, size, why ?? String(localized: "맥에서 그림을 받지 못했어요")) }
                 else { self.thumbs.forget(path, size) }
             }
             return true
@@ -835,7 +835,7 @@ final class TerminalSession: NSObject, ObservableObject {
             let err = obj["error"] as? String
             let existing = obj["existing"] as? Bool ?? false
             DispatchQueue.main.async {
-                self.chat.showNotice(err ?? (existing ? "열려 있던 탭으로 옮겼어요" : "지난 대화를 새 탭에서 열었어요"))
+                self.chat.showNotice(err ?? (existing ? String(localized: "열려 있던 탭으로 옮겼어요") : String(localized: "지난 대화를 새 탭에서 열었어요")))
             }
             return true
         }

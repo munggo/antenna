@@ -115,11 +115,11 @@ final class ConnectionSettings: ObservableObject {
             case .success(let newToken):
                 self.save(link, token: newToken)
             case .failure(.expired):
-                self.pairNotice = "QR 이 만료됐어요. 맥에서 다시 띄워 주세요"
+                self.pairNotice = String(localized: "QR 이 만료됐어요. 맥에서 다시 띄워 주세요")
             case .failure(.invalid):
-                self.pairNotice = "이미 쓴 QR 이에요. 맥에서 다시 띄워 주세요"
+                self.pairNotice = String(localized: "이미 쓴 QR 이에요. 맥에서 다시 띄워 주세요")
             case .failure(.unreachable):
-                self.pairNotice = "맥에 닿지 못했어요. 같은 Wi-Fi 인지, VPN 이 켜져 있는지 확인해 주세요"
+                self.pairNotice = String(localized: "맥에 닿지 못했어요. 같은 Wi-Fi 인지, VPN 이 켜져 있는지 확인해 주세요")
             }
         }
     }

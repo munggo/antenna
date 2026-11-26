@@ -2,6 +2,7 @@
 // 재부팅 점검 알림이 "밖에서도 붙을 수 있는지"를 알려 주는 데 쓴다.
 // 작성: 서문교
 import { networkInterfaces } from "node:os";
+import { tr } from "../pi-extension/lib/lang.mjs";   // 폰에 보내는 글의 언어(PI_REMOTE_LANG)
 
 /** 이 맥에 올라와 있는 주소 */
 export const localAddresses = () => Object.values(networkInterfaces()).flat().map((i) => i?.address).filter(Boolean);
@@ -28,4 +29,4 @@ export function outsideReach({ hosts = [], addrs = localAddresses(), prefix = ""
 
 /** 재부팅 점검 알림에 붙일 글(앞에 구분점 포함). 볼 주소가 없으면 빈 글 */
 export const reachText = (reach) =>
-  reach === null ? "" : ` · ${reach ? "VPN 연결됨" : "VPN 연결 안 됨(밖에서는 접속이 안 될 수 있어요)"}`;
+  reach === null ? "" : tr(` · ${reach ? "VPN 연결됨" : "VPN 연결 안 됨(밖에서는 접속이 안 될 수 있어요)"}`, ` · ${reach ? "VPN connected" : "VPN not connected (connecting from outside may not work)"}`);

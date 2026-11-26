@@ -34,6 +34,9 @@ fi
 [ -n "$NODE" ] || { echo "node 22.6 이상을 찾지 못했어요" >&2; exit 2; }
 PATH="$(dirname "$NODE"):$PATH"
 export PATH
+# 시험 자료는 폰 글이 한국어인 것으로 쓰여 있다 → 맥 언어와 상관없이 한국어로(영어는 lang 시험이 따로 봄)
+PI_REMOTE_LANG="${PI_REMOTE_LANG:-ko}"
+export PI_REMOTE_LANG
 [ -d server/node_modules ] || { echo "브리지에 필요한 모듈이 없어요: (cd server && npm install)" >&2; exit 2; }
 
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/antenna-test.XXXXXX")
@@ -126,6 +129,7 @@ run switch "계정 전환 때 다시 켤 옵션·95%를 넘어 묻는 카드 문
 run vpn-guard "VPN 지킴이(선택 기능): 설정 읽기·터널 지키기" "$NODE" test/vpn-guard.test.mjs
 run qr "짝짓기 QR: 그리기·짝짓기 명령·다시 읽기" "$NODE" test/qr.test.mjs
 run bridge-stale "새 판을 받은 뒤 브리지를 다시 시작해야 하는지(브리지가 뜬 뒤 코드가 바뀌었는지)" "$NODE" test/bridge-stale.test.mjs
+run lang "폰에 보내는 맥 쪽 글의 언어(PI_REMOTE_LANG): 고르기, 영어면 한글이 없고 한국어면 예전 그대로" "$NODE" test/lang.test.mjs
 if command -v python3 >/dev/null 2>&1; then
   run reload-screen "업데이트 뒤 자동 다시 켜기: 끄면 안 되는 것(셸·초안·하위 에이전트 목록)이 화면에 보이는지" python3 test/claude-reload.test.py
 else

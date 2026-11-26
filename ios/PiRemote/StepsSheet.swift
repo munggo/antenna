@@ -281,7 +281,7 @@ struct StepDetailView: View {
                     .font(.system(size: Typo.caption))
                     .foregroundColor(Theme.muted)
             }
-            MarkdownView(text: t.isEmpty ? "(아직 내용이 없어요)" : t)
+            MarkdownView(text: t.isEmpty ? String(localized: "(아직 내용이 없어요)") : t)
                 .accessibilityIdentifier("thinkingText")
         } else if detail?.error == nil {
             loading
@@ -295,7 +295,7 @@ struct StepDetailView: View {
     // 명령
     @ViewBuilder
     private var bashContent: some View {
-        section("명령", text: detail?.command ?? step.summary)
+        section(String(localized: "명령"), text: detail?.command ?? step.summary)
         outputSection
     }
 
@@ -318,7 +318,7 @@ struct StepDetailView: View {
             loading
         }
         if detail?.isError == true, let out = detail?.output, !out.isEmpty {
-            section("오류", text: out, tint: Theme.red)
+            section(String(localized: "오류"), text: out, tint: Theme.red)
         }
     }
 
@@ -327,12 +327,12 @@ struct StepDetailView: View {
     private var writeContent: some View {
         pathRow
         if let c = detail?.content {
-            section("내용", text: c)
+            section(String(localized: "내용"), text: c)
         } else if detail == nil {
             loading
         }
         if detail?.isError == true, let out = detail?.output, !out.isEmpty {
-            section("오류", text: out, tint: Theme.red)
+            section(String(localized: "오류"), text: out, tint: Theme.red)
         }
     }
 
@@ -350,9 +350,9 @@ struct StepDetailView: View {
     // 고르는 질문: 질문·선택지 전체와 고른 답(일반 글꼴)
     @ViewBuilder
     private var askContent: some View {
-        section("질문", text: detail?.args ?? step.desc, mono: false)
+        section(String(localized: "질문"), text: detail?.args ?? step.desc, mono: false)
         if let a = step.answer {
-            section("답", text: a, mono: false, id: "stepOutput")
+            section(String(localized: "답"), text: a, mono: false, id: "stepOutput")
         } else {
             outputSection
         }
@@ -360,7 +360,7 @@ struct StepDetailView: View {
 
     @ViewBuilder
     private var otherContent: some View {
-        section("입력", text: detail?.args ?? step.summary)
+        section(String(localized: "입력"), text: detail?.args ?? step.summary)
         outputSection
     }
 
@@ -369,7 +369,7 @@ struct StepDetailView: View {
         let out = detail?.output ?? step.output ?? ""
         let isErr = detail?.isError ?? (step.state == "error")
         if !out.isEmpty {
-            section(isErr ? "오류" : "결과", text: out, tint: isErr ? Theme.red : nil, id: "stepOutput")
+            section(isErr ? String(localized: "오류") : String(localized: "결과"), text: out, tint: isErr ? Theme.red : nil, id: "stepOutput")
         } else if live {
             Label("실행 중", systemImage: "hourglass")
                 .font(.system(size: Typo.caption + 1))
@@ -412,7 +412,7 @@ struct StepDetailView: View {
                     .font(.system(size: Typo.caption, weight: .medium))
                     .foregroundColor(Theme.muted)
                 Spacer()
-                CopyButton(text: text, label: "\(title) 복사")
+                CopyButton(text: text, label: String(localized: "\(title) 복사"))
             }
             Text(text.isEmpty ? " " : text)
                 .font(mono ? .system(size: Typo.codeSmall + 0.5, design: .monospaced) : .system(size: Typo.row - 1))
@@ -564,19 +564,19 @@ enum StepText {
 
     /// 끝난 단계의 동사
     static func verb(_ s: ToolCallInfo) -> String {
-        if s.thinking { return "생각함" }
+        if s.thinking { return String(localized: "생각함") }
         switch s.name {
-        case "bash": return "실행됨"
-        case "read": return "읽음"
-        case "edit": return "수정됨"
-        case "write": return "작성됨"
-        case "grep": return "검색함"
-        case "find": return "찾음"
-        case "ls": return "확인함"
-        case "subagent": return "맡김"
-        case "ask_user": return "물어봄"
-        case "show_artifact": return "아티팩트"
-        case "todo_write": return "할 일 정리"
+        case "bash": return String(localized: "실행됨")
+        case "read": return String(localized: "읽음")
+        case "edit": return String(localized: "수정됨")
+        case "write": return String(localized: "작성됨")
+        case "grep": return String(localized: "검색함")
+        case "find": return String(localized: "찾음")
+        case "ls": return String(localized: "확인함")
+        case "subagent": return String(localized: "맡김")
+        case "ask_user": return String(localized: "물어봄")
+        case "show_artifact": return String(localized: "아티팩트")
+        case "todo_write": return String(localized: "할 일 정리")
         default: return s.name
         }
     }
@@ -584,15 +584,15 @@ enum StepText {
     /// 진행 중인 단계의 동사
     static func runningVerb(_ s: ToolCallInfo) -> String {
         switch s.name {
-        case "read": return "읽는 중"
-        case "edit": return "수정 중"
-        case "write": return "작성 중"
-        case "grep", "find": return "검색 중"
-        case "subagent": return "맡긴 일 진행 중"
-        case "ask_user": return "답을 기다리는 중"
-        case "show_artifact": return "아티팩트 준비 중"
-        case "todo_write": return "할 일 정리 중"
-        default: return "실행 중"
+        case "read": return String(localized: "읽는 중")
+        case "edit": return String(localized: "수정 중")
+        case "write": return String(localized: "작성 중")
+        case "grep", "find": return String(localized: "검색 중")
+        case "subagent": return String(localized: "맡긴 일 진행 중")
+        case "ask_user": return String(localized: "답을 기다리는 중")
+        case "show_artifact": return String(localized: "아티팩트 준비 중")
+        case "todo_write": return String(localized: "할 일 정리 중")
+        default: return String(localized: "실행 중")
         }
     }
 
@@ -608,7 +608,7 @@ enum StepText {
 
     /// 상세 화면 제목
     static func title(_ s: ToolCallInfo) -> String {
-        if s.thinking { return "생각" }
+        if s.thinking { return String(localized: "생각") }
         let sub = isFile(s) ? subject(s) : ""
         return sub.isEmpty ? verb(s) : "\(verb(s)) \(sub)"
     }
@@ -616,7 +616,7 @@ enum StepText {
     /// 단계 목록 창 제목
     static func groupTitle(_ steps: [ToolCallInfo]) -> String {
         let tools = steps.filter { !$0.thinking }
-        if tools.isEmpty { return "생각" }
+        if tools.isEmpty { return String(localized: "생각") }
         if tools.count == 1 { return title(tools[0]) }
         return groupLabel(tools)
     }
@@ -642,15 +642,15 @@ enum StepText {
             let n = counts[k] ?? 0
             let f = files[k]?.count ?? n
             switch k {
-            case "bash": return "명령어 \(n)개 실행함"
-            case "read": return "파일 \(f)개 읽음"
-            case "edit": return "파일 \(f)개 수정함"
-            case "write": return "파일 \(f)개 작성함"
-            case "search": return "\(n)번 검색함"
-            case "ls": return "폴더 \(f)개 확인함"
-            case "subagent": return "하위 작업 \(n)개 맡김"
-            case "ask": return "\(n)번 물어봄"
-            default: return "도구 \(n)개 사용함"
+            case "bash": return String(localized: "명령어 \(n)개 실행함")
+            case "read": return String(localized: "파일 \(f)개 읽음")
+            case "edit": return String(localized: "파일 \(f)개 수정함")
+            case "write": return String(localized: "파일 \(f)개 작성함")
+            case "search": return String(localized: "\(n)번 검색함")
+            case "ls": return String(localized: "폴더 \(f)개 확인함")
+            case "subagent": return String(localized: "하위 작업 \(n)개 맡김")
+            case "ask": return String(localized: "\(n)번 물어봄")
+            default: return String(localized: "도구 \(n)개 사용함")
             }
         }.joined(separator: ", ")
     }

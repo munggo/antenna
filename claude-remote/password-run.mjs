@@ -16,6 +16,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// 폰에 보일 글의 언어(PI_REMOTE_LANG). 설치본은 같은 폴더, 저장소에서는 pi-extension/lib/
+const LANG_FILE = ["lang.mjs", "../pi-extension/lib/lang.mjs"].map((f) => join(dirname(fileURLToPath(import.meta.url)), f)).find((p) => existsSync(p));
+const { tr } = LANG_FILE ? await import(LANG_FILE) : { tr: (ko) => ko };
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TAB = join(HERE, "password-tab.sh");
 const CLIP = join(HERE, "secret-clip.js");
@@ -84,7 +88,7 @@ await new Promise((res) => {
     res();
   };
   c.on("error", done);
-  c.on("connect", () => c.end(`${JSON.stringify({ kind: "prompt", title: "로그인 비밀번호가 필요해요", body: `${label}: ${winIndex}번 탭(🔐암호)의 가려진 칸을 누르고 키보드 위 '암호'에서 골라 주세요`, window: Number(winIndex) })}\n`, done));
+  c.on("connect", () => c.end(`${JSON.stringify({ kind: "prompt", title: tr("로그인 비밀번호가 필요해요", "Login password needed"), body: tr(`${label}: ${winIndex}번 탭(🔐암호)의 가려진 칸을 누르고 키보드 위 '암호'에서 골라 주세요`, `${label}: tap the hidden field in tab ${winIndex} (🔐암호) and pick it from Passwords above the keyboard`), window: Number(winIndex) })}\n`, done));
 });
 
 const end = Date.now() + WAIT_MS;

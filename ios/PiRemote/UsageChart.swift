@@ -23,7 +23,7 @@ enum UsageFormat {
         f.dateFormat = "yyyy-MM-dd"
         return f
     }()
-    static let weekday = ["일", "월", "화", "수", "목", "금", "토"]
+    static let weekday = [String(localized: "일"), String(localized: "월"), String(localized: "화"), String(localized: "수"), String(localized: "목"), String(localized: "금"), String(localized: "토")]
 
     static func weekdayName(_ d: Date) -> String { weekday[Calendar.current.component(.weekday, from: d) - 1] }
 
@@ -31,7 +31,7 @@ enum UsageFormat {
     static func reset(_ iso: String?) -> String? {
         guard let iso, let d = UsageSheet.parseDate(iso) else { return nil }
         let c = Calendar.current.dateComponents([.month, .day, .hour, .minute], from: d)
-        return String(format: "%d/%d(%@) %02d:%02d 초기화", c.month ?? 0, c.day ?? 0, weekdayName(d), c.hour ?? 0, c.minute ?? 0)
+        return String(format: String(localized: "%d/%d(%@) %02d:%02d 초기화"), c.month ?? 0, c.day ?? 0, weekdayName(d), c.hour ?? 0, c.minute ?? 0)
     }
 }
 
@@ -90,7 +90,7 @@ extension UsageInfo {
     /// 계정별 주간 선(계정 정보가 없으면 한 선)
     var chartSeries: [UsageSeries] {
         if let a = accounts, !a.isEmpty { return a.map { UsageSeries(label: $0.label, color: $0.color, points: $0.weekPoints) } }
-        return [UsageSeries(label: "주간", color: Theme.accent, points: weekPoints)]
+        return [UsageSeries(label: String(localized: "주간"), color: Theme.accent, points: weekPoints)]
     }
     /// 계정별 하루 사용량 막대
     var dailyBars: [DailyBar] {
@@ -171,7 +171,7 @@ struct DailyUsageChart: View {
             BarMark(x: .value("날짜", d.date), y: .value("사용", d.used))
                 .foregroundStyle(Calendar.current.isDateInToday(d.day) ? d.color : d.color.opacity(0.55))
                 .cornerRadius(compact ? 1.5 : 3)
-                .position(by: .value("계정", multi ? d.label : "하나"))
+                .position(by: .value("계정", multi ? d.label : String(localized: "하나", comment: "그래프 묶음 이름(계정이 하나일 때, 접근성 이름에 들어감)")))
         }
         .chartXAxis {
             if compact {
@@ -255,7 +255,7 @@ struct UsageMiniCard: View {
             return a.map { Cell(label: $0.label, color: $0.color, percent: $0.weekLimit?.percent,
                                 note: $0.staleText ?? UsageFormat.reset($0.weekLimit?.resetsAt), model: $0.modelWeekLimit) }
         }
-        return [Cell(label: "이번 주", color: Theme.accent, percent: usage?.weekLimit?.percent,
+        return [Cell(label: String(localized: "이번 주"), color: Theme.accent, percent: usage?.weekLimit?.percent,
                      note: UsageFormat.reset(usage?.weekLimit?.resetsAt), model: usage?.modelWeekLimit)]
     }
 
@@ -286,7 +286,7 @@ struct UsageMiniCard: View {
                                 Text(" ").font(.system(size: Typo.caption)).accessibilityHidden(true)
                             }
                             if let n = c.note {
-                                Text(n.replacingOccurrences(of: " 초기화", with: "\n초기화"))
+                                Text(n.replacingOccurrences(of: String(localized: " 초기화"), with: String(localized: "\n초기화")))
                                     .font(.system(size: Typo.caption - 1))
                                     .foregroundColor(Theme.muted)
                                     .multilineTextAlignment(.center)

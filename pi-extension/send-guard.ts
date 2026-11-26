@@ -25,6 +25,7 @@ import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@ea
 import { isReadOnlyCommand } from "./lib/readonly.ts";
 // 비밀번호가 필요한 sudo 판정(Claude Code 훅과 같이 쓰는 함수들)
 import { needsSudoPassword, nopasswdRules, stripFileHeredocs, sudoCalls } from "./lib/sudo-rules.mjs";
+import { LANG, tr } from "./lib/lang.mjs";   // 폰에 보이는 글의 언어(PI_REMOTE_LANG)
 export { needsSudoPassword, nopasswdRules, stripFileHeredocs, sudoCalls };
 import { Type } from "typebox";
 
@@ -318,6 +319,33 @@ export function scriptsIn(command: string, cwd: string, home = process.env.HOME 
 // --- 비밀번호가 필요한 sudo: 새 tmux 탭에서 사용자가 실행 ---
 export type SudoRule = { path: string; args: string | null };   // args null: 인자 아무거나
 
+// --- 폰에 보낼 분류 이름: 위험도 판정(riskOf)이 한국어 이름을 읽으므로 이름은 한국어로 두고 보낼 때만 바꾼다 ---
+const LABEL_EN: Record<string, string> = {
+  "Slack 메시지 보내기": "Send a Slack message", "Slack에 쓰기": "Write to Slack", "Jira·Confluence에 쓰기": "Write to Jira/Confluence",
+  "Jira에 쓰기": "Write to Jira", "이메일 보내기": "Send an email", "메일·메시지 앱으로 보내기": "Send via Mail/Messages",
+  "PR 병합(셀프머지)": "Merge a PR (self-merge)", "GitHub에 글 남기기": "Post on GitHub", "GitHub에 올리기": "Publish on GitHub",
+  "GitHub에 쓰기": "Write to GitHub", "메신저·문자 보내기": "Send a chat or text message", "Notion 댓글 남기기": "Comment on Notion",
+  "운영 DB 쓰기": "Write to the production DB", "DB 쓰기(SQL)": "Write to a DB (SQL)", "DB 쓰기": "Write to a DB",
+  "DB에 SQL 파일 실행": "Run an SQL file on a DB", "폴더째 지우기": "Delete whole folders", "관리자 권한(sudo)": "Admin rights (sudo)",
+  "강제 푸시·원격 브랜치 삭제": "Force push / delete a remote branch", "브랜치 강제 삭제": "Force-delete a branch",
+  "DB 삭제(DROP·TRUNCATE)": "Delete from a DB (DROP/TRUNCATE)", "조건 없는 DB 삭제": "Delete from a DB without a condition",
+  "AWS 자원 삭제": "Delete AWS resources", "서버 원격 실행(SSM)": "Run on a server remotely (SSM)", "docker 정리(prune)": "Docker cleanup (prune)",
+  "디스크 지우기": "Erase a disk", "맥 끄기·다시 시작": "Shut down or restart the Mac", "패키지 공개 배포": "Publish a package",
+  "Jira 상태 바꾸기 + 댓글": "Change Jira status + comment", "파일 수정": "Edit file", "파일 쓰기": "Write file", "명령 실행": "Run command",
+  "매번 묻기": "always ask", "보내기": "Send",
+};
+/** 분류 이름(예: '운영 DB 쓰기 · prod-db', 'Slack에 쓰기 · 스크립트 a.sh 안')을 폰에 보일 말로 */
+export function showLabel(label: string): string {
+  if (LANG !== "en") return label;
+  return label.split(" · ").map((part) => {
+    const guessed = part.endsWith("(명령 글자로 판단)");
+    const core = guessed ? part.slice(0, -"(명령 글자로 판단)".length) : part;
+    const inScript = core.match(/^스크립트 (.+) 안$/);
+    return inScript ? `inside script ${inScript[1]}` : `${LABEL_EN[core] ?? core}${guessed ? " (guessed from the command)" : ""}`;
+  }).join(" · ");
+}
+const FIELD_EN: Record<string, string> = { "받는 곳": "To", 대상: "Target", 제목: "Title", 내용: "Content" };
+
 // --- 승인 카드에 코드·JSON 대신 읽기 쉬운 내용 ---
 const FIELD_GROUPS: [string, RegExp][] = [
   ["받는 곳", /^(to|recipients?|channel(_?id|_?name)?|chat_?id|email|users?(_?ids?)?|assignee|cc|bcc|thread_?ts|conversation)$/i],
@@ -340,12 +368,13 @@ export function readableInput(input: any): string {
       other++;
       continue;
     }
-    const label = used.has(g[0]) ? `${g[0]}(${k})` : g[0];
+    const name = tr(g[0], FIELD_EN[g[0]] ?? g[0]);
+    const label = used.has(g[0]) ? `${name}(${k})` : name;
     used.add(g[0]);
     lines.push(`${label}: ${clipText(val, g[0] === "내용" ? 1500 : 200)}`);
   }
   if (!lines.length) return "";
-  if (other) lines.push(`그 밖의 항목 ${other}개(원본 보기)`);
+  if (other) lines.push(tr(`그 밖의 항목 ${other}개(원본 보기)`, `${other} more field${other > 1 ? "s" : ""} (see original)`));
   return lines.join("\n");
 }
 /** 보낼 내용이 JSON·코드인지(그러면 카드에 그대로 보이지 않고 요약으로) */
@@ -439,7 +468,7 @@ export function splitSummary(text: string): { headline: string; summary: string;
     lines = lines.slice(1);
   }
   if (!lines.length) return { headline: "", summary: "", ...(risk ? { risk } : {}) };
-  const head = lines[0].replace(/^(한 ?줄 ?(요약|설명)|요약|설명)\s*[:：]\s*/, "");
+  const head = lines[0].replace(/^(한 ?줄 ?(요약|설명)|요약|설명|summary|explanation)\s*[:：]\s*/i, "");
   const ok = head.length <= 120;
   return { headline: ok ? head : "", summary: (ok ? lines.slice(1) : lines).join(" "), ...(risk ? { risk } : {}) };
 }
@@ -469,7 +498,16 @@ export default function (pi: ExtensionAPI) {
   const summarize = async (ctx: any, hit: Hit, detail: string, info: { task: string; intent: string; note: string }, scripts: ScriptInfo[], signal: AbortSignal, display = ""): Promise<string> => {
     const reg = ctx?.modelRegistry;
     if (!reg?.streamSimple) return "";
-    const prompt = [
+    // 폰 카드에 보일 글이라 폰 글의 언어로 쓰게 한다. 첫 줄 '위험도: 상|중|하' 형식은 splitSummary 가 읽으므로 두 언어 모두 그대로
+    const guide = LANG === "en" ? [
+      "You are the user's fellow developer. The user won't read the code; they decide within seconds whether to allow this command from your text alone.",
+      "Output format (one item per line, nothing else):",
+      "Line 1: 위험도: 상|중|하  (write the label '위험도:' as is and exactly one of 상 = hard to undo or affects production servers, data or other people; 중 = can be undone but needs care; 하 = mostly reading or checking)",
+      "Line 2: one sentence in plain English on what this command actually does, about 12 words. Say concretely what it does where; mention paths or names only when needed, briefly.",
+      "Line 3 (optional): one sentence only if something can't be undone or must be known. Otherwise leave it out.",
+      "Avoid: stock phrases like 'This command', 'Note:', 'appears to', piled-up guesses, copying code or commands verbatim, lists or headings.",
+      "If it was caught as sending: on line 2 say where it sends what (if an address only appears as text and nothing is actually sent, say so), and on line 3 give the gist of the message in a sentence or two (in words, no Markdown or HTML).",
+    ] : [
       "너는 사용자의 동료 개발자다. 사용자는 코드를 보지 않고 네 글만 보고 몇 초 안에 이 명령을 허용할지 정한다.",
       "출력 형식(다른 말 없이 줄마다):",
       "1줄: 위험도: 상|중|하  (상=되돌리기 어렵거나 운영 서버·데이터·다른 사람에게 영향, 중=되돌릴 수 있지만 조심할 일, 하=조회·확인 위주)",
@@ -477,6 +515,9 @@ export default function (pi: ExtensionAPI) {
       "3줄(선택): 되돌릴 수 없거나 꼭 알아야 할 점이 있을 때만 한 문장. 없으면 쓰지 않는다.",
       "쓰지 말 것: '이 명령은', '주의:', '~로 보입니다', '~할 수 있으나' 같은 상투어와 늘어놓는 추측, 코드·명령어를 그대로 옮기기, 영어 문장, 목록·제목.",
       "보내기로 걸린 경우: 2줄에 어디에 무엇을 보내는지 쓰고(주소가 글자로만 들어 있어 실제로 보내지 않으면 그렇다고), 3줄에 보낼 글의 요지를 한두 문장으로(마크다운·HTML 기호 없이 말로).",
+    ];
+    const prompt = [
+      ...guide,
       `걸린 이유(분류): ${hit.label}`,
       info.task ? `사용자가 맡긴 작업(참고만, 되풀이하지 말 것): ${clipText(info.task, 600)}` : "",
       info.intent ? `명령 직전 pi 의 설명: ${clipText(info.intent, 600)}` : "",
@@ -491,7 +532,7 @@ export default function (pi: ExtensionAPI) {
       if (!model) continue;
       try {
         const msg: any = await reg.streamSimple(model, {
-          systemPrompt: "You write the short Korean explanation shown on a command approval card. Follow the requested format exactly.",
+          systemPrompt: `You write the short ${LANG === "en" ? "English" : "Korean"} explanation shown on a command approval card. Follow the requested format exactly.`,
           messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }],
         }, { signal, maxTokens: 300 }).result();
         const text = textOf(msg);
@@ -540,7 +581,7 @@ export default function (pi: ExtensionAPI) {
     };
     let redraw = () => {};
     pi.events.emit("pi-remote:approval-request", {
-      id, kind: hit.kind, label: hit.label, to, detail: detail.slice(0, 20_000), since: Date.now(),
+      id, kind: hit.kind, label: showLabel(hit.label), to, detail: detail.slice(0, 20_000), since: Date.now(),
       task: info.task, intent: info.intent, note: info.note, purpose, guessed, scripts, summarizing: wantSummary,
       display, codeLike, source, risk,
     });
@@ -646,7 +687,7 @@ export default function (pi: ExtensionAPI) {
     writeFileSync(join(dir, "cmd"), cmd, { mode: 0o600 });
     writeFileSync(join(dir, "cwd"), ctx?.cwd ?? process.cwd());
     // 탭에는 명령 대신 설명(사용자 결정: 코드는 보이지 않음, v 를 누르면 보임)
-    writeFileSync(join(dir, "explain"), explain || `pi가 관리자 권한으로 명령을 실행하려고 해요(${label}).`);
+    writeFileSync(join(dir, "explain"), explain || tr(`pi가 관리자 권한으로 명령을 실행하려고 해요(${label}).`, `pi wants to run a command with admin rights (${showLabel(label)}).`));
     let win = "";
     try {
       const session = execFileSync("tmux", ["display", "-p", "-t", pane, "#{session_name}"], { encoding: "utf8" }).trim();
@@ -780,7 +821,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_e: any, ctx: any) => restoreMode(ctx));
   pi.on("session_tree", async (_e: any, ctx: any) => restoreMode(ctx));
   pi.registerCommand("mode", {
-    description: "권한 모드 바꾸기: 자동 → 매번 묻기 → 계획 (auto|ask|plan)",
+    description: tr("권한 모드 바꾸기: 자동 → 매번 묻기 → 계획 (auto|ask|plan)", "Change permission mode: auto → always ask → plan (auto|ask|plan)"),
     handler: async (args: string, ctx: any) => {
       modeCtx = ctx;
       let a = String(args ?? "").trim();
@@ -872,7 +913,7 @@ export default function (pi: ExtensionAPI) {
       "that is not guarded automatically, such as a custom script. Show the recipient and the exact final content. " +
       "Proceed only if the result starts with 'approved'.",
     parameters: Type.Object({
-      action: Type.String({ description: "What you are about to do, one short line in Korean (e.g. 'Slack #dev 채널에 배포 공지 보내기')" }),
+      action: Type.String({ description: LANG === "en" ? "What you are about to do, one short line in English (e.g. 'Send a deploy notice to Slack #dev')" : "What you are about to do, one short line in Korean (e.g. 'Slack #dev 채널에 배포 공지 보내기')" }),
       to: Type.Optional(Type.String({ description: "Recipient: person, channel, address, or ticket" })),
       content: Type.String({ description: "The exact final content that will be sent" }),
     }),

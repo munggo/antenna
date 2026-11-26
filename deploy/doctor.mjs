@@ -196,7 +196,7 @@ else {
   // [저장소 안 파일, 설치된 이름]
   const pairs = [
     ...["claude-feed.mjs", "pi-remote-hook.mjs", "claude-account.mjs", "bg-launch.mjs", "sudo-check.mjs", "sudo-run.mjs"].map((f) => [`claude-remote/${f}`, f]),
-    ["pi-extension/sudo-tab.sh", "sudo-tab.sh"], ["pi-extension/lib/sudo-rules.mjs", "sudo-rules.mjs"],
+    ["pi-extension/sudo-tab.sh", "sudo-tab.sh"], ["pi-extension/lib/sudo-rules.mjs", "sudo-rules.mjs"], ["pi-extension/lib/lang.mjs", "lang.mjs"],
   ];
   const stale = pairs.filter(([src, name]) => !same(join(REPO, src), join(CC, name))).map(([, name]) => name);
   if (missing.length) bad(`훅이 걸려 있지 않아요(${missing.join(", ")})`, "sh claude-remote/install.sh");

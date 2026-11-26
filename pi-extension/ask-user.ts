@@ -13,6 +13,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { askChoice } from "./lib/choice-box.ts";
+import { tr } from "./lib/lang.mjs";   // 폰에 보이는 글의 언어(PI_REMOTE_LANG)
 
 const GUIDE =
   "When you need the user to choose between options, confirm yes or no, or decide how to proceed, call ask_user instead of " +
@@ -85,7 +86,7 @@ export default function (pi: ExtensionAPI) {
       const id = `q-${Date.now()}-${++seq}`;
       // 하나면 예전 형식 그대로, 여럿이면 items(질문 글은 목록으로: 알림·옛 앱용)
       const request = many
-        ? { id, question: [`질문 ${qs.length}개`, ...qs.map((q, i) => `${i + 1}. ${firstLine(q.question)}`)].join("\n"), options: [], multiSelect: false,
+        ? { id, question: [tr(`질문 ${qs.length}개`, `${qs.length} questions`), ...qs.map((q, i) => `${i + 1}. ${firstLine(q.question)}`)].join("\n"), options: [], multiSelect: false,
             items: qs.map((q) => ({ question: q.question, options: q.options, multiSelect: q.multi })), since: Date.now() }
         : { id, question: qs[0].question, options: qs[0].options, multiSelect: qs[0].multi, since: Date.now() };
       pi.events.emit("pi-remote:question-request", request);

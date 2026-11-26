@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
 import { askChoice } from "./lib/choice-box.ts";
+import { tr } from "./lib/lang.mjs";   // 폰에 보이는 글의 언어(PI_REMOTE_LANG)
 
 const MAX_MESSAGES = 400; // 처음 보낼 최대 메시지 수(가장 최근 것부터)
 const MAX_TOOL_OUTPUT = 4000; // 도구 출력 최대 글자 수
@@ -36,7 +37,7 @@ const STREAM_INTERVAL_MS = 100; // 스트리밍 갱신 최소 간격
 type Json = Record<string, unknown>;
 
 function clip(s: string, n: number): string {
-  return s.length > n ? `${s.slice(0, n)}\n… (${s.length - n}자 생략)` : s;
+  return s.length > n ? tr(`${s.slice(0, n)}\n… (${s.length - n}자 생략)`, `${s.slice(0, n)}\n… (${s.length - n} characters omitted)`) : s;
 }
 
 function textOf(content: unknown): string {
@@ -107,22 +108,22 @@ function describe(name: string, args: any): string {
       const comment = lines.find((l) => l.startsWith("#") && !l.startsWith("#!"));
       return cut(comment ? comment.replace(/^#+\s*/, "") : lines[0] ?? "");
     }
-    case "read": return `${base(args.path)} 읽기`;
-    case "edit": return `${base(args.path)} 수정`;
-    case "write": return `${base(args.path)} 작성`;
-    case "grep": case "find": case "ls": return cut(`검색: ${args.pattern ?? args.path ?? ""}`);
+    case "read": return tr(`${base(args.path)} 읽기`, `Read ${base(args.path)}`);
+    case "edit": return tr(`${base(args.path)} 수정`, `Edit ${base(args.path)}`);
+    case "write": return tr(`${base(args.path)} 작성`, `Write ${base(args.path)}`);
+    case "grep": case "find": case "ls": return cut(tr(`검색: ${args.pattern ?? args.path ?? ""}`, `Search: ${args.pattern ?? args.path ?? ""}`));
     case "subagent": {
       const n = Array.isArray(args.tasks) ? args.tasks.length : Array.isArray(args.chain) ? args.chain.length : 1;
-      return `하위 에이전트 ${n}개 실행`;
+      return tr(`하위 에이전트 ${n}개 실행`, `Run ${n} subagent${n > 1 ? "s" : ""}`);
     }
     case "ask_user": return cut(askTitle(args));
-    case "show_artifact": return cut(String(args.title ?? args.path ?? "아티팩트"));
-    case "web_search": return cut(`웹 검색: ${args.query ?? ""}`);
-    case "web_fetch": return cut(`웹: ${String(args.url ?? "").replace(/^https?:\/\//, "")}`);
+    case "show_artifact": return cut(String(args.title ?? args.path ?? tr("아티팩트", "Artifact")));
+    case "web_search": return cut(tr(`웹 검색: ${args.query ?? ""}`, `Web search: ${args.query ?? ""}`));
+    case "web_fetch": return cut(tr(`웹: ${String(args.url ?? "").replace(/^https?:\/\//, "")}`, `Web: ${String(args.url ?? "").replace(/^https?:\/\//, "")}`));
     case "todo_write": {
       const t = Array.isArray(args.todos) ? args.todos : [];
       const doing = t.find((x: any) => x?.status === "in_progress");
-      return cut(`할 일 ${t.filter((x: any) => x?.status === "completed").length}/${t.length}${doing ? ` · 지금: ${doing.content}` : ""}`);
+      return cut(tr(`할 일 ${t.filter((x: any) => x?.status === "completed").length}/${t.length}${doing ? ` · 지금: ${doing.content}` : ""}`, `To-dos ${t.filter((x: any) => x?.status === "completed").length}/${t.length}${doing ? ` · now: ${doing.content}` : ""}`));
     }
     default: return name;
   }
@@ -142,13 +143,13 @@ function askAnswer(d: any): string {
   if (Array.isArray(d?.items)) return d.items.map((it: any) => askAnswer({ ...it, by: d.by })).join(" / ");   // 여러 질문
   const parts = [...(Array.isArray(d?.answers) ? d.answers : []), d?.other].map((x) => String(x ?? "").trim()).filter(Boolean);
   if (parts.length) return parts.join(", ");
-  return d?.by === "aborted" ? "멈춤" : "답하지 않음";
+  return d?.by === "aborted" ? tr("멈춤", "Stopped") : tr("답하지 않음", "No answer");
 }
 /** 고르는 질문(ask_user)의 이름: 여러 질문이면 '첫 질문 외 N개' */
 function askTitle(a: any): string {
   const qs = Array.isArray(a?.questions) ? a.questions : [];
-  const first = String(qs[0]?.question ?? a?.question ?? "질문").trim().split("\n")[0];
-  return qs.length > 1 ? `${first} 외 ${qs.length - 1}개` : first;
+  const first = String(qs[0]?.question ?? a?.question ?? tr("질문", "Question")).trim().split("\n")[0];
+  return qs.length > 1 ? tr(`${first} 외 ${qs.length - 1}개`, `${first} and ${qs.length - 1} more`) : first;
 }
 
 /** pi 메시지 → 폰용 메시지. 그리지 않을 종류는 null */
@@ -409,7 +410,7 @@ export default function (pi: ExtensionAPI) {
   // 30초 넘게 일하면 띄우고(사용자가 고른 값), 하는 일이 바뀌면 20초 간격으로 갱신, 끝나면 끝 상태(브리지가 5분 뒤 없앰)
   const LIVE_START_MS = 30_000;
   const LIVE_UPDATE_MS = 20_000;
-  const fresh = () => ({ started: false, status: "working", detail: "🤔 생각 중…", sent: 0, sentDetail: "", startedAt: 0 });
+  const fresh = () => ({ started: false, status: "working", detail: tr("🤔 생각 중…", "🤔 Thinking…"), sent: 0, sentDetail: "", startedAt: 0 });
   let live = fresh();
   let liveTimer: any = null;
   let livePending: any = null;
@@ -518,14 +519,14 @@ export default function (pi: ExtensionAPI) {
       /* 못 읽으면 알림 생략 */
     }
     if (!last || last.stopReason === "aborted") {
-      liveEnd("stopped", "멈췄어요");
+      liveEnd("stopped", tr("멈췄어요", "Stopped"));
       return;   // 직접 멈춘 것은 알리지 않음
     }
     const bg = bgInfo();
     if (last.stopReason === "error") {
-      const why = lines(last.errorMessage ?? "")[0] ?? "오류로 멈췄어요";
+      const why = lines(last.errorMessage ?? "")[0] ?? tr("오류로 멈췄어요", "Stopped with an error");
       liveEnd("error", why);
-      notifyPhone("error", bg ? `백그라운드 작업이 멈췄어요: ${bg.name}` : "작업이 멈췄어요", why);
+      notifyPhone("error", bg ? tr(`백그라운드 작업이 멈췄어요: ${bg.name}`, `Background task stopped: ${bg.name}`) : tr("작업이 멈췄어요", "Task stopped"), why);
       if (bg) bgReport(bg, false, why);
       return;
     }
@@ -533,18 +534,18 @@ export default function (pi: ExtensionAPI) {
     const ls = lines(text);
     const tail = ls[ls.length - 1] ?? "";
     if (bg && !QUESTION_END.test(tail)) {
-      liveEnd("done", ls[0] ?? "끝났어요");
-      notifyPhone("done", `백그라운드 작업이 끝났어요: ${bg.name}`, ls[0] ?? "결과를 확인해 주세요", { durationSec, background: true });
+      liveEnd("done", ls[0] ?? tr("끝났어요", "Done"));
+      notifyPhone("done", tr(`백그라운드 작업이 끝났어요: ${bg.name}`, `Background task finished: ${bg.name}`), ls[0] ?? tr("결과를 확인해 주세요", "Check the result"), { durationSec, background: true });
       bgReport(bg, true, text);
       return;
     }
     if (QUESTION_END.test(tail)) {
       liveEnd("asking", tail);
-      notifyPhone("question", "질문이 있어요", tail);
+      notifyPhone("question", tr("질문이 있어요", "There's a question"), tail);
     } else {
-      liveEnd("done", ls[0] ?? "끝났어요");
+      liveEnd("done", ls[0] ?? tr("끝났어요", "Done"));
       const min = Math.round(durationSec / 60);
-      notifyPhone("done", min >= 1 ? `작업이 끝났어요(${min}분)` : "작업이 끝났어요", ls[0] ?? "답을 확인해 주세요", { durationSec });
+      notifyPhone("done", min >= 1 ? tr(`작업이 끝났어요(${min}분)`, `Task finished (${min} min)`) : tr("작업이 끝났어요", "Task finished"), ls[0] ?? tr("답을 확인해 주세요", "Check the answer"), { durationSec });
     }
   };
 
@@ -558,7 +559,7 @@ export default function (pi: ExtensionAPI) {
     approvals.set(String(r.id), r);
     broadcast({ t: "approval", item: r });
     lastApprovalAt = Date.now();
-    liveSet("asking", `🔐 ${r.label ?? "승인이 필요해요"}`, true);
+    liveSet("asking", tr(`🔐 ${r.label ?? "승인이 필요해요"}`, `🔐 ${r.label ?? "Approval needed"}`), true);
     // 폰 알림: 설명 문장(Opus)이 나오면 그 문장으로, 8초 안에 안 나오면 기본 문구로. 그 전에 답하면 보내지 않음
     const send = (sentence?: string) => {
       if (approvalPush.get(String(r.id)) === undefined) return;
@@ -566,7 +567,7 @@ export default function (pi: ExtensionAPI) {
       approvalPush.delete(String(r.id));
       notifyPhone(
         "approval",
-        `승인이 필요합니다${r.risk ? ` (${r.risk})` : ""}`,
+        tr(`승인이 필요합니다${r.risk ? ` (${r.risk})` : ""}`, `Approval needed${r.risk ? ` (${({ 상: "high", 중: "medium", 하: "low" } as Record<string, string>)[r.risk] ?? r.risk})` : ""}`),
         sentence || `${r.purpose || r.note || lines(String(r.intent ?? ""))[0] || r.label || ""}\n${r.label ?? ""}${r.to ? ` · ${r.to}` : ""}`,
       );
     };
@@ -576,10 +577,10 @@ export default function (pi: ExtensionAPI) {
   // 비밀번호가 필요한 sudo: send-guard 가 새 탭을 열면 폰에 알림(폰은 tmux 현재 창을 따라 그 탭 터미널로 감)
   pi.events.on("pi-remote:sudo-tab", (t: any) => {
     lastApprovalAt = Date.now();
-    liveSet("asking", "🔐 관리자 비밀번호가 필요해요", true);
-    notifyPhone("prompt", "관리자 비밀번호가 필요해요", `${t?.window ?? ""}번 탭(🔐sudo)에서 Enter를 누르고 비밀번호를 입력해 주세요`, { window: Number(t?.window) });
+    liveSet("asking", tr("🔐 관리자 비밀번호가 필요해요", "🔐 Admin password needed"), true);
+    notifyPhone("prompt", tr("관리자 비밀번호가 필요해요", "Admin password needed"), tr(`${t?.window ?? ""}번 탭(🔐sudo)에서 Enter를 누르고 비밀번호를 입력해 주세요`, `Press Enter in tab ${t?.window ?? ""} (🔐sudo) and type the password`), { window: Number(t?.window) });
   });
-  pi.events.on("pi-remote:sudo-tab-done", () => liveSet("working", "🤔 생각 중…", true));
+  pi.events.on("pi-remote:sudo-tab-done", () => liveSet("working", tr("🤔 생각 중…", "🤔 Thinking…"), true));
   // Haiku 요약이 나중에 오면 카드에 채움
   pi.events.on("pi-remote:approval-update", (u: any) => {
     const r = approvals.get(String(u?.id ?? ""));
@@ -616,12 +617,12 @@ export default function (pi: ExtensionAPI) {
     broadcast({ t: "question", question: q });
     lastApprovalAt = Date.now();   // 질문이 띄우는 맥 선택 창 알림과 겹치지 않게
     liveSet("asking", `❓ ${String(q.question ?? "")}`, true);
-    notifyPhone("choice", "선택이 필요해요", String(q.question ?? ""));
+    notifyPhone("choice", tr("선택이 필요해요", "A choice is needed"), String(q.question ?? ""));
   });
   pi.events.on("pi-remote:question-done", (q: any) => {
     if (!q?.id || !questions.delete(String(q.id))) return;
     broadcast({ t: "question-done", id: String(q.id) });
-    liveSet("working", "🤔 생각 중…", true);
+    liveSet("working", tr("🤔 생각 중…", "🤔 Thinking…"), true);
   });
 
   // --- pi 확인 창 중계(다른 확장·pi 가 띄운 select·confirm·input ↔ 폰) ---
@@ -634,8 +635,8 @@ export default function (pi: ExtensionAPI) {
   const UI_ORIG = Symbol.for("pi-remote.ui-orig");
   const me = {};   // 이 확장 인스턴스 표식(/reload 뒤 옛 감싸기가 남지 않게)
   let wrappedUI: any = null;
-  const YES = "예";
-  const NO = "아니오";
+  const YES = tr("예", "Yes");
+  const NO = tr("아니오", "No");
   const relayPrompt = (kind: string, question: string, options: string[], extra: Json, opts: any,
                        run: (o: any) => Promise<any>, cancelValue: any): Promise<any> => {
     const outer: AbortSignal | undefined = opts?.signal;
@@ -651,7 +652,7 @@ export default function (pi: ExtensionAPI) {
         outer?.removeEventListener?.("abort", onOuter);
         prompts.delete(id);
         broadcast({ t: "question-done", id });
-        liveSet("working", "🤔 생각 중…", true);
+        liveSet("working", tr("🤔 생각 중…", "🤔 Thinking…"), true);
       };
       const item = { id, kind, question: clip(question, 4000), options: options.map((label) => ({ label })), multiSelect: false, since: Date.now(), ...extra };
       prompts.set(id, {
@@ -664,8 +665,8 @@ export default function (pi: ExtensionAPI) {
         },
       });
       broadcast({ t: "question", question: item });
-      liveSet("asking", `❓ ${lines(question)[0] ?? "확인을 기다려요"}`, true);
-      if (working) notifyPhone("prompt", "pi가 확인을 기다려요", question);
+      liveSet("asking", tr(`❓ ${lines(question)[0] ?? "확인을 기다려요"}`, `❓ ${lines(question)[0] ?? "Waiting for confirmation"}`), true);
+      if (working) notifyPhone("prompt", tr("pi가 확인을 기다려요", "pi is waiting for confirmation"), question);
       Promise.resolve()
         .then(() => run({ ...(opts ?? {}), signal: ac.signal }))
         .then(
@@ -730,7 +731,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("ui_prompt_start", async (e: any) => {
     // 승인·질문이 떠 있으면 이미 알렸음(맥에서 '기타'를 골라 뜬 입력 창 등)
     if (!working || approvals.size || questions.size || prompts.size || Date.now() - lastApprovalAt < 3000) return;
-    notifyPhone("prompt", "pi가 확인을 기다려요", e?.title || "맥 화면의 확인 창에 답해 주세요");
+    notifyPhone("prompt", tr("pi가 확인을 기다려요", "pi is waiting for confirmation"), e?.title || tr("맥 화면의 확인 창에 답해 주세요", "Answer the prompt on the Mac screen"));
   });
   pi.events.on("pi-remote:approval-done", (r: any) => {
     if (!r?.id || !approvals.delete(String(r.id))) return;
@@ -738,7 +739,7 @@ export default function (pi: ExtensionAPI) {
     approvalPush.delete(String(r.id));
     delete approvalSend[String(r.id)];
     broadcast({ t: "approval-done", id: String(r.id) });
-    liveSet("working", "🤔 생각 중…", true);
+    liveSet("working", tr("🤔 생각 중…", "🤔 Thinking…"), true);
   });
 
   // --- 컨텍스트 사용량(폰 게이지) ---
@@ -758,10 +759,10 @@ export default function (pi: ExtensionAPI) {
     if (Date.now() - lastFailNotice < 3000) return;
     lastFailNotice = Date.now();
     const text = aborted
-      ? "대화 압축을 취소했어요"
+      ? tr("대화 압축을 취소했어요", "Compaction canceled")
       : /nothing to compact|too small/i.test(msg ?? "")
-        ? "아직 압축할 만큼 대화가 길지 않아요"
-        : "대화를 압축하지 못했어요";
+        ? tr("아직 압축할 만큼 대화가 길지 않아요", "The conversation isn't long enough to compact yet")
+        : tr("대화를 압축하지 못했어요", "Couldn't compact the conversation");
     broadcast({ t: "notice", text });
   };
   const compactionSettings = (): { auto: boolean; reserve: number } => {
@@ -924,8 +925,8 @@ export default function (pi: ExtensionAPI) {
       const [ts, idx] = String(o.ref ?? "").split(":");
       const m = msgs.find((x) => x?.role === "assistant" && String(x.timestamp) === ts);
       const b = m?.content?.[Number(idx)];
-      if (!b) return { kind: "thinking", error: "생각 내용을 찾지 못했어요" };
-      return { kind: "thinking", text: b.redacted ? "(가려진 생각)" : clip(String(b.thinking ?? ""), BIG) };
+      if (!b) return { kind: "thinking", error: tr("생각 내용을 찾지 못했어요", "Thinking not found") };
+      return { kind: "thinking", text: b.redacted ? tr("(가려진 생각)", "(redacted thinking)") : clip(String(b.thinking ?? ""), BIG) };
     }
     let call: any = null;
     for (const m of msgs) {
@@ -933,7 +934,7 @@ export default function (pi: ExtensionAPI) {
       const b = (m.content ?? []).find((x: any) => x?.type === "toolCall" && x.id === o.id);
       if (b) call = b;
     }
-    if (!call) return { kind: "other", error: "도구 기록을 찾지 못했어요" };
+    if (!call) return { kind: "other", error: tr("도구 기록을 찾지 못했어요", "Tool record not found") };
     const res = msgs.find((x) => x?.role === "toolResult" && x.toolCallId === o.id);
     const output = res ? clip(textOf(res.content), BIG) : "";
     const isError = !!res?.isError;
@@ -959,8 +960,8 @@ export default function (pi: ExtensionAPI) {
           (x: any, i: number) => `${i + 1}. ${String(x?.label ?? "")}${x?.description ? `\n   ${String(x.description)}` : ""}`,
         )].join("\n");
         const qs = Array.isArray(a.questions) && a.questions.length ? a.questions : [a];
-        const body = qs.length > 1 ? qs.map((q: any, i: number) => `[질문 ${i + 1}] ${one(q)}`).join("\n\n") : one(qs[0]);
-        return { kind: "other", title: qs.length > 1 ? `질문 ${qs.length}개` : "질문", args: clip(body, BIG), output, isError, done: !!res };
+        const body = qs.length > 1 ? qs.map((q: any, i: number) => tr(`[질문 ${i + 1}] ${one(q)}`, `[Question ${i + 1}] ${one(q)}`)).join("\n\n") : one(qs[0]);
+        return { kind: "other", title: qs.length > 1 ? tr(`질문 ${qs.length}개`, `${qs.length} questions`) : tr("질문", "Question"), args: clip(body, BIG), output, isError, done: !!res };
       }
       default: {
         let args = "";
@@ -984,7 +985,7 @@ export default function (pi: ExtensionAPI) {
     }
     const res = msgs.find((x) => x?.role === "toolResult" && x.toolCallId === id);
     const img = (res?.content ?? []).find((b: any) => b?.type === "image" && b.data);
-    if (!img) return { error: "사진을 찾지 못했어요" };
+    if (!img) return { error: tr("사진을 찾지 못했어요", "Image not found") };
     try {
       const dir = join(tmpdir(), "pi-remote-toolimg");
       mkdirSync(dir, { recursive: true });
@@ -997,7 +998,7 @@ export default function (pi: ExtensionAPI) {
       unlinkSync(out);
       return { data };
     } catch (e: any) {
-      return { error: `사진 변환 실패: ${e?.message ?? e}` };
+      return { error: tr(`사진 변환 실패: ${e?.message ?? e}`, `Couldn't convert the image: ${e?.message ?? e}`) };
     }
   };
 
@@ -1015,13 +1016,13 @@ export default function (pi: ExtensionAPI) {
     } catch {
       /* 못 읽으면 등록 안 된 것으로 */
     }
-    if (!registered) return { error: "이 대화에 등록된 아티팩트가 아니에요" };
+    if (!registered) return { error: tr("이 대화에 등록된 아티팩트가 아니에요", "That isn't an artifact registered in this conversation") };
     try {
       const st = statSync(path);
-      if (!st.isFile()) return { error: "파일이 아니에요" };
+      if (!st.isFile()) return { error: tr("파일이 아니에요", "Not a file") };
       if (offset !== undefined && offset !== null) {
         const off = Number(offset);
-        if (!Number.isInteger(off) || off < 0 || off > st.size) return { error: "잘못된 위치에서 받으려 했어요. 다시 열어 주세요" };
+        if (!Number.isInteger(off) || off < 0 || off > st.size) return { error: tr("잘못된 위치에서 받으려 했어요. 다시 열어 주세요", "Tried to read from the wrong position. Open it again") };
         const len = Math.min(ARTIFACT_CHUNK, st.size - off);
         const buf = Buffer.alloc(len);
         if (len > 0) {
@@ -1034,10 +1035,10 @@ export default function (pi: ExtensionAPI) {
         }
         return { name: basename(path), size: st.size, offset: off, done: off + len >= st.size, mtime: st.mtimeMs, data: buf.toString("base64") };
       }
-      if (st.size > ARTIFACT_MAX) return { error: `파일이 너무 커요(${Math.round(st.size / 1048576)}MB). 앱을 업데이트하거나 맥에서 /artifacts 로 열어 주세요` };
+      if (st.size > ARTIFACT_MAX) return { error: tr(`파일이 너무 커요(${Math.round(st.size / 1048576)}MB). 앱을 업데이트하거나 맥에서 /artifacts 로 열어 주세요`, `The file is too large (${Math.round(st.size / 1048576)} MB). Update the app or open it on the Mac with /artifacts`) };
       return { name: basename(path), size: st.size, data: readFileSync(path).toString("base64") };
     } catch {
-      return { error: "파일을 읽지 못했어요(지워졌거나 옮겨졌을 수 있어요)" };
+      return { error: tr("파일을 읽지 못했어요(지워졌거나 옮겨졌을 수 있어요)", "Couldn't read the file (it may have been deleted or moved)") };
     }
   };
 
@@ -1058,20 +1059,20 @@ export default function (pi: ExtensionAPI) {
       } catch {
         /* 없는 파일 */
       }
-      if (exists || create) out.push({ path, label: exists ? label : `${label}(새로 만들기)`, exists, content });
+      if (exists || create) out.push({ path, label: exists ? label : tr(`${label}(새로 만들기)`, `${label} (new)`), exists, content });
     };
-    for (const n of ["AGENTS.md", "CLAUDE.md"]) add(join(AGENT_DIR, n), "공통 지침");
-    if (!out.length) add(join(AGENT_DIR, "CLAUDE.md"), "공통 지침", true);
+    for (const n of ["AGENTS.md", "CLAUDE.md"]) add(join(AGENT_DIR, n), tr("공통 지침", "Global instructions"));
+    if (!out.length) add(join(AGENT_DIR, "CLAUDE.md"), tr("공통 지침", "Global instructions"), true);
     const home = process.env.HOME ?? "/";
     let dir = ctxRef?.cwd ?? process.cwd();
     const seen: string[] = [];
     while (dir && dir !== dirname(dir) && dir.startsWith(home) && dir !== home) {
-      for (const n of ["AGENTS.md", "CLAUDE.md"]) add(join(dir, n), `프로젝트 · ${basename(dir)}`);
+      for (const n of ["AGENTS.md", "CLAUDE.md"]) add(join(dir, n), tr(`프로젝트 · ${basename(dir)}`, `Project · ${basename(dir)}`));
       seen.push(dir);
       dir = dirname(dir);
     }
     const cwd = ctxRef?.cwd ?? process.cwd();
-    if (cwd !== home && !out.some((f) => dirname(String(f.path)) === cwd)) add(join(cwd, "AGENTS.md"), `프로젝트 · ${basename(cwd)}`, true);
+    if (cwd !== home && !out.some((f) => dirname(String(f.path)) === cwd)) add(join(cwd, "AGENTS.md"), tr(`프로젝트 · ${basename(cwd)}`, `Project · ${basename(cwd)}`), true);
     return out;
   };
   let reloadAfterWork = false;
@@ -1081,7 +1082,7 @@ export default function (pi: ExtensionAPI) {
       // 폰 모델 메뉴: 맥 입력창에 /model 을 치지 않고 pi 에 바로 설정(범위 밖 모델도, 맥 입력창에 글이 있어도)
       const m = ctxRef?.modelRegistry?.find?.(String(o.provider ?? ""), String(o.id ?? ""));
       const ok = m ? await pi.setModel(m) : false;
-      if (!ok) sock?.write(`${JSON.stringify({ t: "notice", text: `모델을 바꾸지 못했어요(${o.provider}/${o.id})` })}\n`);
+      if (!ok) sock?.write(`${JSON.stringify({ t: "notice", text: tr(`모델을 바꾸지 못했어요(${o.provider}/${o.id})`, `Couldn't change the model (${o.provider}/${o.id})`) })}\n`);
       return;
     }
     if (o?.cmd === "set-thinking") {
@@ -1090,11 +1091,11 @@ export default function (pi: ExtensionAPI) {
     }
     if (o?.cmd === "bg-result") {
       // 이 탭이 시킨 백그라운드 일이 끝남: 대화에 결과 요약(AI 가 시킨 것이면 AI 가 이어서 처리)
-      const head = `백그라운드 작업 '${String(o.name ?? "")}'(탭 ${o.window})이 ${o.ok === false ? "멈췄어요" : "끝났어요"}.`;
+      const head = tr(`백그라운드 작업 '${String(o.name ?? "")}'(탭 ${o.window})이 ${o.ok === false ? "멈췄어요" : "끝났어요"}.`, `Background task '${String(o.name ?? "")}' (tab ${o.window}) ${o.ok === false ? "stopped" : "finished"}.`);
       const body = String(o.text ?? "").trim();
       try {
         pi.sendMessage(
-          { customType: "bgtab-result", content: body ? `${head}\n\n결과 요약:\n${body}` : head, display: true, details: { name: o.name, window: o.window, by: o.by, ok: o.ok !== false } } as any,
+          { customType: "bgtab-result", content: body ? tr(`${head}\n\n결과 요약:\n${body}`, `${head}\n\nResult summary:\n${body}`) : head, display: true, details: { name: o.name, window: o.window, by: o.by, ok: o.ok !== false } } as any,
           { triggerTurn: o.by === "ai", deliverAs: "followUp" } as any,
         );
       } catch {
@@ -1117,22 +1118,22 @@ export default function (pi: ExtensionAPI) {
       const path = String(o.path ?? "");
       const f = memoryFiles().find((x) => x.path === path);
       if (!f) {
-        sock?.write(`${JSON.stringify({ t: "memory-saved", path, error: "저장할 수 있는 지침 파일이 아니에요" })}\n`);
+        sock?.write(`${JSON.stringify({ t: "memory-saved", path, error: tr("저장할 수 있는 지침 파일이 아니에요", "That isn't an instruction file that can be saved") })}\n`);
         return;
       }
       try {
         writeFileSync(path, String(o.content ?? ""));
       } catch (e: any) {
-        sock?.write(`${JSON.stringify({ t: "memory-saved", path, error: `저장하지 못했어요(${e?.message ?? e})` })}\n`);
+        sock?.write(`${JSON.stringify({ t: "memory-saved", path, error: tr(`저장하지 못했어요(${e?.message ?? e})`, `Couldn't save (${e?.message ?? e})`) })}\n`);
         return;
       }
       sock?.write(`${JSON.stringify({ t: "memory-saved", path })}\n`);
       // 지침은 다시 불러와야 적용: 쉬는 중이면 바로, 작업 중이면 끝난 뒤
       if (working) {
         reloadAfterWork = true;
-        broadcast({ t: "notice", text: "저장했어요. 지금 작업이 끝나면 다시 불러와 적용해요" });
+        broadcast({ t: "notice", text: tr("저장했어요. 지금 작업이 끝나면 다시 불러와 적용해요", "Saved. It's reloaded and applied when the current task finishes") });
       } else {
-        broadcast({ t: "notice", text: "저장했어요. 다시 불러와 적용해요" });
+        broadcast({ t: "notice", text: tr("저장했어요. 다시 불러와 적용해요", "Saved. Reloading to apply it") });
         pi.sendUserMessage("/pi-remote-reload", { expandPromptTemplates: true });
       }
       return;
@@ -1140,7 +1141,7 @@ export default function (pi: ExtensionAPI) {
     if (o?.cmd === "rewind") {
       // 폰에서 고른 내 메시지 직전으로 되감기(글은 폰 입력창으로)
       if (working) {
-        sock?.write(`${JSON.stringify({ t: "notice", text: "작업이 끝난 뒤에 되감을 수 있어요" })}\n`);
+        sock?.write(`${JSON.stringify({ t: "notice", text: tr("작업이 끝난 뒤에 되감을 수 있어요", "You can rewind once the task finishes") })}\n`);
         return;
       }
       const want = String(o.id ?? "");
@@ -1159,7 +1160,7 @@ export default function (pi: ExtensionAPI) {
         /* 못 찾음 */
       }
       if (!target) {
-        sock?.write(`${JSON.stringify({ t: "notice", text: "되감을 메시지를 찾지 못했어요" })}\n`);
+        sock?.write(`${JSON.stringify({ t: "notice", text: tr("되감을 메시지를 찾지 못했어요", "Couldn't find the message to rewind to") })}\n`);
         return;
       }
       sock?.write(`${JSON.stringify({ t: "rewound", text: textOf(target.message.content) })}\n`);
@@ -1194,7 +1195,7 @@ export default function (pi: ExtensionAPI) {
       // 폰의 '지금 압축하기'. 맥 입력창을 거치지 않고 pi 에 직접 요청(쓰다 만 글과 섞이지 않게)
       const idle = ctxRef?.isIdle?.() ?? !working;
       if (!ctxRef || !idle || compacting) {
-        sock?.write(`${JSON.stringify({ t: "notice", text: "작업 중에는 압축할 수 없어요" })}\n`);
+        sock?.write(`${JSON.stringify({ t: "notice", text: tr("작업 중에는 압축할 수 없어요", "Can't compact while it's working") })}\n`);
         return;
       }
       try {
@@ -1227,7 +1228,7 @@ export default function (pi: ExtensionAPI) {
         .then((r: any) =>
           reply((r?.items ?? []).slice(0, 30).map((i: any) => ({ value: i.value, label: i.label, path: i.description ?? i.label }))),
         )
-        .catch(() => reply([], "파일을 찾지 못했어요"))
+        .catch(() => reply([], tr("파일을 찾지 못했어요", "Couldn't find files")))
         .finally(() => clearTimeout(timer));
       return;
     }
@@ -1255,7 +1256,7 @@ export default function (pi: ExtensionAPI) {
         pi.sendUserMessage(content, { deliverAs: o.mode === "followUp" ? "followUp" : "steer" });
       }
     } catch (e: any) {
-      broadcast({ t: "error", message: `보내기 실패: ${e?.message ?? e}` });
+      broadcast({ t: "error", message: tr(`보내기 실패: ${e?.message ?? e}`, `Send failed: ${e?.message ?? e}`) });
     }
   };
 
@@ -1297,37 +1298,37 @@ export default function (pi: ExtensionAPI) {
 
   // 다시 불러오기는 명령 처리 중에만 가능 → 명령을 등록해 두고, 쉬고 있을 때 그 명령을 실행
   pi.registerCommand("pi-remote-rewind", {
-    description: "pi-remote: 폰에서 고른 내 메시지 직전으로 되감기(내부용)",
+    description: tr("pi-remote: 폰에서 고른 내 메시지 직전으로 되감기(내부용)", "pi-remote: rewind to just before the message picked on the phone (internal)"),
     handler: async (args: string, ctx: any) => {
       try {
         const r = await ctx.navigateTree(String(args ?? "").trim(), { summarize: false });
         if (!r?.cancelled) ctx.ui?.setEditorText?.("");   // 글은 폰 입력창으로 보냈음
       } catch (e: any) {
-        broadcast({ t: "notice", text: `되감지 못했어요: ${e?.message ?? e}` });
+        broadcast({ t: "notice", text: tr(`되감지 못했어요: ${e?.message ?? e}`, `Couldn't rewind: ${e?.message ?? e}`) });
       }
     },
   });
 
   // 맥: 지침 파일 보기·고치기(고르면 편집기, 저장하면 다시 불러와 적용)
   pi.registerCommand("memory", {
-    description: "메모리(지침 파일) 보기·고치기",
+    description: tr("메모리(지침 파일) 보기·고치기", "View and edit memory (instruction files)"),
     handler: async (_args: string, ctx: any) => {
       ctxRef = ctx;
       const files = memoryFiles();
       const labels = files.map((f) => `${f.label} — ${f.path}`);
-      const choice = await ctx.ui.select("어느 지침 파일을 고칠까요?", labels);
+      const choice = await ctx.ui.select(tr("어느 지침 파일을 고칠까요?", "Which instruction file to edit?"), labels);
       const f = files[labels.indexOf(choice)];
       if (!f) return;
       const edited = await ctx.ui.editor(`${f.label} (${f.path})`, String(f.content ?? ""));
       if (edited === undefined || edited === f.content) return;
       writeFileSync(String(f.path), edited);
-      ctx.ui.notify("저장했어요. 다시 불러와 적용해요", "info");
+      ctx.ui.notify(tr("저장했어요. 다시 불러와 적용해요", "Saved. Reloading to apply it"), "info");
       await ctx.reload();
     },
   });
 
   pi.registerCommand("pi-remote-reload", {
-    description: "pi-remote: 바뀐 확장 다시 불러오기(자동)",
+    description: tr("pi-remote: 바뀐 확장 다시 불러오기(자동)", "pi-remote: reload changed extensions (automatic)"),
     handler: async (_args: string, ctx: any) => {
       await ctx.reload();
     },
@@ -1338,15 +1339,15 @@ export default function (pi: ExtensionAPI) {
     restarting = true;
     const v = diskVersion();
     const msg = reason === "manual"
-      ? "pi를 다시 켰어요"
-      : v ? `pi를 새 버전(${v})으로 업데이트했어요` : "pi를 새 버전으로 업데이트했어요";
+      ? tr("pi를 다시 켰어요", "Restarted pi")
+      : v ? tr(`pi를 새 버전(${v})으로 업데이트했어요`, `Updated pi to ${v}`) : tr("pi를 새 버전으로 업데이트했어요", "Updated pi to a new version");
     try {
       mkdirSync(IMG_DIR, { recursive: true });
       writeFileSync(noticeFile, msg);
     } catch {
       /* 안내 실패는 무시 */
     }
-    broadcast({ t: "notice", text: reason === "manual" ? "pi를 다시 켜요" : "pi 업데이트를 적용하려고 다시 시작해요" });
+    broadcast({ t: "notice", text: reason === "manual" ? tr("pi를 다시 켜요", "Restarting pi") : tr("pi 업데이트를 적용하려고 다시 시작해요", "Restarting to apply the pi update") });
     // 지금 대화 파일을 정확히 지정해 다시 켠다(-c 는 '이 폴더의 마지막 대화'라 다른 대화를 이을 수 있음).
     // 대화 파일이 아직 없으면(메시지 없음) 새로 시작. 그 밖의 원래 실행 인자는 유지.
     const raw = process.argv.slice(2);
@@ -1393,12 +1394,12 @@ export default function (pi: ExtensionAPI) {
 
   // 같은 대화로 pi 다시 켜기(환경을 평소 터미널과 같게 바로잡거나 업데이트를 바로 적용할 때)
   pi.registerCommand("pi-remote-restart", {
-    description: "pi 다시 켜기(같은 대화로 이어짐)",
+    description: tr("pi 다시 켜기(같은 대화로 이어짐)", "Restart pi (continues the same conversation)"),
     handler: async (_args: string, ctx: any) => {
       ctxRef = ctx;
       if (!(ctx?.isIdle?.() ?? !working)) {
-        ctx?.ui?.notify?.("작업이 끝난 뒤에 다시 켤 수 있어요", "warning");
-        broadcast({ t: "notice", text: "작업이 끝난 뒤에 다시 켤 수 있어요" });
+        ctx?.ui?.notify?.(tr("작업이 끝난 뒤에 다시 켤 수 있어요", "You can restart once the task finishes"), "warning");
+        broadcast({ t: "notice", text: tr("작업이 끝난 뒤에 다시 켤 수 있어요", "You can restart once the task finishes") });
         return;
       }
       restartPi("manual");
@@ -1413,7 +1414,7 @@ export default function (pi: ExtensionAPI) {
       restartPi();
     } else if (idle >= RELOAD_IDLE_MS && extStamp() > loadedStamp + 1) {
       touch();                                // 한 번만 시도(다시 불러오면 새 타이머로 바뀜)
-      broadcast({ t: "notice", text: "확장이 바뀌어 다시 불러와요" });
+      broadcast({ t: "notice", text: tr("확장이 바뀌어 다시 불러와요", "Extensions changed; reloading") });
       pi.sendUserMessage("/pi-remote-reload", { expandPromptTemplates: true });
     }
   }, Number(process.env.PI_REMOTE_AUTO_TICK_SEC ?? 20) * 1000);
@@ -1476,7 +1477,7 @@ export default function (pi: ExtensionAPI) {
     ctxRef = ctx;
     setCompacting(false);
     broadcast(snapshot());
-    broadcast({ t: "notice", text: "대화를 압축했어요" });
+    broadcast({ t: "notice", text: tr("대화를 압축했어요", "Compacted the conversation") });
   });
   pi.on("session_compact_failed", async (e: any) => {
     setCompacting(false);
@@ -1604,8 +1605,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("message_update", async (e: any) => {
     const t = e?.assistantMessageEvent?.type;
-    if (t === "thinking_start") liveSet("working", "🤔 생각 중…");
-    else if (t === "text_start") liveSet("working", "💬 답을 쓰는 중…");
+    if (t === "thinking_start") liveSet("working", tr("🤔 생각 중…", "🤔 Thinking…"));
+    else if (t === "text_start") liveSet("working", tr("💬 답을 쓰는 중…", "💬 Writing the answer…"));
   });
   pi.on("tool_execution_start", async (e: any) => {
     liveSet("working", `⏳ ${describe(e.toolName, e.args)}`);

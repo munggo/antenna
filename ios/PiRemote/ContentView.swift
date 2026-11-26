@@ -58,7 +58,7 @@ struct ContentView: View {
             session.disconnect()
             session.connect(using: settings)
             showTerminal = true
-            SaveCenter.shared.say("연결 정보를 저장했어요")
+            SaveCenter.shared.say(String(localized: "연결 정보를 저장했어요"))
         }
         .onReceive(settings.$pairNotice) { text in
             // 짝짓지 못했을 때(만료·이미 쓴 QR·맥에 닿지 못함) 까닭을 알림
@@ -113,7 +113,7 @@ struct ContentView: View {
 
     private var form: some View {
         VStack(spacing: 14) {
-            secureField(title: "토큰", text: $settings.token)
+            secureField(title: String(localized: "토큰"), text: $settings.token)
             // 맥에서 antenna-pair 로 띄운 QR 을 앱 안에서 찍기
             Button { showScanner = true } label: {
                 Label("QR 코드 찍기", systemImage: "qrcode.viewfinder")

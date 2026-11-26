@@ -162,7 +162,7 @@ struct JobsSheet: View {
 
     /// "셸 · 12분째"
     static func subline(_ j: BgJob, now: Date) -> String {
-        "\(kindName(j.kind)) · \(BackgroundText.duration(Int(now.timeIntervalSince1970 - j.startedAt / 1000)))째"
+        String(localized: "\(kindName(j.kind)) · \(BackgroundText.duration(Int(now.timeIntervalSince1970 - j.startedAt / 1000)))째")
     }
 
     /// 에이전트의 종류·모델·생각 깊이: "Explore · Haiku 5.5 · 높음"(모르는 값은 뺌). 에이전트가 아니거나 다 모르면 ""
@@ -173,10 +173,10 @@ struct JobsSheet: View {
 
     static func kindName(_ k: String) -> String {
         switch k {
-        case "shell": return "셸"
-        case "agent": return "에이전트"
-        case "monitor": return "감시"
-        default: return "작업"
+        case "shell": return String(localized: "셸")
+        case "agent": return String(localized: "에이전트")
+        case "monitor": return String(localized: "감시")
+        default: return String(localized: "작업")
         }
     }
 
@@ -191,16 +191,16 @@ struct JobsSheet: View {
 
     static func confirmTitle(_ j: BgJob) -> String {
         let name = j.title.count > 30 ? String(j.title.prefix(30)) + "…" : j.title
-        return "'\(name)' \(kindObject(j.kind)) 종료할까요?"
+        return String(localized: "'\(name)' \(kindObject(j.kind)) 종료할까요?")
     }
 
     /// 종류 + 받침에 맞는 목적격 조사: "셸을", "에이전트를", "감시를", "작업을"
     static func kindObject(_ k: String) -> String {
         switch k {
-        case "shell": return "셸을"
-        case "agent": return "에이전트를"
-        case "monitor": return "감시를"
-        default: return "작업을"
+        case "shell": return String(localized: "셸을")
+        case "agent": return String(localized: "에이전트를")
+        case "monitor": return String(localized: "감시를")
+        default: return String(localized: "작업을")
         }
     }
 }

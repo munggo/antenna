@@ -13,6 +13,12 @@
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// 폰에 보일 글의 언어(PI_REMOTE_LANG). 설치본은 같은 폴더(Claude Code 쪽)나 lib/(pi 쪽), 저장소에서는 pi-extension/lib/
+const LANG_FILE = ["lang.mjs", "../pi-extension/lib/lang.mjs"].map((f) => join(dirname(fileURLToPath(import.meta.url)), f)).find((p) => existsSync(p));
+const { tr } = LANG_FILE ? await import(LANG_FILE) : { tr: (ko) => ko };
 
 const HOME = process.env.HOME ?? "";
 const TMUX = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"].find((p) => existsSync(p)) ?? "tmux";
@@ -22,7 +28,7 @@ const tmux = (...a) => execFileSync(TMUX, a, { encoding: "utf8", timeout: 5000, 
 export function shortName(task) {
   const t = String(task ?? "").replace(/@\S+/g, " ").replace(/\s+/g, " ").trim();
   const chars = [...t];
-  return `bg ${chars.length > 12 ? `${chars.slice(0, 12).join("")}…` : t || "작업"}`;
+  return tr(`bg ${chars.length > 12 ? `${chars.slice(0, 12).join("")}…` : t || "작업"}`, `bg ${chars.length > 12 ? `${chars.slice(0, 12).join("")}…` : t || "task"}`);
 }
 
 /** 새 탭에서 실행할 셸 줄: 할 일 파일을 읽어 지우고 pi/claude 를 그 글과 함께 켬. 끝나면 로그인 셸로 남음 */
@@ -50,7 +56,7 @@ export function launchBackground({ agent, cwd, task, originPane = "", by = "user
   mkdirSync(dir, { recursive: true });
   const file = `${dir}/${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 8)}.txt`;
   // '-'로 시작하면 옵션으로 읽히지 않게
-  writeFileSync(file, body.startsWith("-") ? `작업: ${body}` : body, { mode: 0o600 });
+  writeFileSync(file, body.startsWith("-") ? tr(`작업: ${body}`, `Task: ${body}`) : body, { mode: 0o600 });
   const shell = process.env.SHELL && /\/(zsh|bash)$/.test(process.env.SHELL) ? process.env.SHELL : "/bin/zsh";
   const name = shortName(body);
   const envArgs = Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]);

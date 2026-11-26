@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { basename, extname, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { tr } from "./lib/lang.mjs";   // 폰에 보이는 글의 언어(PI_REMOTE_LANG)
 
 const GUIDE =
   "When you create a deliverable the user will want to look at (an HTML page, report or document, slide deck, spreadsheet, PDF, " +
@@ -99,7 +100,7 @@ export default function (pi: ExtensionAPI) {
 
   // 맥: 이 대화의 아티팩트 목록 → 고르면 기본 앱으로 열기
   pi.registerCommand("artifacts", {
-    description: "이 대화의 아티팩트 목록(고르면 맥에서 열기)",
+    description: tr("이 대화의 아티팩트 목록(고르면 맥에서 열기)", "Artifacts in this conversation (pick one to open it on the Mac)"),
     handler: async (_args: string, ctx: any) => {
       const list = artifactsIn(ctx.sessionManager?.getBranch?.() ?? []).reverse();   // 최근 것 먼저
       if (!list.length) {

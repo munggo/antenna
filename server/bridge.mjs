@@ -35,6 +35,7 @@ import { parseHave, snapshotForApp } from "./chat-delta.mjs";
 import { accountsState, claimsFromUsage, dailyUsage, MIXED_TEXT, mixedDirection, readUsageHistory, recordSharedClaims, recordUsage, recordWorkUsage, sharedLimits, usageHistoryForApp, workUsageForApp } from "./usage-history.mjs";
 import { loadPiAuth, PI_AUTH_FILE, USAGE_AUTH_FILE, usageToken } from "./usage-auth.mjs";
 import { acceptFolderTrust } from "./folder-trust.mjs";
+import { tr } from "../pi-extension/lib/lang.mjs";   // 폰에 보내는 글의 언어(PI_REMOTE_LANG)
 
 // launchd 로 실행되면 언어 설정이 없어 tmux 가 한글(창 이름 등)을 "_" 로 바꿔 출력한다 → UTF-8 지정.
 // (이 프로세스에서 실행하는 tmux 명령들이 이 환경을 물려받는다)
@@ -154,11 +155,11 @@ function listSessions() {
     execFile(process.execPath, ["--input-type=module", "--no-warnings", "-e", code],
       { timeout: 20000, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, PI_REMOTE_SESSION_DIR: SESSION_DIR } },
       (err, stdout) => {
-        if (err) return resolve({ items: [], error: "지난 대화 목록을 읽지 못했어요" });
+        if (err) return resolve({ items: [], error: tr("지난 대화 목록을 읽지 못했어요", "Couldn't read the list of past conversations") });
         try {
           resolve({ items: JSON.parse(stdout) });
         } catch {
-          resolve({ items: [], error: "지난 대화 목록을 읽지 못했어요" });
+          resolve({ items: [], error: tr("지난 대화 목록을 읽지 못했어요", "Couldn't read the list of past conversations") });
         }
       });
   });
@@ -314,8 +315,8 @@ async function tokenFor(label, file, provider) {
 async function anthropicToken() {
   const r = await tokenFor("개인", AUTH_FILE, "anthropic");
   if (r.token) return { token: r.token };
-  if (r.error === "none") return { error: "pi 에 Anthropic 계정으로 로그인돼 있지 않아요" };
-  return { error: "로그인 토큰이 만료됐어요. 맥 pi 를 한 번 사용하면 자동으로 갱신돼요" };
+  if (r.error === "none") return { error: tr("pi 에 Anthropic 계정으로 로그인돼 있지 않아요", "pi isn't logged in with an Anthropic account") };
+  return { error: tr("로그인 토큰이 만료됐어요. 맥 pi 를 한 번 사용하면 자동으로 갱신돼요", "The login token expired. Using pi on the Mac once renews it") };
 }
 
 // 토큰 계정(회사·추가 개인): 조회 전용 로그인(deploy/usage-login.mjs 로 받아 둔 것)이 있으면 사용량을 조회해 공유 파일에 적는다.
@@ -378,8 +379,8 @@ function planLabel(org) {
 
 function limitLabel(l) {
   const model = l?.scope?.model?.display_name;
-  if (l.group === "weekly") return model ? `주간 한도 · ${model}` : "주간 한도 · 모든 모델";
-  if (/session|five|5h/.test(`${l.group} ${l.kind}`)) return "현재 세션 (5시간)";
+  if (l.group === "weekly") return model ? tr(`주간 한도 · ${model}`, `Weekly limit · ${model}`) : tr("주간 한도 · 모든 모델", "Weekly limit · all models");
+  if (/session|five|5h/.test(`${l.group} ${l.kind}`)) return tr("현재 세션 (5시간)", "Current session (5 hours)");
   return model ? `${l.kind} · ${model}` : l.kind;
 }
 
@@ -424,7 +425,7 @@ async function fetchUsage(force = false) {
   if (error) {
     await work;
     const data = sharedUsage();
-    if (!data) return { error: "아직 사용량 값이 없어요. 맥에서 Claude Code 나 pi 를 한 번 쓰면 보여요" };
+    if (!data) return { error: tr("아직 사용량 값이 없어요. 맥에서 Claude Code 나 pi 를 한 번 쓰면 보여요", "No usage data yet. It shows after you use Claude Code or pi on the Mac once") };
     usageCache = { at: Date.now(), data };
     return data;
   }
@@ -441,7 +442,7 @@ async function fetchUsage(force = false) {
     const list = Array.isArray(u.limits) ? u.limits : [];
     const hasSession = list.some((l) => /session|five|5h/.test(`${l.group} ${l.kind}`));
     if (!hasSession && u.five_hour && typeof u.five_hour.utilization === "number") {
-      limits.push({ key: "session", label: "현재 세션 (5시간)", percent: u.five_hour.utilization, resetsAt: u.five_hour.resets_at ?? null, session: true, severity: "normal" });
+      limits.push({ key: "session", label: tr("현재 세션 (5시간)", "Current session (5 hours)"), percent: u.five_hour.utilization, resetsAt: u.five_hour.resets_at ?? null, session: true, severity: "normal" });
     }
     for (const l of list) {
       const model = l?.scope?.model?.display_name;
@@ -476,7 +477,7 @@ async function fetchUsage(force = false) {
   } catch (e) {
     // 조회가 안 되면(네트워크·권한) 공유 파일의 값이라도 보여 준다
     await work;
-    return sharedUsage() ?? { error: `사용량을 불러오지 못했어요 (${e.message})` };
+    return sharedUsage() ?? { error: tr(`사용량을 불러오지 못했어요 (${e.message})`, `Couldn't load usage (${e.message})`) };
   }
 }
 
@@ -573,7 +574,7 @@ function macEditorEmpty() {
     return false;
   }
 }
-const EDITOR_BUSY = "맥 입력창에 쓰던 글이 있어 명령을 보내지 않았어요";
+const EDITOR_BUSY = tr("맥 입력창에 쓰던 글이 있어 명령을 보내지 않았어요", "There's text in the Mac input box, so the command wasn't sent");
 
 // 폰에서 보낸 사진(~/.cache/pi-remote/img-*)과 썸네일은 7일 지나면 지운다(디스크가 계속 차지 않게)
 const IMG_DIR = `${process.env.HOME}/.cache/pi-remote`;
@@ -606,16 +607,16 @@ const MAC_IMG_EXT = /\.(png|jpe?g|gif|heic|heif|webp|bmp|tiff?)$/i;
 function macImage(path, size) {
   let p = String(path ?? "");
   if (p.startsWith("~/")) p = `${process.env.HOME}${p.slice(1)}`;
-  if (!p.startsWith("/") || p.includes("\0") || !MAC_IMG_EXT.test(p)) return { error: "그림 파일 경로가 아니에요" };
+  if (!p.startsWith("/") || p.includes("\0") || !MAC_IMG_EXT.test(p)) return { error: tr("그림 파일 경로가 아니에요", "Not an image file path") };
   let real, st;
   try {
     real = realpathSync(p);
     st = statSync(real);
   } catch {
-    return { error: "맥에 그 파일이 없어요" };
+    return { error: tr("맥에 그 파일이 없어요", "That file isn't on the Mac") };
   }
-  if (!st.isFile()) return { error: "그림 파일이 아니에요" };
-  if (st.size > 200 * 1024 * 1024) return { error: "그림이 너무 커요" };
+  if (!st.isFile()) return { error: tr("그림 파일이 아니에요", "Not an image file") };
+  if (st.size > 200 * 1024 * 1024) return { error: tr("그림이 너무 커요", "The image is too large") };
   const px = size === "full" ? 2048 : size === "large" ? 1024 : 360;
   const key = createHash("sha1").update(`${real}\n${st.mtimeMs}\n${st.size}\n${px}`).digest("hex").slice(0, 16);
   const sips = (args) => execFileSync("/usr/bin/sips", args, { encoding: "utf8", timeout: 20_000, stdio: ["ignore", "pipe", "ignore"] });
@@ -623,7 +624,7 @@ function macImage(path, size) {
     const info = sips(["-g", "pixelWidth", "-g", "pixelHeight", "-g", "hasAlpha", real]);
     const w = Number(info.match(/pixelWidth:\s*(\d+)/)?.[1]);
     const h = Number(info.match(/pixelHeight:\s*(\d+)/)?.[1]);
-    if (!w || !h) return { error: "그림으로 읽지 못했어요" };
+    if (!w || !h) return { error: tr("그림으로 읽지 못했어요", "Couldn't read it as an image") };
     const format = /hasAlpha:\s*yes/.test(info) ? "png" : "jpeg";
     const out = `${THUMB_DIR}/mac-${key}.${format === "png" ? "png" : "jpg"}`;
     if (!existsSync(out)) {
@@ -631,10 +632,10 @@ function macImage(path, size) {
       sips(["-s", "format", format, ...(Math.max(w, h) > px ? ["-Z", String(px)] : []), real, "--out", out]);
     }
     const data = readFileSync(out);
-    if (data.length > 15 * 1024 * 1024) return { error: "그림이 너무 커요" };
+    if (data.length > 15 * 1024 * 1024) return { error: tr("그림이 너무 커요", "The image is too large") };
     return { data: data.toString("base64") };
   } catch {
-    return { error: "그림으로 읽지 못했어요" };
+    return { error: tr("그림으로 읽지 못했어요", "Couldn't read it as an image") };
   }
 }
 
@@ -645,15 +646,15 @@ function makeThumb(path, size) {
   // 폰에서 올린 사진(사진 폴더의 img-숫자)이 아니면 맥의 일반 그림(답 속 경로를 폰에서 누름)
   if (!/^img-\d+\.(jpe?g|png)$/i.test(base) || (dir && !dir.endsWith("/.cache/pi-remote"))) return macImage(path, size);
   const src = `${IMG_DIR}/${base}`;
-  if (!existsSync(src)) return { error: "사진이 없어요(7일 지나 정리됐을 수 있어요)" };
+  if (!existsSync(src)) return { error: tr("사진이 없어요(7일 지나 정리됐을 수 있어요)", "The photo is gone (it may have been cleaned up after 7 days)") };
   if (size === "full") {
     // 전체화면 확대용: 원본 그대로(폰에서 보낸 사진은 이미 긴 변 2048 이하)
     try {
       const data = readFileSync(src);
-      if (data.length > 8 * 1024 * 1024) return { error: "사진이 너무 커요" };
+      if (data.length > 8 * 1024 * 1024) return { error: tr("사진이 너무 커요", "The photo is too large") };
       return { data: data.toString("base64") };
     } catch (e) {
-      return { error: `읽기 실패: ${e.message}` };
+      return { error: tr(`읽기 실패: ${e.message}`, `Read failed: ${e.message}`) };
     }
   }
   const px = size === "large" ? 1024 : 360;
@@ -665,7 +666,7 @@ function makeThumb(path, size) {
     }
     return { data: readFileSync(out).toString("base64") };
   } catch (e) {
-    return { error: `썸네일 실패: ${e.message}` };
+    return { error: tr(`썸네일 실패: ${e.message}`, `Thumbnail failed: ${e.message}`) };
   }
 }
 cleanupImages();
@@ -759,7 +760,7 @@ function batteryTick() {
   if (!battery?.low) batteryLowSent = false;
   else if (!batteryLowSent && !macInUse()) {
     batteryLowSent = true;
-    notify({ kind: "battery", title: `맥 배터리 ${battery.percent}%`, body: "충전기를 연결해 주세요" }).catch(() => {});
+    notify({ kind: "battery", title: tr(`맥 배터리 ${battery.percent}%`, `Mac battery ${battery.percent}%`), body: tr("충전기를 연결해 주세요", "Plug in the charger") }).catch(() => {});
   }
 }
 batteryTick();
@@ -846,10 +847,10 @@ async function reportRestore() {
     /* 모르면 0 */
   }
   const r = restoreReport;
-  const tabs = r.fromSnapshot ? `탭 ${r.restored}개 되살림(pi ${r.pi}·Claude ${r.claude}·셸 ${r.shell})` : "저장된 탭 목록이 없어 빈 세션을 만들었어요";
-  const body = `${tabs}${reachText(vpn)} · 브리지 동작 중`;
+  const tabs = r.fromSnapshot ? tr(`탭 ${r.restored}개 되살림(pi ${r.pi}·Claude ${r.claude}·셸 ${r.shell})`, `Restored ${r.restored} tabs (pi ${r.pi} · Claude ${r.claude} · shell ${r.shell})`) : tr("저장된 탭 목록이 없어 빈 세션을 만들었어요", "No saved tab list, so an empty session was created");
+  const body = tr(`${tabs}${reachText(vpn)} · 브리지 동작 중`, `${tabs}${reachText(vpn)} · bridge running`);
   console.log(`[pi-remote] 재부팅 점검: ${body}`);
-  notify({ kind: "boot", title: uptimeSec && uptimeSec < 20 * 60 ? "맥이 다시 켜졌어요" : "tmux 세션을 되살렸어요", body }).catch(() => {});
+  notify({ kind: "boot", title: uptimeSec && uptimeSec < 20 * 60 ? tr("맥이 다시 켜졌어요", "The Mac restarted") : tr("tmux 세션을 되살렸어요", "Restored the tmux session"), body }).catch(() => {});
 }
 setTimeout(reportRestore, Number(process.env.PI_REMOTE_RESTORE_REPORT_DELAY_MS ?? 15_000)).unref();
 
@@ -1265,12 +1266,12 @@ wss.on("connection", (ws, req) => {
           const reply = (o) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: "session-opened", ...o }));
           const path = safeSessionPath(msg.path);
           if (!path) {
-            reply({ error: "열 수 없는 대화예요" });
+            reply({ error: tr("열 수 없는 대화예요", "That conversation can't be opened") });
             return;
           }
           const o = openSessions().get(path);
           if (o && o.session !== SESSION) {
-            reply({ error: "다른 곳(tmux 세션)에서 이미 열려 있어요" });
+            reply({ error: tr("다른 곳(tmux 세션)에서 이미 열려 있어요", "It's already open elsewhere (in the tmux session)") });
             return;
           }
           try {
@@ -1290,7 +1291,7 @@ wss.on("connection", (ws, req) => {
             }
           } catch (e) {
             console.warn(`[pi-remote] 지난 대화 열기 실패: ${e.message}`);
-            reply({ error: "탭을 열지 못했어요" });
+            reply({ error: tr("탭을 열지 못했어요", "Couldn't open a tab") });
           }
           pushWindows();
           return;
@@ -1328,14 +1329,14 @@ wss.on("connection", (ws, req) => {
               setTimeout(() => process.exit(0), 1500);   // launchd 가 공유 토큰 없이 다시 띄움
             }
           } catch (e) {
-            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: `토큰을 바꾸지 못했어요: ${e.message}` } }));
+            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: tr(`토큰을 바꾸지 못했어요: ${e.message}`, `Couldn't replace the token: ${e.message}`) } }));
           }
           return;
         }
         if (msg.type === "push-test") {
-          notify({ title: "알림 시험", body: "pi-remote 알림이 잘 와요", kind: "test" }).then((r) => {
+          notify({ title: tr("알림 시험", "Test notification"), body: tr("pi-remote 알림이 잘 와요", "Antenna notifications are working"), kind: "test" }).then((r) => {
             const ok = r.some((x) => x.status === 200);
-            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: ok ? "시험 알림을 보냈어요" : pushEnabled ? "시험 알림을 보내지 못했어요" : "맥에 알림 설정이 없어요" } }));
+            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: ok ? tr("시험 알림을 보냈어요", "Sent a test notification") : pushEnabled ? tr("시험 알림을 보내지 못했어요", "Couldn't send a test notification") : tr("맥에 알림 설정이 없어요", "Notifications aren't set up on the Mac") } }));
           });
           return;
         }
@@ -1350,15 +1351,15 @@ wss.on("connection", (ws, req) => {
             const p2 = workUsageForApp("anthropic-personal2");
             const p2l = sharedLimits("anthropic-personal2", false);
             // 이름을 개인 카드와 같게: 모든 모델 주간 한도는 '주간 한도 · 모든 모델'(사용자 요청 11-19)
-            const tidy = (ls) => ls.map((l) => ({ ...l, label: l.label.replace(/^회사 계정 · /, "").replace(/\s*\([^)]*전 기준\)$/, "").replace(/^주간 한도$/, "주간 한도 · 모든 모델") }));
+            const tidy = (ls) => ls.map((l) => ({ ...l, label: l.label.replace(/^(회사 계정|Work account) · /, "").replace(/\s*\(([^)]*전 기준|as of [^)]*)\)$/, "").replace(/^주간 한도$/, "주간 한도 · 모든 모델").replace(/^Weekly limit$/, "Weekly limit · all models") }));
             const accounts = data.error ? undefined : [
-              { key: "personal", label: "개인", plan: data.plan || "", limits: (data.limits || []).filter((l) => !String(l.key).startsWith("work:")), ...graph },
+              { key: "personal", label: tr("개인", "Personal"), plan: data.plan || "", limits: (data.limits || []).filter((l) => !String(l.key).startsWith("work:")), ...graph },
               // 추가 개인 계정(사용자 결정 11-25 '앱 사용량에 추가 개인 계정도'): 메인 개인이 95%를 넘어 바꾼 탭이 쓸 때 쌓인 값.
               // 아직 쓰지 않아 값이 없어도 토큰이 있으면 카드를 보임(앱이 '쓰면 사용량이 보여요')
-              ...(p2l.length || p2.history.length || hasKeychainItem("pi-anthropic-personal2") ? [{ key: "personal2", label: "추가 개인", plan: tokenPlanCache.get("anthropic-personal2")?.plan || "추가 개인 계정", limits: tidy(p2l), ...p2 }] : []),
+              ...(p2l.length || p2.history.length || hasKeychainItem("pi-anthropic-personal2") ? [{ key: "personal2", label: tr("추가 개인", "Personal 2"), plan: tokenPlanCache.get("anthropic-personal2")?.plan || tr("추가 개인 계정", "Second personal account"), limits: tidy(p2l), ...p2 }] : []),
               ...(wl.length || work.history.length
                 // 요금제를 알면 'Claude Max 20x' 처럼(사용자 요청 11-19)
-                ? [{ key: "work", label: "회사", plan: tokenPlanCache.get("anthropic-work")?.plan || "회사 계정", limits: tidy(wl), ...work }]
+                ? [{ key: "work", label: tr("회사", "Work"), plan: tokenPlanCache.get("anthropic-work")?.plan || tr("회사 계정", "Work account"), limits: tidy(wl), ...work }]
                 : []),
             ];
             if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "usage", ...data, ...graph, ...(accounts ? { accounts } : {}) }));
@@ -1443,7 +1444,7 @@ wss.on("connection", (ws, req) => {
             feed.write(`${JSON.stringify({ cmd: "set-account", account })}\n`);
             setTimeout(pushWindows, 900);
           } else {
-            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: "Claude Code 탭에서만 계정을 고를 수 있어요" } }));
+            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: tr("Claude Code 탭에서만 계정을 고를 수 있어요", "Accounts can only be chosen in Claude Code tabs") } }));
           }
           return;
         }
@@ -1504,17 +1505,17 @@ wss.on("connection", (ws, req) => {
           // 끝나면 그 탭의 연결부가 폰 알림 + 이 탭에 결과 요약
           const notice = (text) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text } }));
           if (!feedPane || !feedOn) {
-            notice("이 탭에는 pi·Claude Code 가 없어 백그라운드로 보낼 수 없어요");
+            notice(tr("이 탭에는 pi·Claude Code 가 없어 백그라운드로 보낼 수 없어요", "This tab has no pi or Claude Code, so it can't be sent to the background"));
             return;
           }
           try {
             const cwd = execFileSync(TMUX_BIN, ["display", "-p", "-t", feedPane, "#{pane_current_path}"], { encoding: "utf8", timeout: 3000 }).trim();
             const r = launchBackground({ agent: feedAgent === "claude" ? "claude" : "pi", cwd, task: msg.text.slice(0, 100_000), originPane: feedPane, by: "phone", session: SESSION });
             console.log(`[pi-remote] 백그라운드 탭 시작: ${r.window} (${feedAgent})`);
-            notice(`백그라운드 탭 ${r.window}(${r.name})에서 시작했어요. 끝나면 결과를 이 탭으로 알려 드려요`);
+            notice(tr(`백그라운드 탭 ${r.window}(${r.name})에서 시작했어요. 끝나면 결과를 이 탭으로 알려 드려요`, `Started in background tab ${r.window} (${r.name}). The result comes back to this tab when it's done`));
             setTimeout(pushWindows, 500);
           } catch (e) {
-            notice(`백그라운드 탭을 열지 못했어요: ${e.message}`);
+            notice(tr(`백그라운드 탭을 열지 못했어요: ${e.message}`, `Couldn't open a background tab: ${e.message}`));
           }
           return;
         }
@@ -1550,7 +1551,7 @@ wss.on("connection", (ws, req) => {
               : undefined;
             feed.write(`${JSON.stringify({ cmd: "question-answer", id: String(msg.id ?? ""), answers, other: String(msg.other ?? "").slice(0, 4000), cancel: msg.cancel === true, ...(items ? { items } : {}) })}\n`);
           } else if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: "pi 확장이 연결되지 않았어요" } }));
+            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: tr("pi 확장이 연결되지 않았어요", "The pi extension isn't connected") } }));
           }
           return;
         }
@@ -1559,7 +1560,7 @@ wss.on("connection", (ws, req) => {
           if (feed && feedOn && feedCanSend) {
             feed.write(`${JSON.stringify({ cmd: "approval", id: String(msg.id ?? ""), approved: msg.approved === true })}\n`);
           } else if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: "pi 확장이 연결되지 않았어요" } }));
+            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: tr("pi 확장이 연결되지 않았어요", "The pi extension isn't connected") } }));
           }
           return;
         }
@@ -1568,7 +1569,7 @@ wss.on("connection", (ws, req) => {
           if (feed && feedOn && feedCanSend) {
             feed.write(`${JSON.stringify({ cmd: "compact" })}\n`);
           } else if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: "pi 확장이 연결되지 않았어요" } }));
+            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: tr("pi 확장이 연결되지 않았어요", "The pi extension isn't connected") } }));
           }
           return;
         }
@@ -1580,7 +1581,7 @@ wss.on("connection", (ws, req) => {
               : { cmd: "memory-list" };
             feed.write(`${JSON.stringify(o)}\n`);
           } else if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: "pi 확장이 연결되지 않았어요" } }));
+            ws.send(JSON.stringify({ type: "chat", d: { t: "notice", text: tr("pi 확장이 연결되지 않았어요", "The pi extension isn't connected") } }));
           }
           return;
         }
@@ -1591,7 +1592,7 @@ wss.on("connection", (ws, req) => {
             const offset = Number.isInteger(msg.offset) && msg.offset >= 0 ? msg.offset : undefined;
             feed.write(`${JSON.stringify({ cmd: "artifact", path: String(msg.path ?? "").slice(0, 4000), offset })}\n`);
           } else if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ type: "chat", d: { t: "artifact", path: String(msg.path ?? ""), error: "pi 확장이 연결되지 않았어요" } }));
+            ws.send(JSON.stringify({ type: "chat", d: { t: "artifact", path: String(msg.path ?? ""), error: tr("pi 확장이 연결되지 않았어요", "The pi extension isn't connected") } }));
           }
           return;
         }
@@ -1600,7 +1601,7 @@ wss.on("connection", (ws, req) => {
           if (feed && feedOn && feedCanSend) {
             feed.write(`${JSON.stringify({ cmd: "toolimage", id: String(msg.id ?? "") })}\n`);
           } else if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ type: "chat", d: { t: "toolimage", id: String(msg.id ?? ""), error: "pi 확장이 연결되지 않았어요" } }));
+            ws.send(JSON.stringify({ type: "chat", d: { t: "toolimage", id: String(msg.id ?? ""), error: tr("pi 확장이 연결되지 않았어요", "The pi extension isn't connected") } }));
           }
           return;
         }
@@ -1609,7 +1610,7 @@ wss.on("connection", (ws, req) => {
           if (feed && feedOn && feedCanSend) {
             feed.write(`${JSON.stringify({ cmd: "files", query: String(msg.query ?? "").slice(0, 200) })}\n`);
           } else if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ type: "chat", d: { t: "files", query: String(msg.query ?? ""), files: [], error: "pi 확장이 연결되지 않았어요" } }));
+            ws.send(JSON.stringify({ type: "chat", d: { t: "files", query: String(msg.query ?? ""), files: [], error: tr("pi 확장이 연결되지 않았어요", "The pi extension isn't connected") } }));
           }
           return;
         }
@@ -1618,7 +1619,7 @@ wss.on("connection", (ws, req) => {
           if (feed && feedOn && feedCanSend) {
             feed.write(`${JSON.stringify(msg.type === "bg-jobs" ? { cmd: "bg-jobs" } : { cmd: "bg-job-kill", id: String(msg.id ?? "").slice(0, 100) })}\n`);
           } else if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ type: "chat", d: { t: "bg-jobs", jobs: [], error: "이 탭의 Claude Code 에 연결되지 않았어요" } }));
+            ws.send(JSON.stringify({ type: "chat", d: { t: "bg-jobs", jobs: [], error: tr("이 탭의 Claude Code 에 연결되지 않았어요", "Not connected to this tab's Claude Code") } }));
           }
           return;
         }
@@ -1628,7 +1629,7 @@ wss.on("connection", (ws, req) => {
             const req = { cmd: "detail", key: String(msg.key ?? ""), kind: String(msg.kind ?? ""), id: String(msg.id ?? ""), ref: String(msg.ref ?? "") };
             feed.write(`${JSON.stringify(req)}\n`);
           } else if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ type: "chat", d: { t: "detail", detail: { key: String(msg.key ?? ""), error: "pi 확장이 연결되지 않았어요" } } }));
+            ws.send(JSON.stringify({ type: "chat", d: { t: "detail", detail: { key: String(msg.key ?? ""), error: tr("pi 확장이 연결되지 않았어요", "The pi extension isn't connected") } } }));
           }
           return;
         }

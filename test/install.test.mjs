@@ -162,7 +162,7 @@ try {
   ok(r.status === 0 && HOOK_EVENTS.every((e) => ours(e).length === 1), "Claude Code 가 있으면 훅 8가지를 하나씩 검");
   ok(s.model === "opus" && JSON.stringify(s.hooks?.Stop ?? "").includes("echo mine"), "원래 있던 설정·훅은 그대로");
   ok(ours("Stop")[0]?.command === `"${cc.bin}/node" "${cc.home}/.claude/pi-remote/pi-remote-hook.mjs"`, "훅은 설치할 때 고른 node 로 돎");
-  ok(["claude-feed.mjs", "pi-remote-hook.mjs", "claude-account.mjs", "bg-launch.mjs", "sudo-check.mjs", "sudo-run.mjs", "sudo-tab.sh", "sudo-rules.mjs", "claude-account"].every((f) => existsSync(`${cc.home}/.claude/pi-remote/${f}`)) && existsSync(`${cc.home}/.claude/commands/bgtab.md`),
+  ok(["claude-feed.mjs", "pi-remote-hook.mjs", "claude-account.mjs", "bg-launch.mjs", "sudo-check.mjs", "sudo-run.mjs", "sudo-tab.sh", "sudo-rules.mjs", "lang.mjs", "claude-account"].every((f) => existsSync(`${cc.home}/.claude/pi-remote/${f}`)) && existsSync(`${cc.home}/.claude/commands/bgtab.md`),
     "연결부·훅 파일과 백그라운드 탭 명령을 설치함");
   // 아티팩트는 폴더 기준 계정에(11-24): 아티팩트 도구 앞 훅 하나, 대신 실행 시간을 넉넉히
   const relay = () => (s.hooks?.PreToolUse ?? []).filter((g) => (g.hooks ?? []).some((h) => String(h.command).includes("artifact-relay.mjs")));
@@ -186,7 +186,7 @@ try {
   writeFileSync(`${EXT}/my-own.ts`, "// 내 확장\n");
   writeFileSync(`${EXT}/todos.ts`, "// 예전 판\n");
   r = pm.install("--no-agent");
-  const BASE = ["pi-remote-feed.ts", "send-guard.ts", "ask-user.ts", "todos.ts", "plan-mode.ts", "artifacts.ts", "bgtab.ts", "sudo-tab.sh", "lib/choice-box.ts", "lib/readonly.ts", "lib/sudo-rules.mjs"];
+  const BASE = ["pi-remote-feed.ts", "send-guard.ts", "ask-user.ts", "todos.ts", "plan-mode.ts", "artifacts.ts", "bgtab.ts", "sudo-tab.sh", "lib/choice-box.ts", "lib/readonly.ts", "lib/sudo-rules.mjs", "lib/lang.mjs"];
   const sameAs = (f, src = `pi-extension/${f}`) => existsSync(`${EXT}/${f}`) && readFileSync(`${EXT}/${f}`).equals(readFileSync(join(REPO, src)));
   ok(r.status === 0 && BASE.every((f) => sameAs(f)) && sameAs("lib/bg-launch.mjs", "claude-remote/bg-launch.mjs"), "pi 가 있으면 폰 화면에 필요한 확장을 저장소와 같은 내용으로 설치");
   ok((statSync(`${EXT}/sudo-tab.sh`).mode & 0o111) !== 0, "관리자 권한 창 스크립트는 실행할 수 있게");

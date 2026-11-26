@@ -9,6 +9,7 @@
  */
 import { statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+import { tr } from "../pi-extension/lib/lang.mjs";   // 폰에 보내는 글의 언어(PI_REMOTE_LANG)
 
 /** 같은 요청 번호를 기억하는 시간(앱은 12초 안에 그만두므로 넉넉히) */
 const KEEP_MS = 5 * 60_000;
@@ -42,22 +43,22 @@ export function createTaskStarter({ launch, home, session, now = Date.now, log =
   const run = (m, id) => {
     const fail = (reason, message) => ({ type: "task-failed", id, reason, message });
     const text = typeof m.text === "string" ? m.text.trim().slice(0, MAX_TASK) : "";
-    if (!text) return fail("empty", "할 일이 비어 있어요");
+    if (!text) return fail("empty", tr("할 일이 비어 있어요", "The task is empty"));
     const agent = m.agent === undefined || m.agent === "" ? "claude" : m.agent;
-    if (agent !== "claude" && agent !== "pi") return fail("agent", `모르는 도구예요: ${String(agent).slice(0, 40)}`);
+    if (agent !== "claude" && agent !== "pi") return fail("agent", tr(`모르는 도구예요: ${String(agent).slice(0, 40)}`, `Unknown tool: ${String(agent).slice(0, 40)}`));
     const cwd = resolveFolder(m.cwd, home);
-    if (!isFolder(cwd)) return fail("folder", `그 폴더가 맥에 없어요: ${String(m.cwd ?? "").trim().slice(0, 200)}`);
+    if (!isFolder(cwd)) return fail("folder", tr(`그 폴더가 맥에 없어요: ${String(m.cwd ?? "").trim().slice(0, 200)}`, `That folder isn't on the Mac: ${String(m.cwd ?? "").trim().slice(0, 200)}`));
     try {
       const r = launch({ agent, cwd, task: text, originPane: "", by: "shortcut", session });
       log(`단축어로 시킨 일: 탭 ${r.window}(${r.name}, ${agent}, ${cwd})`);
       return { type: "task-started", id, window: r.window, name: r.name };
     } catch (e) {
-      return fail("launch", `맥에서 새 탭을 열지 못했어요: ${e.message}`);
+      return fail("launch", tr(`맥에서 새 탭을 열지 못했어요: ${e.message}`, `Couldn't open a new tab on the Mac: ${e.message}`));
     }
   };
   return function start(m) {
     const id = String(m?.id ?? "");
-    if (!ID_RE.test(id)) return { type: "task-failed", id: "", reason: "bad-request", message: "요청 번호가 잘못됐어요" };
+    if (!ID_RE.test(id)) return { type: "task-failed", id: "", reason: "bad-request", message: tr("요청 번호가 잘못됐어요", "Invalid request ID") };
     for (const [k, v] of seen) if (now() - v.at > KEEP_MS) seen.delete(k);
     const done = seen.get(id);
     if (done) return done.reply;

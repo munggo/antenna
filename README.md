@@ -5,12 +5,12 @@
 Use the [Claude Code](https://claude.com/claude-code) and [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) sessions running on your Mac from your iPhone.
 
 <p align="center">
-  <img src="docs/images/app-chat.png" width="24%" alt="Claude Code tab: tool steps, to-do list and an approval card for sending a Slack message">
-  <img src="docs/images/app-question.png" width="24%" alt="pi tab: a multiple-choice question card">
-  <img src="docs/images/app-drawer.png" width="24%" alt="Tab drawer: tab status, background tabs and this week's usage">
-  <img src="docs/images/app-terminal.png" width="24%" alt="Shell tab: the terminal view">
+  <img src="docs/images/app-chat-en.png" width="24%" alt="Claude Code tab: tool steps, to-do list and an approval card for sending a Slack message">
+  <img src="docs/images/app-question-en.png" width="24%" alt="pi tab: a multiple-choice question card">
+  <img src="docs/images/app-drawer-en.png" width="24%" alt="Tab drawer: tab status, background tabs and this week's usage">
+  <img src="docs/images/app-terminal-en.png" width="24%" alt="Shell tab: the terminal view">
 </p>
-<p align="center"><sub>From left: a Claude Code tab (approval before sending), a pi tab (multiple-choice question), the tab drawer, the terminal view. The app's interface is in Korean; the conversations are examples.</sub></p>
+<p align="center"><sub>From left: a Claude Code tab (approval before sending), a pi tab (multiple-choice question), the tab drawer, the terminal view. The conversations are examples.</sub></p>
 
 Your agents keep running in tmux on the Mac. The iPhone app shows each tmux tab either as a chat (messages, approval and question cards, to-do list) or as the real terminal, and whatever you type on either side shows up on the other. Nothing runs on the phone. The app talks straight to a small bridge on your Mac, with no server in between. The only things that leave the Mac are the usage lookup (Anthropic) and, if you turn notifications on, the notifications (Apple's push service).
 
@@ -27,18 +27,18 @@ Your agents keep running in tmux on the Mac. The iPhone app shows each tmux tab 
 
 - **Chat view** for Claude Code and pi tabs: the conversation, tool steps, and cards for permission prompts and multiple-choice questions that you can answer from the phone. Screens where Claude Code waits for a key without telling any hook (such as the unsent-feedback prompt on `/exit`) are read off the Mac screen and shown as cards too. While such a prompt is open on the Mac, a message you send from a Claude Code tab is not typed into it (it would land as an answer). Answer the card first, or send the message as "stop and send" to close the prompt and send it. When a Claude Code tab stops because it hit a limit for one model (for example the Fable limit) and switching accounts would not help, a card shows the exact date and time the limit resets (for each account that hit it) and offers the other models and a thinking-effort level: pick them and the tab switches to that model and effort for that session only (your default model is left alone) and continues the stopped request, or choose to wait.
 - **Terminal view** for any tab: the same tmux window you see on the Mac.
-- **Tabs**: switch, open, rename and close tmux windows; send a long task to a background tab (listed in its own section of the drawer with its status, elapsed time, the tab that asked for it, and its model and thinking level; finished ones close in one tap); reopen a past pi conversation. Shells and agents that Claude Code runs in the background show up under the tab as "백그라운드 작업 N" (background tasks); tap it to see each task's name, running time (for an agent also its type and model, and its thinking level when known) and the shell's latest output, and stop it (a shell is stopped right away; for an agent, Claude is asked to stop it). On the Mac, the tab that handed off the work shows the same in one "백그라운드: …" (background) line: a widget in pi, and in Claude Code a line that your own status line script can add from the tmux window option `@ai_bg_line` (that script is not part of this repository).
-- **Instant tab switching**: the phone keeps each tab's conversation, so it shows the moment you tap, and the Mac sends only the messages the phone does not have yet (usually a few KB even for long tabs). Tabs that finish or ask something while you look elsewhere, and every tab when the app opens, get their new messages fetched in the background. Long conversations draw the latest messages first; tap "이전 대화 더 보기" (show earlier) at the top for more.
+- **Tabs**: switch, open, rename and close tmux windows; send a long task to a background tab (listed in its own section of the drawer with its status, elapsed time, the tab that asked for it, and its model and thinking level; finished ones close in one tap); reopen a past pi conversation. Shells and agents that Claude Code runs in the background show up under the tab as "N background tasks"; tap it to see each task's name, running time (for an agent also its type and model, and its thinking level when known) and the shell's latest output, and stop it (a shell is stopped right away; for an agent, Claude is asked to stop it). On the Mac, the tab that handed off the work shows the same in one "백그라운드: …" (background) line: a widget in pi, and in Claude Code a line that your own status line script can add from the tmux window option `@ai_bg_line` (that script is not part of this repository).
+- **Instant tab switching**: the phone keeps each tab's conversation, so it shows the moment you tap, and the Mac sends only the messages the phone does not have yet (usually a few KB even for long tabs). Tabs that finish or ask something while you look elsewhere, and every tab when the app opens, get their new messages fetched in the background. Long conversations draw the latest messages first; tap "Show earlier messages" at the top for more.
 - **Image paths on the Mac** in an answer (written as inline code like `/Users/…/qr.png`, or without spaces) show as underlined links; tap one to fetch it from the Mac and view it full screen (zoom, save). The Mac re-encodes the image instead of sending the file itself, so files that are not images are never sent.
 - **Admin (sudo) commands** open in their own tab where you confirm and type the password yourself; the agent never sees it.
 - **Login passwords** (Claude Code): when you are away from the Mac and its Passwords app stays locked, Claude runs `claude-remote/password-run.mjs`, which opens its own tab (🔐암호) and pings your phone. Tap the masked field and pick the password from iPhone Passwords above the keyboard (Face ID). It lands on the Mac clipboard only briefly (this Mac only, marked so clipboard history skips it, cleared after 90 seconds), and Claude pastes it into the login field without ever seeing it.
 - **Usage** of your Claude subscription limits (see the [note on usage](./docs/setup.md#usage)).
 - **MacBook battery**: the Mac's charge shows next to the connection status at the top (a bolt when plugged in, red when under 20% without a charger). With notifications set up, the phone is also told once when it gets that low. Nothing is shown for a Mac without a battery.
-- **Shortcuts**: a Shortcuts action, "맥의 AI 에게 일 시키기" (give the Mac's AI a task), starts Claude Code or pi on a task in a new background tab on the Mac without opening the app. Attach it to a Shortcuts automation (a time of day, arriving somewhere, plugging in the charger, an NFC tag) or run it from Siri or Spotlight (see [Shortcuts](./docs/setup.md#shortcuts)).
+- **Shortcuts**: a Shortcuts action, "Give the Mac's AI a task", starts Claude Code or pi on a task in a new background tab on the Mac without opening the app. Attach it to a Shortcuts automation (a time of day, arriving somewhere, plugging in the charger, an NFC tag) or run it from Siri or Spotlight (see [Shortcuts](./docs/setup.md#shortcuts)).
 - **Notifications** when an agent needs you or finishes, with your own Apple push key (see [Notifications](./docs/setup.md#notifications)).
 - After a reboot the bridge restores your tabs and resumes the conversations that were open.
 
-The app's interface, the command-line messages and the code comments are in Korean. The guides are in English and Korean.
+The app follows your iPhone's language: Korean, or English for every other language. The Mac side's text on the phone (tool steps, cards, notices, notifications) follows `PI_REMOTE_LANG` in the settings file, which `install.sh` sets from your Mac's language (see [Settings](./docs/setup.md#settings)). The command-line messages and the code comments are in Korean. The guides are in English and Korean.
 
 ## How it works
 
@@ -150,7 +150,8 @@ All off unless you turn them on. See the [setup guide](./docs/setup.md#optional-
 node deploy/doctor.mjs         # is everything installed and running? (settings, bridge, hooks, installed copies)
 node deploy/doctor.mjs --fix   # fix what can be fixed safely
 sh test.sh                     # the test suite: no model calls, never touches your real session or bridge (needs Node 22.6 or newer)
-sh test/readme-shots.sh        # retake the app screenshots above in the Simulator (example conversations, needs Xcode)
+sh test/readme-shots.sh        # retake the Korean app screenshots in the Simulator (example conversations, needs Xcode)
+ANTENNA_SHOTS_LANG=en sh test/readme-shots.sh   # the English screenshots above, plus a check that no Korean is left on the main screens
 ```
 
 If the bridge ever dies, the reason is kept in `~/.cache/pi-remote/crash.log` and the health check shows it.

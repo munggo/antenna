@@ -174,7 +174,7 @@ struct ThumbView: View {
             if tappable {
                 SaveMenuItems(media: true, host: "main") { use in
                     thumbs.bestFile(path) { u in
-                        if let u { use(u) } else { SaveCenter.shared.say("사진을 아직 받지 못했어요. 잠시 뒤 다시 해 주세요") }
+                        if let u { use(u) } else { SaveCenter.shared.say(String(localized: "사진을 아직 받지 못했어요. 잠시 뒤 다시 해 주세요")) }
                     }
                 }
             }

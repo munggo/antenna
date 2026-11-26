@@ -43,9 +43,9 @@ final class SaveCenter: ObservableObject {
 
     func toPhotos(_ url: URL) {
         let kind = Self.kind(of: url)
-        guard kind != .other else { say("사진 앱에는 사진·동영상만 저장할 수 있어요"); return }
+        guard kind != .other else { say(String(localized: "사진 앱에는 사진·동영상만 저장할 수 있어요")); return }
         authorize { ok in
-            guard ok else { self.say("사진 앱에 저장하려면 설정 › Antenna › 사진에서 '사진 추가만'을 허용해 주세요"); return }
+            guard ok else { self.say(String(localized: "사진 앱에 저장하려면 설정 › Antenna › 사진에서 '사진 추가만'을 허용해 주세요")); return }
             let ext = url.pathExtension.lowercased()
             PHPhotoLibrary.shared().performChanges({
                 if kind == .video {
@@ -56,8 +56,8 @@ final class SaveCenter: ObservableObject {
                     PHAssetChangeRequest.creationRequestForAsset(from: img)   // webp·bmp 등은 그림으로 바꿔 저장
                 }
             }) { done, _ in
-                self.say(done ? (kind == .video ? "동영상을 사진 앱에 저장했어요" : "사진 앱에 저장했어요")
-                              : (kind == .video ? "사진 앱이 이 동영상 형식을 받지 않아요. 파일 앱에 저장해 주세요" : "사진 앱에 저장하지 못했어요"))
+                self.say(done ? (kind == .video ? String(localized: "동영상을 사진 앱에 저장했어요") : String(localized: "사진 앱에 저장했어요"))
+                              : (kind == .video ? String(localized: "사진 앱이 이 동영상 형식을 받지 않아요. 파일 앱에 저장해 주세요") : String(localized: "사진 앱에 저장하지 못했어요")))
             }
         }
     }
@@ -86,9 +86,9 @@ final class SaveCenter: ObservableObject {
         }
         do {
             try fm.copyItem(at: url, to: dest)
-            say("파일 앱 › Antenna 폴더에 저장했어요")
+            say(String(localized: "파일 앱 › Antenna 폴더에 저장했어요"))
         } catch {
-            say("저장하지 못했어요")
+            say(String(localized: "저장하지 못했어요"))
         }
     }
 
@@ -188,7 +188,7 @@ private struct SaveSupport: ViewModifier {
                                  set: { if $0 == nil { center.export = nil } })) { item in
                 DocumentExporter(url: item.url) { ok in
                     center.export = nil
-                    if ok { center.say("저장했어요") }
+                    if ok { center.say(String(localized: "저장했어요")) }
                 }
                 .ignoresSafeArea()
             }

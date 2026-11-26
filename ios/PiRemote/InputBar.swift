@@ -196,8 +196,8 @@ struct InputBar: View {
                 .font(.system(size: 12)).foregroundColor(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                secretChip("취소", id: "secretCancel") { session.sendSecret("q") }
-                secretChip("명령 보기", id: "secretShow") { session.sendSecret("v") }
+                secretChip(String(localized: "취소"), id: "secretCancel") { session.sendSecret("q") }
+                secretChip(String(localized: "명령 보기"), id: "secretShow") { session.sendSecret("v") }
                 Spacer(minLength: 0)
                 Button {
                     session.sendSecret("")   // Enter = 실행
@@ -235,7 +235,7 @@ struct InputBar: View {
     /// 단계를 모르는 예전 맥 쪽(knowsStage false)이면 확인 단계일 수도 있으므로, 비워서 보내면 Enter(실행)가 되게 둔다
     private func secretButtons(knowsStage: Bool) -> some View {
         HStack(spacing: 8) {
-            secretChip(knowsStage ? "멈추기" : "취소", id: "secretStop") {
+            secretChip(knowsStage ? String(localized: "멈추기") : String(localized: "취소"), id: "secretStop") {
                 session.sendBytes([0x03])   // Ctrl+C: 어느 단계에서든 멈추고 취소
                 secret = ""
             }
@@ -266,19 +266,19 @@ struct InputBar: View {
     }
 
     private var placeholder: Text {
-        Text(session.status != .connected ? "연결 중… 연결되면 보낼 수 있어요"
-             : meta.questions.first?.kind == "input" ? (meta.questions.first?.placeholder.flatMap { $0.isEmpty ? nil : $0 } ?? "여기에 써서 답하기")
-             : meta.questions.first?.allowsOther == true ? "직접 입력해 답하기"
-             : session.isWorking ? Self.modePlaceholder(sendMode) : "\(meta.agentName)에게 메시지 보내기")
+        Text(session.status != .connected ? String(localized: "연결 중… 연결되면 보낼 수 있어요")
+             : meta.questions.first?.kind == "input" ? (meta.questions.first?.placeholder.flatMap { $0.isEmpty ? nil : $0 } ?? String(localized: "여기에 써서 답하기"))
+             : meta.questions.first?.allowsOther == true ? String(localized: "직접 입력해 답하기")
+             : session.isWorking ? Self.modePlaceholder(sendMode) : String(localized: "\(meta.agentName)에게 메시지 보내기"))
             .foregroundColor(Theme.muted)
     }
 
     static func modeTitle(_ m: String) -> String {
         switch m {
-        case "auto": return "자동"
-        case "followUp": return "끝나고 실행"
-        case "interrupt": return "멈추고 실행"
-        default: return "바로 반영"
+        case "auto": return String(localized: "자동")
+        case "followUp": return String(localized: "끝나고 실행")
+        case "interrupt": return String(localized: "멈추고 실행")
+        default: return String(localized: "바로 반영")
         }
     }
 
@@ -293,10 +293,10 @@ struct InputBar: View {
 
     static func modePlaceholder(_ m: String) -> String {
         switch m {
-        case "auto": return "보내면 바로 전달돼요"
-        case "followUp": return "보내면 지금 작업이 끝난 뒤 실행돼요"
-        case "interrupt": return "보내면 지금 작업을 멈추고 실행돼요"
-        default: return "보내면 다음 단계에서 바로 반영돼요"
+        case "auto": return String(localized: "보내면 바로 전달돼요")
+        case "followUp": return String(localized: "보내면 지금 작업이 끝난 뒤 실행돼요")
+        case "interrupt": return String(localized: "보내면 지금 작업을 멈추고 실행돼요")
+        default: return String(localized: "보내면 다음 단계에서 바로 반영돼요")
         }
     }
 
@@ -430,7 +430,7 @@ struct InputBar: View {
                 }
             }
         } label: {
-            chip(icon: "brain", text: session.piThinking.isEmpty ? "생각" : session.piThinking)
+            chip(icon: "brain", text: session.piThinking.isEmpty ? String(localized: "생각") : session.piThinking)
         }
         .accessibilityIdentifier("thinkingMenu")
     }
@@ -466,7 +466,7 @@ struct InputBar: View {
                 }
             }
         } label: {
-            chip(icon: nil, text: session.piModel.isEmpty ? "모델" : session.piModel)
+            chip(icon: nil, text: session.piModel.isEmpty ? String(localized: "모델") : session.piModel)
         }
         .accessibilityIdentifier("modelMenu")
         .disabled(session.models.isEmpty && meta.modelChoices.isEmpty)
@@ -552,20 +552,20 @@ struct InputBar: View {
     /// 권한 모드 고르기(이름, 설명). pi 와 Claude Code 가 고를 수 있는 모드가 다름
     private var modeOptions: [(String, String, String)] {
         meta.agentName == "Claude"
-            ? [("auto", "자동", "Claude 가 판단해 위험한 일만 물어요"), ("manual", "매번 묻기", "파일 수정·명령마다 물어요"),
-               ("acceptEdits", "수정 허용", "파일 수정은 묻지 않고, 명령은 물어요"), ("plan", "계획", "읽기만 하며 계획을 세워요")]
-            : [("auto", "자동", "보내기·위험한 일만 물어요"), ("ask", "매번 묻기", "파일 수정·명령도 실행 전에 물어요"), ("plan", "계획", "읽기만 하며 계획을 세워요")]
+            ? [("auto", String(localized: "자동"), String(localized: "Claude 가 판단해 위험한 일만 물어요")), ("manual", String(localized: "매번 묻기"), String(localized: "파일 수정·명령마다 물어요")),
+               ("acceptEdits", String(localized: "수정 허용"), String(localized: "파일 수정은 묻지 않고, 명령은 물어요")), ("plan", String(localized: "계획"), String(localized: "읽기만 하며 계획을 세워요"))]
+            : [("auto", String(localized: "자동"), String(localized: "보내기·위험한 일만 물어요")), ("ask", String(localized: "매번 묻기"), String(localized: "파일 수정·명령도 실행 전에 물어요")), ("plan", String(localized: "계획"), String(localized: "읽기만 하며 계획을 세워요"))]
     }
 
     /// 권한 모드 칩(Claude Code 의 Shift+Tab 처럼): 자동이 평소, 다른 모드면 강조
     private var modeChip: some View {
         let m = meta.permMode
         let (icon, label): (String, String) = switch m {
-        case "ask", "manual": ("hand.raised", "묻기")
-        case "acceptEdits": ("pencil", "수정 허용")
-        case "plan": ("list.bullet.clipboard", "계획")
-        case "bypass": ("exclamationmark.shield", "모두 허용")
-        default: ("bolt", "자동")
+        case "ask", "manual": ("hand.raised", String(localized: "묻기"))
+        case "acceptEdits": ("pencil", String(localized: "수정 허용"))
+        case "plan": ("list.bullet.clipboard", String(localized: "계획"))
+        case "bypass": ("exclamationmark.shield", String(localized: "모두 허용"))
+        default: ("bolt", String(localized: "자동"))
         }
         let on = m != "auto"
         return Menu {
@@ -609,7 +609,7 @@ struct InputBar: View {
             Menu {
                 Section("이 탭의 계정 · 지금 \(TabAccount.name(a.now))") {
                     // 추가 개인(personal2): 메인 개인이 한도에 가까울 때 쓰는 둘째 개인 계정(사용자 결정 11-25)
-                    ForEach([("auto", "자동 — 폴더 기준"), ("personal", "개인"), ("personal2", "추가 개인"), ("work", "회사")], id: \.0) { key, title in
+                    ForEach([("auto", String(localized: "자동 — 폴더 기준")), ("personal", String(localized: "개인")), ("personal2", String(localized: "추가 개인")), ("work", String(localized: "회사"))], id: \.0) { key, title in
                         let picked = (key == "auto" ? "" : key) == a.pin
                         Button {
                             pickAccount(key, current: a)
@@ -657,13 +657,13 @@ struct InputBar: View {
 
     private var accountAskTitle: String {
         guard let k = accountAsk else { return "" }
-        return k == "auto" ? "계정을 자동으로 되돌릴까요?" : "\(TabAccount.name(k)) 계정으로 바꿀까요?"
+        return k == "auto" ? String(localized: "계정을 자동으로 되돌릴까요?") : String(localized: "\(TabAccount.name(k)) 계정으로 바꿀까요?")
     }
 
     private var accountAskMessage: String {
         guard let k = accountAsk else { return "" }
-        let how = "지금 대화에 인수인계 문서를 쓰게 한 뒤 대화를 비우고 새로 켜요. 일하는 중이면 끝난 뒤에 바꿔요."
-        return k == "auto" ? "폴더·한도 기준 계정이 지금과 다르면 \(how)" : how
+        let how = String(localized: "지금 대화에 인수인계 문서를 쓰게 한 뒤 대화를 비우고 새로 켜요. 일하는 중이면 끝난 뒤에 바꿔요.")
+        return k == "auto" ? String(localized: "폴더·한도 기준 계정이 지금과 다르면 \(how)") : how
     }
 
     private func chip(icon: String?, text: String, chevron: Bool = false) -> some View {
@@ -695,9 +695,9 @@ struct InputBar: View {
 
     private func providerLabel(_ p: String) -> String {
         switch p {
-        case "claude": return "Claude 자동 계정"
-        case "anthropic": return "Anthropic 개인 계정"
-        case "anthropic-work": return "Anthropic 회사 계정"
+        case "claude": return String(localized: "Claude 자동 계정")
+        case "anthropic": return String(localized: "Anthropic 개인 계정")
+        case "anthropic-work": return String(localized: "Anthropic 회사 계정")
         case "openai": return "OpenAI"
         default: return p
         }
@@ -705,13 +705,13 @@ struct InputBar: View {
 
     private func thinkingLabel(_ level: String) -> String {
         switch level {
-        case "off": return "끄기"
-        case "minimal": return "최소 (minimal)"
-        case "low": return "낮음 (low)"
-        case "medium": return "보통 (medium)"
-        case "high": return "높음 (high)"
-        case "xhigh": return "매우 높음 (xhigh)"
-        case "max": return "최대 (max)"
+        case "off": return String(localized: "끄기")
+        case "minimal": return String(localized: "최소 (minimal)")
+        case "low": return String(localized: "낮음 (low)")
+        case "medium": return String(localized: "보통 (medium)")
+        case "high": return String(localized: "높음 (high)")
+        case "xhigh": return String(localized: "매우 높음 (xhigh)")
+        case "max": return String(localized: "최대 (max)")
         default: return level
         }
     }
@@ -796,7 +796,7 @@ struct InputBar: View {
         let name = String(line.dropFirst().split(separator: " ").first ?? "")
         if name == "reload" && session.isWorking {
             // pi 는 작업 중 /reload 를 경고만 하고 버린다(맥 화면에만 보임) → 폰에서 먼저 알림
-            chat.showNotice("작업이 끝난 뒤에 다시 불러올 수 있어요")
+            chat.showNotice(String(localized: "작업이 끝난 뒤에 다시 불러올 수 있어요"))
             return
         }
         if name == "resume" {
@@ -806,7 +806,7 @@ struct InputBar: View {
         session.sendMessage(line, mode: sendMode)
         if SlashCommand.builtins.first(where: { $0.name == name })?.terminal == true {
             viewMode = "terminal"
-            chat.showNotice("맥 화면의 선택 창을 터미널 보기로 열었어요")
+            chat.showNotice(String(localized: "맥 화면의 선택 창을 터미널 보기로 열었어요"))
         }
     }
 

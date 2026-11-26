@@ -8,6 +8,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { tr } from "./lib/lang.mjs";   // 폰에 보이는 글의 언어(PI_REMOTE_LANG)
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -43,11 +44,11 @@ function startedByAi(): boolean {
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("bgtab", {
-    description: "새 탭에서 백그라운드로 실행(끝나면 폰 알림, 이 탭에 결과 요약): /bgtab <할 일>",
+    description: tr("새 탭에서 백그라운드로 실행(끝나면 폰 알림, 이 탭에 결과 요약): /bgtab <할 일>", "Run in the background in a new tab (phone notification when done, summary in this tab): /bgtab <task>"),
     handler: async (args: string, ctx: any) => {
       try {
         const r = await launch(String(args ?? ""), ctx.cwd ?? process.cwd(), "user");
-        ctx.ui.notify(`백그라운드 탭 ${r.window}(${r.name})에서 시작했어요. 끝나면 결과를 여기로 알려 드려요`, "info");
+        ctx.ui.notify(tr(`백그라운드 탭 ${r.window}(${r.name})에서 시작했어요. 끝나면 결과를 여기로 알려 드려요`, `Started in background tab ${r.window} (${r.name}). The result comes back here when it's done`), "info");
       } catch (e: any) {
         ctx.ui.notify(String(e?.message ?? e), "error");
       }

@@ -22,7 +22,7 @@ struct FilePanel: View {
                 if files.isEmpty {
                     HStack(spacing: 8) {
                         if loading { ProgressView().scaleEffect(0.7) }
-                        Text(loading ? "맥에서 찾는 중…" : (error ?? "맞는 파일이 없어요"))
+                        Text(loading ? String(localized: "맥에서 찾는 중…") : (error ?? String(localized: "맞는 파일이 없어요")))
                             .font(.system(size: Typo.caption + 1))
                             .foregroundColor(Theme.muted)
                     }

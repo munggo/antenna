@@ -33,11 +33,11 @@ private enum WorkStyle {
 
     static func label(_ s: String) -> String {
         switch s {
-        case "asking": return "답을 기다려요"
-        case "done": return "끝났어요"
-        case "error": return "멈췄어요"
-        case "stopped": return "멈춤"
-        default: return "작업 중"
+        case "asking": return String(localized: "답을 기다려요")
+        case "done": return String(localized: "끝났어요")
+        case "error": return String(localized: "멈췄어요")
+        case "stopped": return String(localized: "멈춤")
+        default: return String(localized: "작업 중")
         }
     }
 }
@@ -57,7 +57,7 @@ private struct Elapsed: View {
 
     static func duration(_ sec: Double) -> String {
         let s = max(0, Int(sec))
-        return s >= 3600 ? "\(s / 3600)시간 \(s % 3600 / 60)분" : s >= 60 ? "\(s / 60)분 \(s % 60)초" : "\(s)초"
+        return s >= 3600 ? String(localized: "\(s / 3600)시간 \(s % 3600 / 60)분") : s >= 60 ? String(localized: "\(s / 60)분 \(s % 60)초") : String(localized: "\(s)초")
     }
 }
 

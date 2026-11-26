@@ -63,6 +63,15 @@ struct ApprovalCard: View {
     }
     private var tint: Color { isSend ? Theme.accent : Theme.red }
     private func riskColor(_ r: String) -> Color { r == "상" ? Theme.red : r == "중" ? Theme.accent : Theme.muted }
+    /// 위험도 값(맥이 주는 상·중·하, 주고받는 값이라 바꾸지 않음)을 화면 말로. 한국어 화면은 그대로
+    private func riskName(_ r: String) -> String {
+        switch r {
+        case "상": return String(localized: "상", comment: "위험도: 높음")
+        case "중": return String(localized: "중", comment: "위험도: 보통")
+        case "하": return String(localized: "하", comment: "위험도: 낮음")
+        default: return r
+        }
+    }
 
     private var middle: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -98,7 +107,7 @@ struct ApprovalCard: View {
                     }
                 }
                 // 걸린 이유 · 하려는 일(작게)
-                Text([item.label + (item.guessed == true ? "(글자로 판단)" : ""), sentence.isEmpty ? "" : purpose]
+                Text([item.label + (item.guessed == true ? String(localized: "(글자로 판단)") : ""), sentence.isEmpty ? "" : purpose]
                         .filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.system(size: Typo.caption + 1))
                     .foregroundColor(tint.opacity(0.9))
@@ -130,8 +139,9 @@ struct ApprovalCard: View {
                 Button { withAnimation(.easeOut(duration: 0.18)) { expanded.toggle() } } label: {
                     HStack(spacing: 6) {
                         Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.system(size: 11, weight: .semibold))
-                        Text(expanded ? (item.source == "bash" ? "명령 접기" : "원본 접기")
-                             : "\(item.source == "bash" ? "명령 보기" : "원본 보기")\((item.scripts ?? []).isEmpty ? "" : " · 스크립트 \((item.scripts ?? []).count)개")")
+                        Text(expanded ? (item.source == "bash" ? String(localized: "명령 접기") : String(localized: "원본 접기"))
+                             : (item.source == "bash" ? String(localized: "명령 보기") : String(localized: "원본 보기"))
+                                + ((item.scripts ?? []).isEmpty ? "" : String(localized: " · 스크립트 \((item.scripts ?? []).count)개")))
                             .font(.system(size: Typo.caption + 1, weight: .medium))
                         Spacer(minLength: 0)
                     }
@@ -193,7 +203,7 @@ struct ApprovalCard: View {
                     .fill(r.isEmpty ? tint : riskColor(r))
                     .frame(width: 9, height: 9)
                 (Text("승인이 필요합니다").foregroundColor(Theme.text)
-                    + Text(r.isEmpty ? "" : " (\(r))").foregroundColor(riskColor(r)))
+                    + Text(r.isEmpty ? "" : " (\(riskName(r)))").foregroundColor(riskColor(r)))
                     .font(.system(size: Typo.row, weight: .semibold))
                     .accessibilityIdentifier("approvalRisk")
                 Spacer(minLength: 0)

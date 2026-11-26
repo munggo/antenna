@@ -14,6 +14,10 @@ final class PiRemoteUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         let env = ProcessInfo.processInfo.environment
+        // 시험은 한국어 화면의 글로 요소를 찾는다 → 시뮬레이터 언어와 상관없이 앱을 한국어로 띄움.
+        // PI_REMOTE_UI_LANG=en 이면 영어로(영어 화면 시험·README 영어 사진)
+        let lang = env["PI_REMOTE_UI_LANG"] ?? "ko"
+        app.launchArguments += ["-AppleLanguages", "(\(lang))", "-AppleLocale", lang == "ko" ? "ko_KR" : "en_US"]
         app.launchEnvironment["PI_REMOTE_TOKEN"] = env["PI_REMOTE_TOKEN"] ?? ""
         app.launchEnvironment["PI_REMOTE_PORT"] = env["PI_REMOTE_PORT"] ?? "8799"
         // 맥 주소는 짝짓기 QR 로 받는 값 → 시험에서는 이 맥(시험 브리지)을 바로 가리킴(자동 발견에 기대지 않게)
@@ -3031,5 +3035,36 @@ final class PiRemoteUITests: XCTestCase {
         FileManager.default.createFile(atPath: "\(dir)/terminal-go", contents: nil)
         sleep(2)
         snap("terminal")
+    }
+
+    /// 영어 화면(PI_REMOTE_UI_LANG=en, test/readme-shots.sh 의 영어 예시 세션): 주요 화면에 한글이 남지 않았는지.
+    /// 대화·탭 이름·맥 쪽 글(PI_REMOTE_LANG=en)도 영어인 세션이라 화면 트리에 한글이 하나라도 있으면 실패
+    func testEnglishUI() throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["PI_REMOTE_UI_LANG"] != "en" || (env["PI_REMOTE_SHOTS_DIR"] ?? "").isEmpty, "영어 예시 세션 준비 안 됨")
+        func noHangul(_ screen: String) {
+            sleep(1)
+            let bad = app.debugDescription.split(separator: "\n").filter { $0.range(of: "[가-힣]", options: .regularExpression) != nil }
+            XCTAssertTrue(bad.isEmpty, "\(screen) 화면에 한글이 남음:\n\(bad.prefix(8).joined(separator: "\n"))")
+        }
+        openTab(0)
+        XCTAssertTrue(el("approvalCard").waitForExistence(timeout: 20), "Claude Code 탭에 승인 카드가 보여야 함")
+        noHangul("Claude Code 탭(승인 카드)")
+        el("todoPanel").tap()
+        noHangul("할 일 목록")
+        openTab(1)
+        XCTAssertTrue(el("questionCard").waitForExistence(timeout: 20), "pi 탭에 질문 카드가 보여야 함")
+        noHangul("pi 탭(질문 카드)")
+        openDrawer()
+        noHangul("서랍")
+        if el("usageMiniCard").exists {
+            el("usageMiniCard").tap()
+            sleep(2)
+            noHangul("사용량")
+            app.swipeDown(velocity: .fast)
+        }
+        closeDrawer()
+        openTab(2)
+        noHangul("셸 탭(터미널)")
     }
 }

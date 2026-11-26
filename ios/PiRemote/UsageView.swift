@@ -51,7 +51,7 @@ struct AccountUsage: Decodable, Equatable, Identifiable {
         guard let t = updatedAt else { return nil }
         let m = Int(Date().timeIntervalSince1970 - t / 1000) / 60
         if m < 10 { return nil }
-        return m < 120 ? "\(m)분 전 기준" : m < 48 * 60 ? "\(m / 60)시간 전 기준" : "\(m / 1440)일 전 기준"
+        return m < 120 ? String(localized: "\(m)분 전 기준") : m < 48 * 60 ? String(localized: "\(m / 60)시간 전 기준") : String(localized: "\(m / 1440)일 전 기준")
     }
 }
 
@@ -210,7 +210,7 @@ struct UsageSheet: View {
             if let e, e.enabled {
                 UsageBar(title: Self.money(e),
                          percent: e.percent ?? 0,
-                         caption: "이번 달",
+                         caption: String(localized: "이번 달"),
                          alert: (e.percent ?? 0) >= 90)
             } else {
                 Text("꺼져 있어요")
@@ -236,20 +236,20 @@ struct UsageSheet: View {
         let mins = max(0, Int(d.timeIntervalSinceNow / 60))
         if l.session || mins < 24 * 60 {
             let h = mins / 60, m = mins % 60
-            return h > 0 ? "\(h)시간 \(m)분 후 초기화" : "\(m)분 후 초기화"
+            return h > 0 ? String(localized: "\(h)시간 \(m)분 후 초기화") : String(localized: "\(m)분 후 초기화")
         }
         let f = DateFormatter()
-        f.locale = Locale(identifier: "ko_KR")
-        f.dateFormat = "M월 d일 (E) a h:mm"
-        return "\(f.string(from: d)) 초기화"
+        f.locale = Locale(identifier: Bundle.main.preferredLocalizations.first == "ko" ? "ko_KR" : "en_US")   // 앱 언어에 맞춘 월·요일·오전오후
+        f.dateFormat = String(localized: "M월 d일 (E) a h:mm")
+        return String(localized: "\(f.string(from: d)) 초기화")
     }
 
     /// "방금" / "N분 전" / "N시간 전" (맥·폰 시계가 조금 어긋나 미래로 나와도 "방금")
     static func relative(_ d: Date) -> String {
         let mins = Int(Date().timeIntervalSince(d) / 60)
-        if mins < 1 { return "방금" }
-        if mins < 60 { return "\(mins)분 전" }
-        return "\(mins / 60)시간 전"
+        if mins < 1 { return String(localized: "방금") }
+        if mins < 60 { return String(localized: "\(mins)분 전") }
+        return String(localized: "\(mins / 60)시간 전")
     }
 
     /// 추가 사용량 금액(센트 단위 정수일 수 있어 decimals 로 나눔)

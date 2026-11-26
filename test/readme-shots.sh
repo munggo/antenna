@@ -1,7 +1,8 @@
 #!/bin/sh
 # README 화면 사진 찍기(시뮬레이터): 예시 대화를 띄운 시험 세션에 앱을 붙여 화면 넷을 찍어 docs/images/ 에 둔다.
 # 실제 대화·계정·사용량은 쓰지 않는다: 대화는 test/demo-feed.mjs 가 주는 예시, 사용량은 정해 둔 값, 터미널은 임시 폴더의 예시 저장소.
-# 쓰기: sh test/readme-shots.sh            (빌드 포함 5분쯤)
+# 쓰기: sh test/readme-shots.sh            (빌드 포함 5분쯤, 한국어 화면 → docs/images/app-*.png)
+#       ANTENNA_SHOTS_LANG=en sh test/readme-shots.sh   영어 화면·영어 예시 대화 → docs/images/app-*-en.png, 영어 화면 시험(한글이 남았는지)도 함께
 # 하는 일: 시험 세션(antennademo)과 시험 브리지(127.0.0.1 에만 열림)를 띄우고, 시뮬레이터에서 찍은 뒤 모두 치운다.
 #          쓰는 tmux 세션(antenna)·쓰는 브리지·켜져 있는 다른 시뮬레이터는 건드리지 않는다.
 # 시뮬레이터: ANTENNA_SIM=<기기 번호> 로 정하거나, 꺼져 있는 'iPhone 17 Pro'(없으면 꺼져 있는 iPhone 아무거나)를 쓴다
@@ -14,6 +15,9 @@ PORT="${ANTENNA_SHOTS_PORT:-8797}"
 D=/tmp/antenna-readme-shots  # 이 스크립트의 임시 폴더
 OUT="$REPO/docs/images"
 ID=com.munggo.piremote
+SL="${ANTENNA_SHOTS_LANG:-ko}"   # 화면·예시 대화·맥 쪽 글의 언어
+case "$SL" in ko) SUF="" ;; en) SUF="-en" ;; *) echo "ANTENNA_SHOTS_LANG 은 ko 나 en 이에요" >&2; exit 2 ;; esac
+nm() { if [ "$SL" = en ]; then echo "$2"; else echo "$1"; fi; }   # nm <한국어> <영어>
 
 NODE="${NODE:-}"
 if [ -z "$NODE" ]; then
@@ -82,7 +86,7 @@ EOF
 
 # 탭: 0 Claude Code(승인을 기다림) · 1 pi(질문을 기다림) · 2 셸 · 3·4 백그라운드 탭(일하는 중·끝남)
 NOW=$(date +%s)
-tmux new-session -d -s "$S" -x 60 -y 40 -n '날씨 앱' -c "$R" || exit 1
+tmux new-session -d -s "$S" -x 60 -y 40 -n "$(nm '날씨 앱' 'Weather app')" -c "$R" || exit 1
 tmux set-option -t "$S" status off   # 상태 줄에는 이 맥의 이름·시각이 있어 이 세션에서만 끔
 win() {   # 이름 [옵션 값]… → 창 번호
   n=$(tmux new-window -d -P -F '#{window_index}' -t "$S:" -n "$1" -c "$R")
@@ -93,15 +97,15 @@ win() {   # 이름 [옵션 값]… → 창 번호
 tmux set-option -w -t "$S:0" @pi_status asking
 tmux set-option -w -t "$S:0" @ai_model 'Opus 5.5'
 tmux set-option -w -t "$S:0" @ai_thinking medium
-P1=$(win '날씨 API' @pi_status asking @ai_model 'Sonnet 5.5' @ai_thinking medium)
-T=$(tmux new-window -d -P -F '#{window_index}' -t "$S:" -n '셸' -c "$R" "sh $D/term.sh")
-win 'bg 위젯 시험 고치기' @bg_by phone @bg_started $((NOW - 540)) @pi_status working @ai_model 'Sonnet 5.5' @ai_thinking high >/dev/null
-win 'bg 릴리스 노트 쓰기' @bg_by ai @bg_started $((NOW - 3000)) @bg_done $((NOW - 1200)) @pi_status yourturn @ai_model 'Haiku 5.5' >/dev/null
+P1=$(win "$(nm '날씨 API' 'Weather API')" @pi_status asking @ai_model 'Sonnet 5.5' @ai_thinking medium)
+T=$(tmux new-window -d -P -F '#{window_index}' -t "$S:" -n "$(nm '셸' 'Shell')" -c "$R" "sh $D/term.sh")
+win "$(nm 'bg 위젯 시험 고치기' 'bg fix widget tests')" @bg_by phone @bg_started $((NOW - 540)) @pi_status working @ai_model 'Sonnet 5.5' @ai_thinking high >/dev/null
+win "$(nm 'bg 릴리스 노트 쓰기' 'bg write release notes')" @bg_by ai @bg_started $((NOW - 3000)) @bg_done $((NOW - 1200)) @pi_status yourturn @ai_model 'Haiku 5.5' >/dev/null
 [ "$P1" = 1 ] && [ "$T" = 2 ] || { echo "탭 번호가 예상과 달라요(tmux 의 base-index 설정 확인): pi=$P1 셸=$T" >&2; exit 1; }
 k=0
 for scene in claude pi; do
   PANE=$(tmux display -p -t "$S:$k" '#{pane_id}')
-  "$NODE" "$REPO/test/demo-feed.mjs" "$PANE" "$scene" > "$D/feed$k.log" 2>&1 &
+  "$NODE" "$REPO/test/demo-feed.mjs" "$PANE" "$scene" "$SL" > "$D/feed$k.log" 2>&1 &
   echo $! > "$D/feed$k.pid"
   k=$((k + 1))
 done
@@ -111,7 +115,7 @@ done
 fs.writeFileSync(process.argv[1], JSON.stringify({ limits: [lim("session", "five_hour", 22, 2 * 3600e3), lim("weekly", "weekly_all", 38, 4 * 86400e3)] }));
 fs.writeFileSync(process.argv[2], "{}");' "$D/usage.json" "$D/accounts.json"
 printf "Now drawing from 'AC Power'\n -InternalBattery-0 (id=1234567)\t86%%; charging; 0:40 remaining present: true\n" > "$D/battery"
-tmux new-session -d -s "$B" -c "$REPO/server" "env PI_REMOTE_ENV=$D/conf/env PI_REMOTE_TOKEN=$TOKEN HOST=127.0.0.1 PORT=$PORT PI_TMUX_SESSION=$S PI_REMOTE_SESSION_DIR=$D/sessions PI_REMOTE_PUSH_FILE=$D/push.json PI_REMOTE_PUSH_DRYRUN=1 PI_REMOTE_FAKE_BATTERY_FILE=$D/battery PI_REMOTE_TABS_FILE=$D/tabs.json PI_REMOTE_USAGE_DIR=$D/usage PI_REMOTE_FAKE_USAGE_FILE=$D/usage.json PI_ACCOUNTS_CACHE=$D/accounts.json PI_REMOTE_CRASH_LOG=$D/crash.log PI_REMOTE_NO_KEYCHAIN=1 PI_BG_CLAUDE_CMD=true PI_BG_PI_CMD=true PI_NEW_TAB_PREFIX='echo started:' $NODE bridge.mjs > $D/bridge.log 2>&1"
+tmux new-session -d -s "$B" -c "$REPO/server" "env PI_REMOTE_ENV=$D/conf/env PI_REMOTE_TOKEN=$TOKEN HOST=127.0.0.1 PORT=$PORT PI_TMUX_SESSION=$S PI_REMOTE_SESSION_DIR=$D/sessions PI_REMOTE_PUSH_FILE=$D/push.json PI_REMOTE_PUSH_DRYRUN=1 PI_REMOTE_FAKE_BATTERY_FILE=$D/battery PI_REMOTE_TABS_FILE=$D/tabs.json PI_REMOTE_USAGE_DIR=$D/usage PI_REMOTE_FAKE_USAGE_FILE=$D/usage.json PI_ACCOUNTS_CACHE=$D/accounts.json PI_REMOTE_CRASH_LOG=$D/crash.log PI_REMOTE_NO_KEYCHAIN=1 PI_REMOTE_LANG=$SL PI_BG_CLAUDE_CMD=true PI_BG_PI_CMD=true PI_NEW_TAB_PREFIX='echo started:' $NODE bridge.mjs > $D/bridge.log 2>&1"
 i=0
 while [ $i -lt 40 ] && ! nc -z 127.0.0.1 "$PORT" >/dev/null 2>&1; do sleep 0.5; i=$((i + 1)); done
 nc -z 127.0.0.1 "$PORT" >/dev/null 2>&1 || { echo "시험 브리지가 뜨지 않았어요:"; tail -5 "$D/bridge.log"; exit 1; }
@@ -125,17 +129,22 @@ xcrun simctl status_bar "$SIM" override --time 9:41 --dataNetwork wifi --wifiBar
 echo "빌드하고 찍는 중…(기록: $D/build.log 는 끝나면 지워짐, 실패하면 아래에 끝부분)"
 cd "$REPO/ios" || exit 1
 xcodegen generate >/dev/null 2>&1
-TEST_RUNNER_PI_REMOTE_TOKEN=$TOKEN TEST_RUNNER_PI_REMOTE_PORT=$PORT TEST_RUNNER_PI_REMOTE_SHOTS_DIR=$D/shots xcodebuild test -project PiRemote.xcodeproj -scheme PiRemote \
-  -destination "platform=iOS Simulator,id=$SIM" -derivedDataPath /tmp/piremote-uitest -only-testing:PiRemoteUITests/PiRemoteUITests/testReadmeShots > "$D/build.log" 2>&1
+ONLY="-only-testing:PiRemoteUITests/PiRemoteUITests/testReadmeShots"
+[ "$SL" = en ] && ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/testEnglishUI"
+# shellcheck disable=SC2086  # 시험 이름들은 나눠서 넘김
+TEST_RUNNER_PI_REMOTE_TOKEN=$TOKEN TEST_RUNNER_PI_REMOTE_PORT=$PORT TEST_RUNNER_PI_REMOTE_SHOTS_DIR=$D/shots TEST_RUNNER_PI_REMOTE_UI_LANG=$SL xcodebuild test -project PiRemote.xcodeproj -scheme PiRemote \
+  -destination "platform=iOS Simulator,id=$SIM" -derivedDataPath /tmp/piremote-uitest $ONLY > "$D/build.log" 2>&1
 RC=$?
+grep -E "Test Case .*(passed|failed)" "$D/build.log" | sed -E "s/.*PiRemoteUITests (test[A-Za-z]+)\]' (passed|failed).*/\2 \1/; s/^passed/통과/; s/^failed/실패/"
 if [ $RC -ne 0 ]; then
-  echo "찍지 못했어요:"
-  grep -E "error:|failed" "$D/build.log" | head -8
+  echo "찍지 못했거나 시험이 실패했어요:"
+  grep -E -A10 "error: -\[" "$D/build.log" | grep -v "^Test Case\|IDELaunch" | head -24
+  grep -E "error:" "$D/build.log" | grep -v "error: -\[" | head -6
   exit 1
 fi
 mkdir -p "$OUT"
 for n in chat question drawer terminal; do
   [ -f "$D/shots/$n.png" ] || { echo "화면이 빠졌어요: $n" >&2; exit 1; }
-  sips -Z 1200 "$D/shots/$n.png" --out "$OUT/app-$n.png" >/dev/null   # 긴 변 1200px 로 줄임(README 에는 작게 보임)
+  sips -Z 1200 "$D/shots/$n.png" --out "$OUT/app-$n$SUF.png" >/dev/null   # 긴 변 1200px 로 줄임(README 에는 작게 보임)
 done
-echo "찍었어요: $OUT/app-{chat,question,drawer,terminal}.png"
+echo "찍었어요: $OUT/app-{chat,question,drawer,terminal}$SUF.png"
