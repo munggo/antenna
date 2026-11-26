@@ -397,8 +397,11 @@ const jobsText = (counts) => [...counts].filter(([, n]) => n > 0).map(([kind, n]
  * 폰으로 볼 때(창 폭 50칸)는 키 안내가 두 줄로 접히고('… Esc to' / 'close'), ▔ 테두리는 다른 알림 글에 덮여 ▔ 하나만 남기도 한다.
  * 테두리가 화면 밖으로 밀린 긴 창은 화면 맨 위까지를 창으로 본다.
  * 입력창 밑에 뜬 안내(테두리 바로 위가 입력 줄이거나 모드 줄이 끼어 있음)는 쓰던 글을 막지 않으므로 창으로 보지 않는다.
- * 창이면 {title, lines, guide, guideLine, items, focus, sig}, 아니면 null
+ * 로그인 같은 창(/login: 주소를 열어 로그인하고 받은 코드를 칸에 붙여 넣음)은 화면 폭에 맞춰 접힌 주소를 한 줄로 잇고(url),
+ * 글 넣는 칸(╭─╮ │ │ ╰─╯)을 찾는다(input: {value, prompt}). 주소·칸이 나중에 나타나면 다른 창으로 본다(서명에 넣음)
+ * 창이면 {title, lines, guide, guideLine, items, focus, url, input, sig}, 아니면 null
  */
+const URL_ROW = /^[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+$/;
 const GUIDE_KEY = /^(?:(?:ctrl|shift|alt|opt|option|cmd|meta)\+\S+|enter|return|esc|escape|tab|space|backspace|↑\/↓|←\/→|[↑↓←→]|[a-z0-9?])$/i;
 /** 키 안내 줄 'Enter to review · d to discard' → [{key, action}]. 한 조각이라도 '키 to 동작'이 아니면 null */
 export function parseGuide(line) {
@@ -491,11 +494,37 @@ export function screenDialog(screen) {
       }
     }
   }
-  // 고른 줄(❯): 서명에는 이름 부분만(목록 줄 끝의 '1m' 같은 시간이 바뀌어도 같은 창)
-  const focusLine = lines.find((l) => /^❯/.test(l));
+  // 접힌 주소 잇기·글 넣는 칸 찾기(11-27 사용자 요청: 로그인 창이 폰 카드에 'Opening browser…' 와 취소만 보였다)
+  let url = "";
+  let input = null;
+  const shown = [];
+  for (let i = 0; i < block.length; i++) {
+    const t = block[i].trim();
+    if (!t) continue;
+    if (/^https?:\/\/\S+$/.test(t)) {
+      let u = t;
+      while (i + 1 < block.length && block[i + 1].trim() && URL_ROW.test(block[i + 1].trim())) u += block[++i].trim();
+      if (!url) url = u;
+      shown.push(u);
+      continue;
+    }
+    if (/^╭─+╮$/.test(t)) {
+      let j = i + 1;
+      const inner = [];
+      while (j < block.length && /^│.*│$/.test(block[j].trim())) inner.push(block[j++].trim().slice(1, -1).trim());
+      if (j < block.length && /^╰─+╯$/.test(block[j].trim())) {
+        input = { value: inner.join(" ").trim(), prompt: shown.at(-1) ?? "" };
+        i = j;
+        continue;
+      }
+    }
+    shown.push(t);
+  }
+  // 고른 줄(❯): 서명에는 이름 부분만(목록 줄 끝의 '1m' 같은 시간이 바뀌어도 같은 창). 칸에 쓴 글은 서명에 넣지 않음(쓰는 동안에도 같은 창)
+  const focusLine = shown.find((l) => /^❯/.test(l));
   const focus = focusLine ? focusLine.replace(/^❯\s*/, "").split(/\s{2,}/)[0].trim() : "";
   const guideLine = ls.slice(gStart, end + 1).map((l) => l.trim()).join(" ");
-  return { title: lines[0], lines, guide, guideLine, items, cursor, focus, sig: `${lines[0]}|${guideLine}|${focus}` };
+  return { title: shown[0], lines: shown, guide, guideLine, items, cursor, focus, url, input, sig: `${shown[0]}|${guideLine}|${focus}|${url}|${input ? "input" : ""}` };
 }
 
 /** 창 키 안내의 동작 → 한글(사전에 없으면 원문) */
@@ -557,8 +586,13 @@ export function dialogCard(d) {
       add(tr("오른쪽 (→)", "Right (→)"), `${g.key} to ${g.action}`, guideKey("→"));
     } else add(`${ko ?? g.action} (${g.key})`, ko ? `${g.key} to ${g.action}` : "", guideKey(g.key));
   }
-  const body = [...(tk ? [d.title] : []), ...d.lines.slice(1)].slice(0, 16).map((l) => (l.length > 120 ? `${l.slice(0, 119)}…` : l));
-  return { title, question: [tr(`맥 화면: ${title}`, `Mac screen: ${title}`), ...body, tr("('취소'는 카드만 닫아요. 맥 화면은 그대로예요)", "(Cancel only closes this card. The Mac screen stays as it is)")].join("\n"), options, press };
+  // 주소는 자르지 않는다(폰이 링크로 그려 누르면 열림)
+  const body = [...(tk ? [d.title] : []), ...d.lines.slice(1)].slice(0, 16).map((l) => (l === d.url || l.length <= 120 ? l : `${l.slice(0, 119)}…`));
+  // 글 넣는 칸이 있으면 입력해서 답하는 카드: 폰 입력창에 쓴 글을 맥 칸에 넣고 Enter
+  const hint = d.input && d.url ? [tr("주소를 눌러 로그인한 뒤 받은 코드를 아래 입력창으로 보내면 맥 칸에 넣고 Enter 를 눌러요",
+    "Open the link to sign in, then send the code from the input box below. It goes into the Mac's field, followed by Enter")] : [];
+  const input = d.input ? { kind: "input", placeholder: d.url ? tr("로그인 뒤 받은 코드", "The code from signing in") : d.input.prompt || tr("맥 칸에 넣을 글", "Text for the Mac's field") } : {};
+  return { title, question: [tr(`맥 화면: ${title}`, `Mac screen: ${title}`), ...body, ...hint, tr("('취소'는 카드만 닫아요. 맥 화면은 그대로예요)", "(Cancel only closes this card. The Mac screen stays as it is)")].join("\n"), options, press, ...input };
 }
 
 /**
@@ -1566,7 +1600,8 @@ export function runFeed(pane) {
     const quiet = flowNotified;
     const card = dialogCard(d);
     const id = `cc-s-${Date.now()}`;
-    screenAsk = { id, sig: d.sig, press: card.press, item: { id, question: card.question, options: card.options, multiSelect: false, since: Date.now(), kind: "select" } };
+    screenAsk = { id, sig: d.sig, press: card.press, input: !!d.input,
+      item: { id, question: card.question, options: card.options, multiSelect: false, since: Date.now(), kind: card.kind ?? "select", ...(card.placeholder ? { placeholder: card.placeholder } : {}) } };
     broadcast({ t: "question", question: screenAsk.item });
     setStatus("asking");
     logHook(`맥 화면 창을 폰 카드로${quiet ? "(알림 없이)" : ""}: ${d.title}`);
@@ -1580,6 +1615,23 @@ export function runFeed(pane) {
     if (o.cancel === true) {
       dlgDismissed = a.sig;
       return void screenAskDone();
+    }
+    // 글 넣는 칸이 있는 창(로그인 코드 등): 폰 입력창에 쓴 글을 맥 칸에 넣고 Enter. 기록에는 글을 남기지 않고 글자 수만
+    const text = a.input && typeof o.other === "string" ? o.other.trim() : "";
+    if (text) {
+      screenAskDone();
+      dlgSeen = null;
+      if (screenDialog(tmux("capture-pane", "-p", "-t", pane) ?? "")?.sig !== a.sig) {
+        broadcast({ t: "notice", text: tr("맥 화면이 그사이 바뀌어 넣지 않았어요", "The Mac screen changed in the meantime, so nothing was entered") });
+        return;
+      }
+      logHook(`폰에서 맥 화면 창의 칸에 글을 넣음(${text.length}자)`);
+      void (async () => {
+        tmux("send-keys", "-t", pane, "-l", text);
+        await sleepMs(150);
+        tmux("send-keys", "-t", pane, "Enter");
+      })();
+      return;
     }
     const k = a.press.get(String((Array.isArray(o.answers) ? o.answers[0] : "") ?? ""));
     screenAskDone();

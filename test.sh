@@ -176,6 +176,7 @@ if command -v tmux >/dev/null 2>&1; then
   run stuck-screen "'작업 중' 바로잡기·훅 유실 막기·대화 기록으로 켜기·질문 카드" "$NODE" claude-remote/test/stuck-screen.test.mjs
   run bg-jobs "뒤에서 도는 작업 목록·종료(셸은 바로, 에이전트는 Claude 에게 부탁)" "$NODE" claude-remote/test/bg-jobs.test.mjs
   run screen-picker "번호 없는 고르기 창(❯ No / Yes)을 폰 카드로 묻고 고른 대로 ↑/↓·Enter" "$NODE" claude-remote/test/screen-picker.test.mjs
+  run screen-login "로그인 같은 맥 화면 창: 접힌 주소를 한 줄로, 폰에서 보낸 코드를 맥 칸에 넣고 Enter, 그사이 창이 바뀌면 넣지 않음" "$NODE" claude-remote/test/screen-login.test.mjs
   run context-feed "Claude Code 탭의 컨텍스트 사용량이 앱까지 가는지(새 응답·압축·설정·새 대화)" "$NODE" claude-remote/test/context-feed.test.mjs
   run compacting "Claude Code 탭의 '압축하는 중'이 앱까지 가는지(시작·끝·취소·도중에 붙기·새 판 미루기)" "$NODE" claude-remote/test/compacting.test.mjs
   run notify-hold "맥을 쓰는 중이면 폰 알림을 미루는지" "$NODE" server/test/notify-hold-e2e.mjs
