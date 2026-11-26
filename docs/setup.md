@@ -145,6 +145,17 @@ Each person builds the app and installs it. You need Xcode, XcodeGen and a paid 
 - The terminal view (SwiftTerm) uses Metal shaders, so Xcode's Metal toolchain has to be installed. If it is missing, get it with `xcodebuild -downloadComponent MetalToolchain`.
 - Turn on Developer Mode on the phone (Settings › Privacy & Security › Developer Mode; it appears after the phone has been connected to Xcode once).
 
+### Free accounts
+
+As it is, the app can't be signed with a free Apple account (Xcode's personal team): it uses the push notification and time-sensitive notification entitlements, which free accounts don't have.
+
+If you remove those two entitlements (`aps-environment` and `com.apple.developer.usernotifications.time-sensitive`) from `ios/PiRemote/PiRemote.entitlements` before building, a free account can install it on your phone (the author has not tried this with a free account). Then:
+
+- You get no notifications from the Mac (approvals, questions, finished work). With the app open, the cards still show up.
+- An app installed with a free account stops opening after 7 days. Connect the phone to the Mac and install it again from Xcode each time.
+- A phone can hold at most three apps installed with a free account.
+- If the edited file blocks `git pull`, restore it with `git checkout ios/PiRemote/PiRemote.entitlements`, pull, and edit it again.
+
 ```sh
 cp ios/Local.xcconfig.example ios/Local.xcconfig
 ```

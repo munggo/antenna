@@ -145,6 +145,17 @@ sh install.sh --host <그 주소>
 - 터미널 화면(SwiftTerm)이 Metal 셰이더를 써서 Xcode 의 Metal 툴체인이 있어야 한다. 없으면 `xcodebuild -downloadComponent MetalToolchain` 으로 받는다.
 - 폰에서는 개발자 모드를 켠다(설정 › 개인정보 보호 및 보안 › 개발자 모드. 폰을 Xcode 에 한 번 이은 뒤에 보인다).
 
+### 무료 계정
+
+지금 그대로는 무료 Apple 계정(Xcode 의 개인 팀)으로 서명할 수 없다. 앱이 푸시 알림 권한과 시간 민감 알림 권한을 쓰는데, 무료 계정에는 이 권한이 없다.
+
+`ios/PiRemote/PiRemote.entitlements` 에서 두 권한(`aps-environment`, `com.apple.developer.usernotifications.time-sensitive`)을 빼고 빌드하면 무료 계정으로도 폰에 깔 수 있다(작성자는 무료 계정으로 시험해 보지 않았다). 그때는 이렇게 된다.
+
+- 맥이 보내는 알림(승인·질문·작업 끝)을 받을 수 없다. 앱을 열어 두면 카드는 그대로 보인다.
+- 무료 계정으로 깐 앱은 7일 뒤 열리지 않는다. 그때마다 폰을 맥에 잇고 Xcode 로 다시 깐다.
+- 한 폰에 무료 계정으로 깔 수 있는 앱은 세 개까지다.
+- 고친 파일 때문에 `git pull` 이 막히면 `git checkout ios/PiRemote/PiRemote.entitlements` 로 되돌린 뒤 받고, 다시 고친다.
+
 ```sh
 cp ios/Local.xcconfig.example ios/Local.xcconfig
 ```

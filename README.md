@@ -66,6 +66,8 @@ On the same Wi-Fi the phone finds the Mac by itself (Bonjour). Away from it, the
 
 ## Quick start
 
+You can also hand the installation to an AI agent such as Claude Code: in the cloned folder, ask it to "read README.md and docs/setup.md and install Antenna". Signing in to Xcode, connecting and trusting the phone, turning on Developer Mode and scanning the QR code are up to you.
+
 **1. Install the Mac side**
 
 ```sh
@@ -82,7 +84,7 @@ On a Mac with pi, the pi extensions the phone needs are installed into `~/.pi/ag
 
 **2. Put the app on your phone**
 
-Each person builds the app and installs it. You need a paid Apple Developer account (the app uses the push notification entitlement, which a free account can't sign).
+Each person builds the app and installs it. You need a paid Apple Developer account (the app uses the push notification entitlement, which a free account can't sign as is; for installing without notifications on a free account, and what that costs you, see [Free accounts](./docs/setup.md#free-accounts)).
 
 ```sh
 cp ios/Local.xcconfig.example ios/Local.xcconfig   # put your Apple team ID and your own identifier prefix in it
