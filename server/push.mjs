@@ -4,6 +4,8 @@
 // 설정(~/.config/pi-remote/env): PI_REMOTE_APNS_KEY(.p8 경로), PI_REMOTE_APNS_KEY_ID, PI_REMOTE_APNS_TEAM, PI_REMOTE_APNS_TOPIC
 // 자기 키가 없으면(팀원 맥) 알림 중계(relay/index.mjs)로 보낸다: 본문은 폰 공개 키로 잠그고(push-seal.mjs), 작업 표시는 상태만.
 // 중계 주소는 PI_REMOTE_PUSH_RELAY(없거나 빈 값이면 끔)
+// 안드로이드 앱은 구글 푸시(FCM)로 받는다: PI_REMOTE_FCM_KEY 에 자기 Firebase 프로젝트의 서비스 계정 키(JSON) 경로.
+// 브리지가 그 키로 구글 인증을 받아 FCM HTTP v1 로 '데이터 메시지'를 보내고, 앱이 받아 알림을 띄운다(따로 서버 없음)
 import http2 from "node:http2";
 import { createPrivateKey, sign } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
@@ -21,9 +23,24 @@ const STORE = process.env.PI_REMOTE_PUSH_FILE || `${process.env.HOME}/.config/pi
 const DEFAULT_RELAY = "";
 const RELAY = process.env.PI_REMOTE_PUSH_RELAY ?? DEFAULT_RELAY;
 
-/** direct: 이 맥의 키로 Apple 에 직접 · relay: 알림 중계로 · "": 끔 */
+/** direct: 이 맥의 키로 Apple 에 직접 · relay: 알림 중계로 · "": 끔 (아이폰) */
 export const pushMode = KEY_PATH && KEY_ID && TEAM && existsSync(KEY_PATH) ? "direct" : RELAY ? "relay" : "";
-export const pushEnabled = !!pushMode;
+
+// 구글 푸시(안드로이드): 서비스 계정 키(client_email·private_key·project_id)를 읽어 둔다
+const FCM_KEY = process.env.PI_REMOTE_FCM_KEY || "";
+let fcmAccount = null;
+try {
+  if (FCM_KEY && existsSync(FCM_KEY)) {
+    const j = JSON.parse(readFileSync(FCM_KEY, "utf8"));
+    if (j.client_email && j.private_key && j.project_id) fcmAccount = j;
+  }
+} catch {
+  /* 키 파일을 읽지 못하면 안드로이드 알림은 꺼짐(점검 명령이 알림) */
+}
+export const fcmEnabled = !!fcmAccount;
+export const pushEnabled = !!pushMode || fcmEnabled;
+/** 그 폰이 받을 길이 이 맥에 있는지: 안드로이드(fcm)는 구글 푸시 키, 아이폰은 Apple 키나 중계 */
+export const pushEnabledFor = (platform) => (platform === "fcm" ? fcmEnabled : !!pushMode);
 
 // done: 작업이 끝났을 때도 알림(질문·승인·확인 창은 항상), doneMinSec: 이보다 오래 걸린 작업만(기본 1시간, 사용자가 정함)
 // live: 작업 표시(Live Activity) — start: 시작용 토큰들, acts: 탭(창 번호)마다 지금 떠 있는 표시의 갱신용 토큰
@@ -40,8 +57,19 @@ const save = () => {
   chmodSync(STORE, 0o600);
 };
 
-/** 폰이 보낸 기기 주소 등록(같은 주소는 갱신, 최근 5대만). pk: 폰의 알림 공개 키(중계로 보낼 때 본문을 잠금. 예전 앱은 없음) */
-export function registerToken(token, env, pk) {
+/**
+ * 폰이 보낸 기기 주소 등록(같은 주소는 갱신, 최근 5대만). pk: 폰의 알림 공개 키(중계로 보낼 때 본문을 잠금. 예전 앱은 없음).
+ * platform "fcm": 안드로이드 앱의 구글 푸시 토큰(16진수가 아니고 길다)
+ */
+export function registerToken(token, env, pk, platform) {
+  if (platform === "fcm") {
+    if (typeof token !== "string" || !/^[A-Za-z0-9_:-]{20,4096}$/.test(token)) return false;
+    store.tokens = store.tokens.filter((t) => t.token !== token);
+    store.tokens.push({ token, platform: "fcm", updatedAt: Date.now() });
+    store.tokens = store.tokens.slice(-5);
+    save();
+    return true;
+  }
   if (typeof token !== "string" || !/^[0-9a-f]{64,200}$/i.test(token)) return false;
   store.tokens = store.tokens.filter((t) => t.token !== token);
   store.tokens.push({ token, env: env === "production" ? "production" : "sandbox", ...(isPushKey(pk) ? { pk } : {}), updatedAt: Date.now() });
@@ -158,6 +186,70 @@ export function relayAlert(t, { title, subtitle, body, kind, window, urgent }) {
   return { v: 1, type: "alert", token: t.token, env: t.env, urgent: urgent === true, window: w, ...(t.pk ? { e: sealFor(t.pk, plain) } : {}) };
 }
 
+// --- 구글 푸시(FCM HTTP v1) ---
+// 시험에서는 가짜 서버로: PI_REMOTE_FCM_TOKEN_URL(구글 인증), PI_REMOTE_FCM_URL(보내기 주소의 앞부분)
+const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
+let fcmAccess = { value: "", until: 0 };
+
+/** 서비스 계정 키로 만든 RS256 JWT 를 구글 인증 서버에 내고 접근 토큰(1시간)을 받는다. 만료 1분 전까지 다시 씀 */
+async function fcmAccessToken() {
+  if (fcmAccess.value && Date.now() < fcmAccess.until - 60_000) return fcmAccess.value;
+  const tokenUrl = process.env.PI_REMOTE_FCM_TOKEN_URL || fcmAccount.token_uri || "https://oauth2.googleapis.com/token";
+  const now = Math.floor(Date.now() / 1000);
+  const b64 = (x) => Buffer.from(x).toString("base64url");
+  const head = b64(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const body = b64(JSON.stringify({ iss: fcmAccount.client_email, scope: FCM_SCOPE, aud: fcmAccount.token_uri || "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 }));
+  const sig = sign("sha256", Buffer.from(`${head}.${body}`), createPrivateKey(fcmAccount.private_key)).toString("base64url");
+  const r = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${head}.${body}.${sig}` }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.access_token) throw new Error(`google auth ${r.status} ${j.error ?? ""}`.trim());
+  fcmAccess = { value: j.access_token, until: Date.now() + (Number(j.expires_in) || 3600) * 1000 };
+  return fcmAccess.value;
+}
+
+/**
+ * 안드로이드로 보낼 메시지(시험용으로 내보냄). 알림 모양은 앱이 만들도록 '데이터 메시지'로 보낸다
+ * (앱이 꺼져 있어도 높은 우선순위면 앱이 깨어나 알림을 띄우고, 지금 보는 탭의 알림은 숨길 수 있음). 값은 모두 글이어야 함
+ */
+export function fcmMessage(t, { title, subtitle, body, kind, window, urgent }) {
+  const w = Number.isInteger(window) ? window : null;
+  return {
+    message: {
+      token: t.token,
+      data: { title: clipBytes(title ?? "pi", 200), subtitle: clipBytes(subtitle ?? "", 200), body: clipBytes(body ?? "", 2000), kind: String(kind ?? "done"), window: w === null ? "" : String(w) },
+      android: { priority: "HIGH", ttl: urgent ? "3600s" : "86400s" },
+    },
+  };
+}
+
+let fcmSend = async (t, alert) => {
+  try {
+    const access = await fcmAccessToken();
+    const base = process.env.PI_REMOTE_FCM_URL || "https://fcm.googleapis.com";
+    const r = await fetch(`${base}/v1/projects/${encodeURIComponent(fcmAccount.project_id)}/messages:send`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${access}`, "content-type": "application/json" },
+      body: JSON.stringify(fcmMessage(t, alert)),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const j = await r.json().catch(() => ({}));
+    // 없어진 기기는 details 의 errorCode 가 UNREGISTERED(404)
+    const reason = j.error?.details?.find?.((d) => d.errorCode)?.errorCode ?? j.error?.status ?? "";
+    return { status: r.status, reason };
+  } catch (e) {
+    return { status: 0, reason: String(e?.message ?? e) };
+  }
+};
+/** 시험용: 구글로 보내지 않고 가로채기 */
+export function setFcmSenderForTest(fn) {
+  fcmSend = fn;
+}
+
 /**
  * 등록된 모든 기기에 알림.
  * kind: approval(승인) | prompt(확인 창) | choice(고르는 질문) | question(질문) | done(작업 끝) | error(멈춤) | test
@@ -184,9 +276,16 @@ export async function notify({ title, subtitle, body, kind = "done", window, dur
   };
   const results = [];
   for (const t of [...store.tokens]) {
-    const r = pushMode === "relay" ? await relayPost(relayAlert(t, { title, subtitle, body, kind, window, urgent })) : await sendOne(t, payload);
+    let r;
+    if (t.platform === "fcm") {
+      if (!fcmEnabled) continue;   // 구글 푸시 키가 없는 맥: 안드로이드 기기는 건너뜀
+      r = await fcmSend(t, { title, subtitle, body, kind, window, urgent });
+    } else {
+      if (!pushMode) continue;     // Apple 키도 중계도 없는 맥: 아이폰 기기는 건너뜀
+      r = pushMode === "relay" ? await relayPost(relayAlert(t, { title, subtitle, body, kind, window, urgent })) : await sendOne(t, payload);
+    }
     results.push(r);
-    if (r.status === 410 || r.reason === "BadDeviceToken" || r.reason === "Unregistered") {
+    if (r.status === 410 || r.reason === "BadDeviceToken" || r.reason === "Unregistered" || (t.platform === "fcm" && (r.status === 404 || r.reason === "UNREGISTERED"))) {
       store.tokens = store.tokens.filter((x) => x.token !== t.token);   // 더 이상 없는 기기
       save();
     }
@@ -247,7 +346,7 @@ export function livePayload(event, { window, tabName, state, now = Math.floor(Da
 
 /** 피드 확장이 보낸 작업 표시 신호 처리 */
 export async function liveActivity({ event, window, tabName = "pi", status = "working", detail = "", startedAt }) {
-  if (!pushEnabled || !Number.isInteger(window) || !["start", "update", "end"].includes(event)) return [];
+  if (!pushMode || !Number.isInteger(window) || !["start", "update", "end"].includes(event)) return [];   // 작업 표시는 아이폰만
   // 시험: 알림처럼 보내지 않고 기록만(키 없는 시험 브리지가 기본 중계로 보내지 않게)
   if (process.env.PI_REMOTE_PUSH_DRYRUN === "1") {
     console.log(`[pi-remote] 작업 표시(시험·안 보냄) ${event} 창 ${window}`);

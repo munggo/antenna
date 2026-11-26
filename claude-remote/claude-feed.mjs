@@ -1127,6 +1127,9 @@ export function runFeed(pane) {
   let screenAsk = null;          // 훅 없이 묻는 맥 화면 창(피드백 초안 종료 안내 등) → 폰 질문 카드 하나: {id, sig, item, press}
   let limitAsk = null;           // 모델 전용 한도(예: Fable)에 걸려 멈춤 → 다른 모델로 이어 갈지 묻는 폰 카드: {id, errId, lim, item}
   let accountAsk = null;         // 계정 사용량 95% 넘음·한도 멈춤 → 그대로 쓸지·바꿀지 묻는 폰 카드(accountCard)
+  // 지금 열린 승인·질문 카드의 맥 창을 화면에서 본 적이 있는지. 훅은 창을 그리기 전에 와서, 맥이 바쁘면 창이 몇 초 늦게 그려진다.
+  // 본 뒤에 사라져야 '맥에서 닫힘'으로 카드를 지운다(11-27 사용자 보고: 부하가 클 때 질문 4개 창이 폰 카드로 뜨지 않음)
+  let dialogSeen = false;
   let lastCardAt = 0;            // 승인·질문 카드가 닫힌 때(그 답으로 맥 창의 키를 누르는 동안 화면 창으로 잘못 보지 않게)
   let todosSent = "[]";
 
@@ -1516,10 +1519,18 @@ export function runFeed(pane) {
   let dialogGone = 0;
   setInterval(() => {
     if (!approvals.size && !questions.size) return void (dialogGone = 0);
-    const scr = tmux("capture-pane", "-p", "-t", pane) ?? "";
-    dialogGone = ESC_CANCEL.test(scr) ? 0 : dialogGone + 1;
-    if (dialogGone >= 2) {
+    const scr = tmux("capture-pane", "-p", "-t", pane);
+    if (scr == null) return;   // 화면을 못 읽음(맥이 바빠 tmux 가 늦음): 사라졌다고 세지 않음
+    if (ESC_CANCEL.test(scr)) {
+      dialogSeen = true;
       dialogGone = 0;
+      return;
+    }
+    // 아직 한 번도 못 본 창은 그려지기 전이다(사라진 것이 아님). 맥에서 먼저 답하면 도구 끝 훅·대화 기록의 답으로 닫힌다
+    if (!dialogSeen) return;
+    if (++dialogGone >= 2) {
+      dialogGone = 0;
+      dialogSeen = false;
       clearCards();
       // 맥 창이 닫혔는데 점이 보라(답을 기다림)로 남아 있으면 지금 상태로
       if (tmux("show-options", "-w", "-v", "-t", pane, "@pi_status") === "asking") setStatus(working ? "working" : viewing() ? "" : "yourturn");
@@ -1640,6 +1651,7 @@ export function runFeed(pane) {
     for (const old of [...approvals.keys()]) approvalDone(old);   // 맥 창은 한 번에 하나
     screenAskDone();   // 같은 창을 화면에서 먼저 보고 연 카드가 있으면 승인 카드로 바꿈
     approvals.set(id, item);
+    dialogSeen = false;
     broadcast({ t: "approval", item });
     setStatus("asking");
     askNotify("approval", tr("승인이 필요합니다", "Approval needed"), `${describeTool(name, inp)}\n${summarizeTool(name, inp)}`);
@@ -1676,6 +1688,7 @@ export function runFeed(pane) {
       : { id, question: qs[0].question, options: qs[0].options, multiSelect: qs[0].multiSelect, since: Date.now() };
     screenAskDone();
     questions.set(id, { item, qs });
+    dialogSeen = false;
     broadcast({ t: "question", question: item });
     setStatus("asking");
     if (!quiet) askNotify("choice", tr("선택이 필요해요", "A choice is needed"), qs.length > 1 ? tr(`질문 ${qs.length}개 · ${first(qs[0].question)}`, `${qs.length} questions · ${first(qs[0].question)}`) : first(qs[0].question));

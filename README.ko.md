@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-맥에서 돌고 있는 [Claude Code](https://claude.com/claude-code)와 [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) 세션을 아이폰에서 그대로 쓴다.
+맥에서 돌고 있는 [Claude Code](https://claude.com/claude-code)와 [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) 세션을 아이폰에서 그대로 쓴다. 안드로이드 앱도 있다([안드로이드 앱](./docs/setup.ko.md#안드로이드-앱)).
 
 <p align="center">
   <img src="docs/images/app-chat.png" width="24%" alt="Claude Code 탭: 도구 단계, 할 일, Slack 보내기 승인 카드">
@@ -38,7 +38,7 @@
 - **알림**: 에이전트가 나를 기다리거나 일을 마쳤을 때. 내 Apple 푸시 키가 필요하다([알림](./docs/setup.ko.md#알림)).
 - 맥을 재부팅하면 브리지가 탭을 되살리고, 열려 있던 대화를 이어서 켠다.
 
-앱 화면은 아이폰 언어를 따른다(한국어, 그 밖의 언어는 영어). 폰에 보이는 맥 쪽 글(도구 단계 설명·카드·안내·알림)은 설정 파일의 `PI_REMOTE_LANG` 을 따르고, `install.sh` 가 맥의 언어로 정해 둔다([설정 값](./docs/setup.ko.md#설정-값)). 명령줄 안내 글과 코드 주석은 한국어다. 설명서는 영어와 한국어로 있다.
+앱 화면은 폰 언어를 따른다(한국어, 그 밖의 언어는 영어. 안드로이드 앱도 같다). 폰에 보이는 맥 쪽 글(도구 단계 설명·카드·안내·알림)은 설정 파일의 `PI_REMOTE_LANG` 을 따르고, `install.sh` 가 맥의 언어로 정해 둔다([설정 값](./docs/setup.ko.md#설정-값)). 명령줄 안내 글과 코드 주석은 한국어다. 설명서는 영어와 한국어로 있다.
 
 ## 구조
 
@@ -53,6 +53,7 @@
 - `claude-remote/` — Claude Code 탭 잇기: `~/.claude/settings.json` 에 거는 훅과, 탭마다 도는 작은 연결부.
 - `pi-extension/` — pi 탭 잇기: 대화 피드, 승인·질문 카드, 할 일 목록, 계획 모드 확장.
 - `ios/` — 앱(SwiftUI, [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)). Xcode 프로젝트는 XcodeGen 으로 만든다.
+- `android/` — 안드로이드 앱(Kotlin·Jetpack Compose, 터미널 화면은 [xterm.js](https://github.com/xtermjs/xterm.js)). 아이폰 앱의 핵심을 옮긴 것이다.
 - `deploy/` — 설치 도우미, 짝짓기 QR, 점검 명령, 선택해서 쓰는 자동 실행.
 
 같은 Wi-Fi 에서는 폰이 맥을 스스로 찾는다(Bonjour). 밖에서는 알려 준 주소(맥의 Tailscale·VPN 주소 등)로 붙는다.
@@ -61,8 +62,8 @@
 
 - [tmux](https://github.com/tmux/tmux)와 [Node.js](https://nodejs.org) 20 이상이 있는 맥(`brew install tmux node`). 폰으로 쓰는 동안 깨어 있어야 한다: 맥이 잠들면 브리지도 멈춘다
 - 그 맥의 Claude Code 나 pi
-- iOS 16 이상의 아이폰·아이패드
-- 앱을 빌드할 Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen)(`brew install xcodegen`), Apple Developer Program 가입(유료)
+- iOS 16 이상의 아이폰·아이패드, 또는 안드로이드 8 이상의 폰
+- 앱을 빌드할 Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen)(`brew install xcodegen`), Apple Developer Program 가입(유료). 안드로이드 앱은 JDK 17 과 안드로이드 SDK(Android Studio)만 있으면 되고 개발자 계정이 필요 없다
 
 ## 빠른 시작
 
@@ -92,6 +93,8 @@ cp ios/Local.xcconfig.example ios/Local.xcconfig   # Apple 팀 번호와 내 식
 ```
 
 폰을 고르고 실행한다. 자세한 것과 명령줄 설치는 [설정 안내](./docs/setup.ko.md#앱-빌드).
+
+안드로이드 폰이면 `cd android && ./gradlew assembleDebug` 로 만든 APK 를 깐다([안드로이드 앱](./docs/setup.ko.md#안드로이드-앱)).
 
 **3. 짝짓기**
 
@@ -162,7 +165,7 @@ ANTENNA_SHOTS_LANG=en sh test/readme-shots.sh   # 영어 README 의 영어 화�
 
 혼자 쓰려고 만든 도구가 자란 것이라 거친 데가 있다.
 
-- macOS 와 iOS 만 된다.
+- 맥은 macOS 만 된다. 폰은 iOS 와 안드로이드다. 안드로이드 앱은 아이폰 앱의 핵심만 옮긴 첫 판이고, 작성자는 에뮬레이터(안드로이드 15)로만 시험했다.
 - 작성자가 날마다 쓰는 판은 macOS 26, tmux 3.5a(Homebrew), Claude Code 2.1, pi 1.5 이다. 더 옛 판으로는 시험하지 않았다.
 - Claude Code 탭의 일부(백그라운드 작업 수, 화면에서 읽어 보여 주는 카드, 일하는 중인지)는 Claude Code 의 터미널 화면 모양에 기댄다. Claude Code 가 새 판에서 화면을 바꾸면 고칠 때까지 어긋날 수 있다.
 - 미리 빌드된 앱은 나누지 않는다. 각자 직접 빌드하고 서명한다. 새 판이 나오면 다시 빌드해 넣는다.

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 화면은 컴포즈가 그린다. 여기서는 켜질 때의 바탕색만(흰 화면이 번쩍이지 않게) -->
+    <style name="Theme.Antenna" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+    </style>
+</resources>

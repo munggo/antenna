@@ -1,0 +1,75 @@
+<!doctype html>
+<!-- 터미널 보기: 맥 tmux 화면을 그대로 그린다(보기 전용, 입력은 앱 아래 입력창). xterm.js 는 MIT(LICENSE-xterm.txt) -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="xterm.css">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #151515; overflow: hidden; }
+  #term { position: absolute; inset: 0 0 0 4px; }
+  .xterm .xterm-viewport { overflow-y: hidden !important; }
+</style>
+</head>
+<body>
+<div id="term"></div>
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script src="addon-unicode11.js"></script>
+<script>
+  // 아이폰 앱(ios/PiRemote/Theme.swift)과 같은 따뜻한 색
+  const term = new Terminal({
+    allowProposedApi: true,
+    disableStdin: true,
+    cursorBlink: false,
+    scrollback: 0,
+    fontFamily: 'monospace',
+    fontSize: 13,
+    theme: {
+      background: '#151515', foreground: '#F9F9F7', cursor: '#F9F9F7',
+      black: '#1F1E1D', red: '#E5675A', green: '#8BBF7A', yellow: '#E0B46A',
+      blue: '#7FA7D9', magenta: '#C49BD9', cyan: '#79C2C0', white: '#D6D3CA',
+      brightBlack: '#5A5852', brightRed: '#F07F72', brightGreen: '#A3D191', brightYellow: '#F0C47E',
+      brightBlue: '#96BBE8', brightMagenta: '#D4B0E6', brightCyan: '#92D6D3', brightWhite: '#F5F4EE',
+    },
+  });
+  const unicode = new Unicode11Addon.Unicode11Addon();
+  term.loadAddon(unicode);
+  term.unicode.activeVersion = '11';
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(document.getElementById('term'));
+
+  let last = '';
+  function refit() {
+    // 화면에 붙기 전(크기가 거의 없을 때)에는 재지 않는다: 그때 잰 작은 값이 맥에 가면 맥 화면이 그만큼 줄어든다
+    const box = document.getElementById('term');
+    if (box.clientWidth < 100 || box.clientHeight < 60) return;
+    try { fit.fit(); } catch (e) { return; }
+    const size = term.cols + 'x' + term.rows;
+    if (size !== last && term.cols > 0 && term.rows > 0) {
+      last = size;
+      if (window.Antenna) Antenna.onResize(term.cols, term.rows);
+    }
+  }
+  new ResizeObserver(refit).observe(document.getElementById('term'));
+  window.addEventListener('resize', refit);
+  window.refit = refit;
+
+  // 앱이 맥에서 받은 터미널 바이트(base64)를 넣는다
+  window.feed = function (b64) {
+    const s = atob(b64);
+    const bytes = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+    term.write(bytes);
+  };
+  // 맥 쪽이 보낸 글(JSON 이 아닌 글 프레임)
+  window.feedText = function (t) { term.write(t); };
+  // 숨어 있거나 맥에 붙기 전에는 커서를 깜빡이지 않는다
+  window.setBlink = function (on) { term.options.cursorBlink = !!on; };
+  window.reset = function () { term.reset(); };
+  refit();
+  if (window.Antenna) Antenna.onReady();
+</script>
+</body>
+</html>

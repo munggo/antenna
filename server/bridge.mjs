@@ -23,7 +23,7 @@ import { installCrashLog } from "./crash-log.mjs";
 import { createDeviceStore, sameHex } from "./devices.mjs";
 import { createDualServer, ensureCert } from "./tls.mjs";
 import { outsideReach, parseHosts, reachText } from "./reach.mjs";
-import { getPrefs, notify, pushEnabled, pushMode, registerActivity, registerLiveStart, registerToken, setNotifyGate, setPrefs, startNotifySocket } from "./push.mjs";
+import { fcmEnabled, getPrefs, notify, pushEnabled, pushEnabledFor, pushMode, registerActivity, registerLiveStart, registerToken, setNotifyGate, setPrefs, startNotifySocket } from "./push.mjs";
 import { readBattery } from "./battery.mjs";
 import { createPromptWatch, readRequests, readWindows, tabFinder } from "./mac-prompts.mjs";
 import { launchBackground } from "../claude-remote/bg-launch.mjs";
@@ -869,7 +869,7 @@ server.listen(PORT, HOST);
 // pi 확장이 폰 알림을 요청하는 로컬 소켓(이 브리지가 맡은 tmux 세션 전용)
 startNotifySocket(`${process.env.HOME}/.cache/pi-remote/notify-${SESSION}.sock`);
 setNotifyGate(gateNotify);
-console.log(`[pi-remote] 폰 알림: ${pushMode === "direct" ? "켜짐(Apple 푸시)" : pushMode === "relay" ? "켜짐(알림 중계)" : "꺼짐(APNs 설정 없음)"}`);
+console.log(`[pi-remote] 폰 알림: ${pushMode === "direct" ? "켜짐(Apple 푸시)" : pushMode === "relay" ? "켜짐(알림 중계)" : "꺼짐(APNs 설정 없음)"}, 안드로이드 ${fcmEnabled ? "켜짐(구글 푸시)" : "꺼짐(FCM 설정 없음)"}`);
 
 server.on("listening", () => {
   const how = !tlsCert ? "암호화 없음" : TLS_ONLY ? "암호화 연결만" : "암호화 연결, 예전 앱용으로 암호화 없는 연결도";
@@ -983,6 +983,8 @@ wss.on("connection", (ws, req) => {
   // chat=2: 탭마다 대화를 저장해 두는 앱(11-25). 처음 대화에 메시지 지문을 붙이고, 앱이 가진 것은 빼고 보낸다(server/chat-delta.mjs).
   // 이 앱은 붙자마자 지금 탭에서 가진 지문(chat-have)부터 보내므로, 그것을 받을 때까지(길어야 1.5초) 대화 피드에 붙지 않는다
   const deltaApp = url.searchParams.get("chat") === "2";
+  // 이 연결의 폰이 알림을 받는 길(push-register 로 알게 됨): apns | fcm | ""(아직 모름)
+  let pushPlatform = "";
 
   console.log(`[pi-remote] 접속: ${peer}  (${cols}x${rows}${req.socket.encrypted ? ", 암호화" : ""}${who.device ? `, 기기 ${who.device.id}` : ", 예전 공유 토큰"})`);
 
@@ -1298,13 +1300,15 @@ wss.on("connection", (ws, req) => {
         }
         if (msg.type === "push-register") {
           // 폰 앱이 보낸 알림용 기기 주소 등록
-          const ok = registerToken(String(msg.token ?? ""), String(msg.env ?? "sandbox"), msg.pk);
-          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "push-status", enabled: pushEnabled, registered: ok, prefs: getPrefs() }));
+          // platform "fcm": 안드로이드 앱(구글 푸시 토큰). 그 폰이 받을 길이 이 맥에 있는지를 알린다
+          pushPlatform = msg.platform === "fcm" ? "fcm" : "apns";
+          const ok = registerToken(String(msg.token ?? ""), String(msg.env ?? "sandbox"), msg.pk, pushPlatform);
+          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "push-status", enabled: pushEnabledFor(pushPlatform), registered: ok, prefs: getPrefs() }));
           return;
         }
         if (msg.type === "push-prefs") {
           setPrefs({ done: msg.done === true ? true : msg.done === false ? false : undefined });
-          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "push-status", enabled: pushEnabled, registered: true, prefs: getPrefs() }));
+          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "push-status", enabled: pushPlatform ? pushEnabledFor(pushPlatform) : pushEnabled, registered: true, prefs: getPrefs() }));
           return;
         }
         if (msg.type === "rotate-token") {

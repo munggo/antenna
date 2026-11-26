@@ -10,6 +10,8 @@
 // 12) 묻는 알림은 하나만: 질문 호출이 연달아 와도 하나(질문 수를 보임), 카드가 떠 있는 동안의 '입력이 필요함'은 알리지 않음.
 //     질문 카드는 맥처럼 하나씩(앞 카드가 닫히면 다음 카드, 알림 없이), 기다리던 질문이 먼저 끝났으면 열지 않음
 // 13) 단축어로 시킨 탭(시킨 칸 없음)이 끝나면 백그라운드 끝남 알림과 끝난 때 기록, 그 뒤 차례는 보통 알림
+// 14) 맥이 바빠 질문·승인 창이 훅보다 늦게 그려져도 카드를 지우지 않음(창을 한 번 본 뒤에 사라져야 닫음).
+//     11-27 사용자 보고: 질문 4개 창이 폰 카드로 뜨지 않음(부하 96 에서 창이 훅 뒤 3초 넘게 늦게 그려져 '창이 닫힘'으로 보고 지웠다)
 // 11-14 사용자 보고 '처리 중인데 앱에 처리 중 표시가 안 보임'(맥이 바빠 훅이 빠지고, 훅이 도는 동안의 진행 줄을 놓쳐 끔)
 // 시험 세션(stuckscreentest)·가짜 홈을 만들고 끝나면 지운다. 쓰는 tmux 세션과 쓰는 연결부는 건드리지 않는다.
 // 실행: node claude-remote/test/stuck-screen.test.mjs
@@ -78,6 +80,7 @@ await waitFor(() => existsSync(SOCK), 5000);
 
 let working = null;
 const asked = [], askDone = [];   // 받은 질문 카드·카드 닫힘
+const approved = [], approveDone = [];   // 받은 승인 카드·카드 닫힘
 const c = createConnection(SOCK);
 let buf = "";
 c.setEncoding("utf8");
@@ -92,6 +95,8 @@ c.on("data", (d) => {
       if (m.t === "snapshot") working = m.working;
       if (m.t === "question") asked.push(m.question.id);
       if (m.t === "question-done") askDone.push(m.id);
+      if (m.t === "approval") approved.push(m.item.id);
+      if (m.t === "approval-done") approveDone.push(m.id);
     } catch { /* 반쪽 줄 */ }
   }
 });
@@ -272,6 +277,29 @@ try {
   await waitFor(() => askDone.includes("cc-q-q32"), 3000);
   await sleep(500);
   ok(!asked.includes("cc-q-q33"), "12) 기다리던 질문이 먼저 끝났으면 그 카드는 열지 않음");
+  // 14) 창이 늦게 그려짐: 훅 뒤 4.5초 동안 화면에 창이 없어도 카드는 남고, 창이 뜬 뒤 사라지면 그때 닫음
+  mode("still");
+  await sleep(1000);
+  const q40 = { questions: [{ question: "늦게 뜨는 창?", options: [{ label: "가", description: "" }, { label: "나", description: "" }], multiSelect: false }] };
+  hook({ hook_event_name: "PreToolUse", tool_name: "AskUserQuestion", tool_use_id: "q40", tool_input: q40 });
+  ok(Boolean(await waitFor(() => asked.includes("cc-q-q40"), 3000)), "14) 질문 카드가 열림(맥 창은 아직 안 그려짐)");
+  await sleep(4500);
+  ok(!askDone.includes("cc-q-q40"), "14) 맥 창이 늦게 그려져도(4.5초) 질문 카드를 지우지 않음");
+  mode("ask");
+  await sleep(2500);
+  ok(!askDone.includes("cc-q-q40"), "14) 맥 창이 뜬 동안 질문 카드 유지");
+  mode("still");
+  ok(Boolean(await waitFor(() => askDone.includes("cc-q-q40"), 6000)), "14) 뜬 창이 사라지면(맥에서 답함) 질문 카드를 닫음");
+  const nA = approved.length;
+  hook({ hook_event_name: "PermissionRequest", tool_name: "Bash", tool_use_id: "a40", tool_input: { command: "rm -rf /tmp/x", description: "지우기" } });
+  const a40 = await waitFor(() => approved[nA], 3000);
+  ok(Boolean(a40), "14) 승인 카드가 열림(맥 창은 아직 안 그려짐)");
+  await sleep(4500);
+  ok(Boolean(a40) && !approveDone.includes(a40), "14) 맥 창이 늦게 그려져도 승인 카드를 지우지 않음");
+  mode("ask");
+  await sleep(2500);
+  mode("still");
+  ok(Boolean(await waitFor(() => approveDone.includes(a40), 6000)), "14) 뜬 승인 창이 사라지면 승인 카드를 닫음");
   mode("still");
   hook({ hook_event_name: "Stop" });
   await waitFor(() => working === false, 3000);

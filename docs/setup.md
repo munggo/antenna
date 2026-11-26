@@ -8,6 +8,7 @@
 - [Reaching the Mac from outside](#reaching-the-mac-from-outside)
 - [Building the app](#building-the-app)
 - [Notifications](#notifications)
+- [Android app](#android-app)
 - [Usage](#usage)
 - [Shortcuts](#shortcuts)
 - [Optional features](#optional-features)
@@ -27,6 +28,7 @@ Everything lives in one file, `~/.config/pi-remote/env` (mode 600), read by the 
 | `PI_REMOTE_TLS_ONLY` | `1` | Accept encrypted connections only. Remove the line only if you still use an old build of the app that connects without encryption. |
 | `PI_REMOTE_NODE` | found by `install.sh` | The Node binary that runs the bridge. Background jobs do not have your shell's `PATH`, so the path is written down. |
 | `PI_REMOTE_HOSTS` | empty | IP addresses the phone uses outside your Wi-Fi, comma-separated, no spaces. Goes into the pairing QR. |
+| `PI_REMOTE_FCM_KEY` | none | Path to your own Firebase service account key (JSON) for Android app notifications ([Android notifications](#android-notifications)) |
 | `PI_REMOTE_LANG` | your Mac's first language (`ko` if Korean, otherwise `en`) | Language of the Mac side's text on the phone: tool steps, cards, notices and notifications. `install.sh` writes it when it creates the file. After changing it, restart the bridge; Claude Code and pi tabs pick it up when they start next. The app's own screens follow the iPhone's language (Korean, or English for every other language). |
 
 After editing the file, restart the bridge. If the port or addresses changed, pair the phone again.
@@ -206,6 +208,42 @@ There is also a notification relay (`relay/`, a single function that whoever dis
 You are notified when an agent asks a question or needs an approval, and when a task finishes after running longer than a threshold you set in the app (one hour by default). While you are using the Mac, notifications are held back: a question still waiting is sent once the Mac is locked or left idle for a while, and a finished-task notice is dropped.
 
 You are also notified when a macOS privacy prompt ("… would like to access …") is waiting on the Mac, with the tab and the permission when they can be told. macOS does not let programs click these prompts, so they cannot be approved from the phone; the tab's work continues once you answer on the Mac. This notice is also held back while you are using the Mac and sent if the prompt is still there once you stop. To see fewer prompts, add `~/Library/Application Support/Antenna/Antenna 연결부` under System Settings > Privacy & Security > Full Disk Access. The bridge runs a copy of its node under that name, so prompts and the list show it instead of "node". Every tab in the tmux started by the bridge is granted under that name, so once is enough (tabs in a tmux started before this change keep the node name until a reboot). Permissions that cannot be added ahead of time, such as controlling another app or Photos, still need one answer on the first prompt.
+
+## Android app
+
+The Android app (`android/`) is also built by each user. It has the core of the iPhone app: pairing, the chat and terminal views, approval and question cards, to-dos, the tab drawer with background tabs and tasks, sending photos, usage, and notifications. What only the iPhone app has so far: Live Activities, the Shortcuts action, past conversations, memory, and the artifact viewer.
+
+### Building for Android
+
+- A phone with Android 8 or later. Scanning the QR code inside the app and notifications use Google Play services (on a phone without them, copy the pairing link and use "Paste a copied pairing link").
+- JDK 17 and the Android SDK (platform 36). Android Studio includes both. For the command line only: `brew install openjdk@17 android-commandlinetools`, then `sdkmanager "platforms;android-36" "build-tools;35.0.0" "platform-tools"`.
+
+```sh
+cd android
+echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties   # SDK path. With brew: /opt/homebrew/share/android-commandlinetools
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17                  # for the brew JDK (not needed when building in Android Studio)
+./gradlew assembleDebug
+```
+
+To install it, turn on USB debugging (or wireless debugging) in the phone's developer options and run `adb install -r app/build/outputs/apk/debug/app-debug.apk`. Or copy that APK to the phone, open it, and allow installing unknown apps. You can also open the `android` folder in Android Studio and run it. For a new version, build again and install over it the same way (pairing is kept).
+
+Pairing works as on the iPhone: scan the QR code from `sh deploy/pair.sh` with "Scan QR code" on the app's first screen, or scan it with the phone's camera or Google Lens and open the link.
+
+### Android notifications
+
+The bridge sends notifications straight to Google's push service (FCM) with a key from your own Firebase project, and the app has to be built with the same project's settings. This Firebase feature is free.
+
+1. Create a project in the [Firebase console](https://console.firebase.google.com) (Google Analytics can stay off).
+2. Add an Android app to that project with the package name `com.munggo.antenna`. Put the downloaded `google-services.json` in `android/app/` and build again. Git ignores this file; without it the app builds without notifications.
+3. In Project settings › Service accounts, choose "Generate new private key". Save the JSON key as `~/.config/pi-remote/fcm-service-account.json` and `chmod 600` it. Anyone with this key can send notifications through your project, so keep it to yourself.
+4. Add one line to `~/.config/pi-remote/env` and restart the bridge.
+
+   ```sh
+   PI_REMOTE_FCM_KEY=~/.config/pi-remote/fcm-service-account.json
+   ```
+5. Allow notifications in the app and check with … menu › Send a test notification. `node deploy/doctor.mjs` shows that Android notifications are set up.
+
+Notifications come at the same times as on the iPhone. Their text (title, tab name, body) goes through Google's push service, as iPhone notifications go through Apple's. While you're looking at the app, notifications for the tab on screen aren't shown, and tapping a notification opens its tab. When the app goes to the background it disconnects from the Mac after a minute (to save battery) and reconnects as soon as you open it again. If you force-stop the app in Settings, no notifications arrive until you open it again (an Android rule).
 
 ## Usage
 

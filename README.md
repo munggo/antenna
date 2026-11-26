@@ -2,7 +2,7 @@
 
 [한국어](./README.ko.md)
 
-Use the [Claude Code](https://claude.com/claude-code) and [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) sessions running on your Mac from your iPhone.
+Use the [Claude Code](https://claude.com/claude-code) and [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) sessions running on your Mac from your iPhone. There is an Android app too ([Android app](./docs/setup.md#android-app)).
 
 <p align="center">
   <img src="docs/images/app-chat-en.png" width="24%" alt="Claude Code tab: tool steps, to-do list and an approval card for sending a Slack message">
@@ -38,7 +38,7 @@ Your agents keep running in tmux on the Mac. The iPhone app shows each tmux tab 
 - **Notifications** when an agent needs you or finishes, with your own Apple push key (see [Notifications](./docs/setup.md#notifications)).
 - After a reboot the bridge restores your tabs and resumes the conversations that were open.
 
-The app follows your iPhone's language: Korean, or English for every other language. The Mac side's text on the phone (tool steps, cards, notices, notifications) follows `PI_REMOTE_LANG` in the settings file, which `install.sh` sets from your Mac's language (see [Settings](./docs/setup.md#settings)). The command-line messages and the code comments are in Korean. The guides are in English and Korean.
+The app follows your phone's language: Korean, or English for every other language (the Android app too). The Mac side's text on the phone (tool steps, cards, notices, notifications) follows `PI_REMOTE_LANG` in the settings file, which `install.sh` sets from your Mac's language (see [Settings](./docs/setup.md#settings)). The command-line messages and the code comments are in Korean. The guides are in English and Korean.
 
 ## How it works
 
@@ -53,6 +53,7 @@ The app follows your iPhone's language: Korean, or English for every other langu
 - `claude-remote/` — connects Claude Code tabs: hooks installed into `~/.claude/settings.json` plus a small feed process per tab.
 - `pi-extension/` — connects pi tabs: extensions for the chat feed, approval and question cards, to-do list, plan mode.
 - `ios/` — the app (SwiftUI, [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)). The Xcode project is generated with XcodeGen.
+- `android/` — the Android app (Kotlin, Jetpack Compose; the terminal view uses [xterm.js](https://github.com/xtermjs/xterm.js)), a port of the iPhone app's core.
 - `deploy/` — install helpers, the pairing QR, the health check, optional background jobs.
 
 On the same Wi-Fi the phone finds the Mac by itself (Bonjour). Away from it, the phone connects to an address you give it, such as your Mac's Tailscale or VPN address.
@@ -61,8 +62,8 @@ On the same Wi-Fi the phone finds the Mac by itself (Bonjour). Away from it, the
 
 - A Mac with [tmux](https://github.com/tmux/tmux) and [Node.js](https://nodejs.org) 20 or newer (`brew install tmux node`). It has to stay awake while you use it from the phone: when the Mac sleeps, the bridge stops
 - Claude Code and/or pi on that Mac
-- An iPhone or iPad on iOS 16 or newer
-- To build the app: Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`), and a paid Apple Developer Program membership
+- An iPhone or iPad on iOS 16 or newer, or an Android phone on Android 8 or newer
+- To build the app: Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`), and a paid Apple Developer Program membership. The Android app needs only JDK 17 and the Android SDK (Android Studio), no developer account
 
 ## Quick start
 
@@ -92,6 +93,8 @@ cp ios/Local.xcconfig.example ios/Local.xcconfig   # put your Apple team ID and 
 ```
 
 Select your phone and run. Details and a command-line install are in the [setup guide](./docs/setup.md#building-the-app).
+
+On an Android phone, install the APK built with `cd android && ./gradlew assembleDebug` (see [Android app](./docs/setup.md#android-app)).
 
 **3. Pair**
 
@@ -162,7 +165,7 @@ If the bridge ever dies, the reason is kept in `~/.cache/pi-remote/crash.log` an
 
 A personal tool that grew up; expect rough edges.
 
-- macOS and iOS only.
+- The Mac side is macOS only. Phones: iOS and Android. The Android app is a first version with the iPhone app's core, and the author has tested it only on an emulator (Android 15).
 - The author uses it daily on macOS 26 with tmux 3.5a (Homebrew), Claude Code 2.1 and pi 1.5. Older versions have not been tested.
 - Parts of a Claude Code tab (the number of background tasks, the cards read off the screen, whether it is working) depend on what Claude Code draws in the terminal. When a new version of Claude Code changes its screen, they can be off until this is updated.
 - There is no prebuilt app to share. Everyone builds and signs it themselves, and builds it again for a new release.

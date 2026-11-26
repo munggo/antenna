@@ -26,5 +26,13 @@ ios/PiRemote.xcodeproj/
 ios/**/.swiftpm/
 design/out/
 
+# 안드로이드 빌드 생성물과 개인 값(SDK 경로, 자기 Firebase 설정)
+android/.gradle/
+android/**/build/
+android/local.properties
+android/app/google-services.json
+android/.idea/
+android/.kotlin/
+
 # 작업용 스크립트·중간 결과(임시 폴더 대신)
 .work/

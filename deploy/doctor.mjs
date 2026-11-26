@@ -118,10 +118,19 @@ else {
   }
   const apns = ["PI_REMOTE_APNS_KEY", "PI_REMOTE_APNS_KEY_ID", "PI_REMOTE_APNS_TEAM", "PI_REMOTE_APNS_TOPIC"];
   const have = apns.filter((k) => env[k]);
-  if (!have.length) note("폰 알림 설정이 없음(알림 없이도 동작)");
+  if (!have.length && !env.PI_REMOTE_FCM_KEY) note("폰 알림 설정이 없음(알림 없이도 동작)");
   else if (have.length < apns.length) bad(`폰 알림 설정이 일부만 있어요(없는 것: ${apns.filter((k) => !env[k]).join(", ")})`, "docs/setup.ko.md 의 '알림'");
   else if (!existsSync(env.PI_REMOTE_APNS_KEY.replace(/^~/, HOME))) bad("폰 알림 키 파일이 없어요(PI_REMOTE_APNS_KEY 가 가리키는 파일)");
-  else good("폰 알림 설정 있음");
+  else if (have.length) good("폰 알림 설정 있음");
+  // 안드로이드 앱 알림(구글 푸시): 자기 Firebase 프로젝트의 서비스 계정 키(JSON)
+  if (env.PI_REMOTE_FCM_KEY) {
+    const f = env.PI_REMOTE_FCM_KEY.replace(/^~/, HOME);
+    let key = null;
+    try { key = JSON.parse(readFileSync(f, "utf8")); } catch { /* 아래에서 알림 */ }
+    if (!existsSync(f)) bad("안드로이드 알림 키 파일이 없어요(PI_REMOTE_FCM_KEY 가 가리키는 파일)", "docs/setup.ko.md 의 '안드로이드 알림'");
+    else if (!key?.client_email || !key?.private_key || !key?.project_id) bad("안드로이드 알림 키 파일이 Firebase 서비스 계정 키(JSON)가 아니에요", "docs/setup.ko.md 의 '안드로이드 알림'");
+    else good(`안드로이드 알림 설정 있음(Firebase 프로젝트 ${key.project_id})`);
+  }
 }
 const SESSION = env.PI_TMUX_SESSION || "antenna";   // 브리지(server/bridge.mjs)의 기본값과 같게
 const PORT = Number(env.PORT || 8787);
