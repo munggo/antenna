@@ -1,5 +1,5 @@
 // Claude Code 화면 일하는 중 판단(screenBusy) 시험. 실행: node claude-remote/test/screen-busy-cases.mjs
-const { screenBusy, backgroundShown, backgroundJobs, aboveInput, typedOnPrompt, agentPanel, shownMode, mergeJobs, compactingFor } = await import(new URL("../claude-feed.mjs", import.meta.url).pathname);
+const { screenBusy, backgroundShown, aboveInput, typedOnPrompt, agentPanel, shownMode, compactingFor } = await import(new URL("../claude-feed.mjs", import.meta.url).pathname);
 const box = (above, mode) => `${above}\n──────\n❯ \n──────\n  ~/works/personal/game [main] Fable 5.2 (max) · 개인 주 64%\n  ${mode}`;
 // 모드 줄 아래에 붙는 하위 에이전트 목록(2.1.32x, 11-17 실제 화면의 모양. 글은 지어낸 것): 이 대화(main)와 하위 에이전트 줄들, 다섯을 넘으면 '↓ N more'
 const agentRow = (kind, what, took, mark = "◯") => `  ${mark} ${kind}  ${what}${" ".repeat(40)}${took} · ↓ 53.1k tokens`;
@@ -47,7 +47,6 @@ const bg = [
   [status("⏵⏵ auto mode on · /tasks to see subagents"), null, "하위 에이전트가 끝난 뒤 남는 안내 글은 아님"],
 ];
 for (const [scr, want, name] of bg) if (backgroundShown(scr) !== want) { bad++; console.log(`틀림: ${name} → ${backgroundShown(scr)}`); }
-// 앱 서랍에 보일 '뒤에서 도는 일'(backgroundJobs): 아는 종류만 한국어로, 피드백 초안·다른 안내는 뺌
 // TIP: 응답이 끝나면 Claude Code 가 모드 줄 아래에 띄우는 안내 창(11-14 시험 화면 그대로)
 const TIP = [
   "  Teach auto mode about your environment?",
@@ -55,37 +54,6 @@ const TIP = [
   "  ❯ 1. Yes", "    2. Not now", "    3. Don't show again",
   "  Enter to confirm · Esc to cancel",
 ].join("\n");
-const jobs = [
-  [status("⏵⏵ auto mode on · 1 shell"), "셸 1개", "셸 하나"],
-  [status("⏵⏵ auto mode on · 2 shells · ⧉ 3"), "셸 2개", "셸 둘(복수형), 숫자만 있는 다른 표시는 뺌"],
-  [status("⏵⏵ auto mode on · 1 shell · 2 local agents"), "셸 1개 · 에이전트 2개", "셸과 에이전트(두 낱말)"],
-  [status("⏸ manual mode on · 3 background processes"), "프로세스 3개", "es 로 끝나는 복수형"],
-  [status("⏸ manual mode on · 1 feedback draft"), "", "보내지 않은 피드백 초안은 도는 일이 아님"],
-  [status("⏸ manual mode on · 1 feedback draft · 1 shell"), "셸 1개", "초안과 셸이 같이 있으면 셸만"],
-  [status("⏵⏵ auto mode on · 1 MCP server failed"), "", "모르는 종류(MCP 안내)는 뺌"],
-  [status("⏵⏵ auto mode on (shift+tab to cycle)"), "", "아무것도 없음"],
-  [status("⏵⏵ auto mode on · ← for agents"), "", "안내 글은 아님"],
-  [`· 1 shell 이라는 글이 대화에 있음\n${"답 줄\n".repeat(5)}${status("⏵⏵ auto mode on")}`, "", "대화 속 같은 글은 보지 않음(모드 줄만)"],
-  [`${status("⏵⏵ auto mode on · 1 shell · ↓ to manage                                tmux focus-events off · add 'set -g f")}\n──────\n${TIP}`, "셸 1개",
-    "모드 줄 아래에 안내 창이 떠 있어도 모드 줄을 찾아 읽음(11-14 시험 화면)"],
-  [`⏺ Bash(sleep 40)\n  ⎿  Running in the background (↓ to manage)\n${status("⏵⏵ auto mode on · 2 shells · esc to interrupt · ← for agents · ↓ to manage")}`, "셸 2개",
-    "일하는 중의 모드 줄(대화 쪽의 '↓ to manage' 줄은 모드 줄이 아님)"],
-  [`⏵⏵ auto mode on · 1 shell 이라고 대화에 적힌 줄\n답 줄\n${status("⏵⏵ auto mode on (shift+tab to cycle)")}\n──────\n${TIP}`, "",
-    "모드 줄은 맨 아래 쪽의 마지막 것(위쪽 대화에 같은 글이 있어도)"],
-  ["", "", "빈 화면"],
-  // 11-17 사용자 보고 '에이전트 8개가 도는데 서랍에 백그라운드 작업이 안 보임': 2.1.32x 는 에이전트 수를 모드 줄에 쓰지 않고 그 아래 목록으로만 보인다
-  [withPanel(status("⏵⏵ auto mode on (shift+tab to cycle) · ⧉ today"), ...EIGHT), "에이전트 8개", "하위 에이전트 목록: 다섯 줄 + 아래로 접힌 셋"],
-  [withPanel(status("⏵⏵ auto mode on · 1 shell · 2 feedback drafts"), ...TWO), "셸 1개 · 에이전트 2개", "모드 줄의 셸과 목록의 하위 에이전트"],
-  [withPanel(status("⏵⏵ auto mode on · 1 shell · /tasks to see subagents · 2 feedback drafts"), "  ⏺ main", agentRow("general-purpose", "화면 살피는 중", "9s")), "셸 1개 · 에이전트 1개",
-    "하나가 끝난 직후(안내 글 '/tasks to see subagents' 는 세지 않음)"],
-  [status("⏵⏵ auto mode on · 1 shell · /tasks to see subagents · 2 feedback drafts"), "셸 1개", "하위 에이전트가 모두 끝나 목록이 사라진 뒤"],
-  [withPanel(status("⏵⏵ auto mode on"), "  ◯ main", agentRow("Explore", "파일 찾는 중", "12s", "⏺"), agentRow("general-purpose", "자료 찾는 중", "40s")), "에이전트 2개",
-    "목록에서 하위 에이전트를 고른 모양(기호가 바뀜)"],
-  [withPanel(status("⏵⏵ auto mode on"), "  ↑ 2 more", agentRow("general-purpose", "자료 찾는 중", "1m 2s"), "  ↓ 1 more"), "에이전트 2개", "위로 접힌 것은 이 대화가 섞였을 수 있어 세지 않음"],
-  [withPanel(status("⏵⏵ auto mode on · 1 shell · 3 local agents"), ...TWO), "셸 1개 · 에이전트 3개", "모드 줄에 수가 있으면(예전 판) 목록보다 큰 쪽"],
-  [`⏺ 첫째 답\n⏺ 둘째 답\n◯ 대화에 적힌 줄`, "", "모드 줄 없이 '⏺'·'◯' 줄로 끝나는 화면은 목록이 아님"],
-];
-for (const [scr, want, name] of jobs) if (backgroundJobs(scr) !== want) { bad++; console.log(`틀림: ${name} → '${backgroundJobs(scr)}'`); }
 // 하위 에이전트 목록 가려내기(agentPanel): 목록을 뗀 화면과 에이전트 수. 목록이 아니면 화면 그대로
 const idle = status("⏵⏵ auto mode on (shift+tab to cycle) · ⧉ today");
 const tipScreen = `${status("⏵⏵ auto mode on")}\n──────\n${TIP}`;
@@ -111,17 +79,6 @@ const modes = [
   ["", null, "빈 화면"],
 ];
 for (const [scr, want, name] of modes) if (shownMode(scr) !== want) { bad++; console.log(`틀림: ${name} → ${shownMode(scr)}`); }
-// 서랍의 수: 화면에서 센 것에 대화 기록으로 아는 수를 합침(mergeJobs, 종류마다 큰 쪽)
-const merged = [
-  [mergeJobs("", { 에이전트: 8, 감시: 0 }), "에이전트 8개", "화면에서 못 센 에이전트를 기록의 수로"],
-  [mergeJobs("셸 1개", { 에이전트: 2, 감시: 1 }), "셸 1개 · 에이전트 2개 · 감시 1개", "화면의 셸 + 기록의 에이전트·감시"],
-  [mergeJobs("셸 1개 · 에이전트 3개", { 에이전트: 2 }), "셸 1개 · 에이전트 3개", "화면의 수가 더 크면 화면의 수"],
-  [mergeJobs("에이전트 2개", { 에이전트: 2 }), "에이전트 2개", "같으면 한 번만"],
-  [mergeJobs("셸 2개", {}), "셸 2개", "기록에 아무것도 없으면 화면 그대로"],
-  [mergeJobs("셸 2개"), "셸 2개", "기록 값을 주지 않아도"],
-  [mergeJobs("", { 에이전트: 0, 감시: 0 }), "", "둘 다 없으면 빈 글"],
-];
-for (const [got, want, name] of merged) if (got !== want) { bad++; console.log(`틀림: ${name} → '${got}'`); }
 // 바로잡기가 '화면이 움직이는지' 볼 입력창 위쪽(aboveInput): 진행 줄이 바뀌면 다르고, 입력창·상태 줄·모드 줄만 바뀌면 같음
 const LINE = "─".repeat(60);
 const shot = (progress, input, usage, mode) => `⏺ 답\n${progress}\n${LINE}\n${input}\n${LINE}\n  ~/works/x [main] Opus 5.5 · 개인 ${usage}\n  ${mode}\n\n`;
@@ -219,6 +176,6 @@ const compacting = [
   ["", null, "빈 화면"],
 ];
 for (const [scr, want, name] of compacting) if (compactingFor(scr) !== want) { bad++; console.log(`틀림: 압축하는 중 — ${name}(${compactingFor(scr)})`); }
-const total = cases.length + bg.length + jobs.length + panels.length + modes.length + merged.length + above.length + typed.length + compacting.length;
+const total = cases.length + bg.length + panels.length + modes.length + above.length + typed.length + compacting.length;
 console.log(`전체 ${total}개 중 틀림 ${bad}개`);
 process.exit(bad ? 1 : 0);

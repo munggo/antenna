@@ -164,9 +164,14 @@ try {
   ok(ours("Stop")[0]?.command === `"${cc.bin}/node" "${cc.home}/.claude/pi-remote/pi-remote-hook.mjs"`, "훅은 설치할 때 고른 node 로 돎");
   ok(["claude-feed.mjs", "pi-remote-hook.mjs", "claude-account.mjs", "bg-launch.mjs", "sudo-check.mjs", "sudo-run.mjs", "sudo-tab.sh", "sudo-rules.mjs", "claude-account"].every((f) => existsSync(`${cc.home}/.claude/pi-remote/${f}`)) && existsSync(`${cc.home}/.claude/commands/bgtab.md`),
     "연결부·훅 파일과 백그라운드 탭 명령을 설치함");
+  // 아티팩트는 폴더 기준 계정에(11-24): 아티팩트 도구 앞 훅 하나, 대신 실행 시간을 넉넉히
+  const relay = () => (s.hooks?.PreToolUse ?? []).filter((g) => (g.hooks ?? []).some((h) => String(h.command).includes("artifact-relay.mjs")));
+  ok(relay().length === 1 && relay()[0].matcher === "Artifact|ArtifactComments|ArtifactData" && relay()[0].hooks[0].timeout === 300
+    && relay()[0].hooks[0].command === `"${cc.bin}/node" "${cc.home}/.claude/pi-remote/artifact-relay.mjs"` && existsSync(`${cc.home}/.claude/pi-remote/artifact-relay.mjs`),
+    "아티팩트 계정 맞춤 훅(아티팩트 도구만, 300초)과 파일을 설치함");
   r = cc.install("--no-agent");
   try { s = JSON.parse(readFileSync(`${cc.home}/.claude/settings.json`, "utf8")); } catch { s = {}; }
-  ok(r.status === 0 && HOOK_EVENTS.every((e) => ours(e).length === 1), "다시 돌려도 훅이 겹쳐 들어가지 않음");
+  ok(r.status === 0 && HOOK_EVENTS.every((e) => ours(e).length === 1) && relay().length === 1, "다시 돌려도 훅이 겹쳐 들어가지 않음");
   // 설정 파일이 아직 없는 맥(Claude Code 를 깔기만 함)
   const fresh = mac("claude-fresh");
   mkdirSync(`${fresh.home}/.claude`, { recursive: true });

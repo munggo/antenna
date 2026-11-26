@@ -31,6 +31,7 @@ import { createTaskStarter } from "./tasks.mjs";
 import { createSession, loadSnapshot, saveSnapshot, snapshotTabs } from "./tabs-restore.mjs";
 import { editorEmpty, LEVELS, parseStatusLine } from "./status-line.mjs";
 import { finishedBackgroundIds, forApp, parseWindows, SEEN_HOOK, SEEN_HOOK_CMD, WINDOW_FORMAT } from "./windows.mjs";
+import { parseHave, snapshotForApp } from "./chat-delta.mjs";
 import { accountsState, claimsFromUsage, dailyUsage, MIXED_TEXT, mixedDirection, readUsageHistory, recordSharedClaims, recordUsage, recordWorkUsage, sharedLimits, usageHistoryForApp, workUsageForApp } from "./usage-history.mjs";
 import { loadPiAuth, PI_AUTH_FILE, USAGE_AUTH_FILE, usageToken } from "./usage-auth.mjs";
 import { acceptFolderTrust } from "./folder-trust.mjs";
@@ -289,10 +290,13 @@ const FAKE_USAGE_FILE = process.env.PI_REMOTE_FAKE_USAGE_FILE || "";
 const FAKE_WORK_USAGE_FILE = process.env.PI_REMOTE_FAKE_WORK_USAGE_FILE || "";
 // 시험용: 회사 계정 요금제 조회(profile) 응답을 이 파일의 JSON 으로 대신한다
 const FAKE_WORK_PROFILE_FILE = process.env.PI_REMOTE_FAKE_WORK_PROFILE_FILE || "";
+// 시험용: 추가 개인 계정의 같은 두 응답
+const FAKE_PERSONAL2_USAGE_FILE = process.env.PI_REMOTE_FAKE_PERSONAL2_USAGE_FILE || "";
+const FAKE_PERSONAL2_PROFILE_FILE = process.env.PI_REMOTE_FAKE_PERSONAL2_PROFILE_FILE || "";
 const USAGE_TTL_MS = 60_000;
 let usageCache = null; // { at, data }
 let planCache = null; // { at, plan }
-let workPlanCache = null; // { at, plan } 회사 계정 요금제(조회 전용 로그인이 있을 때만)
+const tokenPlanCache = new Map(); // 계정(anthropic-work 등) → { at, plan } 토큰 계정 요금제(조회 전용 로그인이 있을 때만)
 
 /** 사용량 조회에 쓸 토큰. 못 얻었으면 까닭을 기록에 한 번씩만 남긴다(같은 까닭을 10분마다 되풀이하지 않게) */
 const tokenNotes = new Map();
@@ -314,38 +318,46 @@ async function anthropicToken() {
   return { error: "로그인 토큰이 만료됐어요. 맥 pi 를 한 번 사용하면 자동으로 갱신돼요" };
 }
 
-// 회사 계정: 조회 전용 로그인(deploy/usage-login.mjs 로 받아 둔 것)이 있으면 사용량을 조회해 공유 파일에 적는다.
-// 그 뒤는 전과 같다(공유 파일 값 → 회사 계정 한도·기록·터미널 하단 줄). 로그인이 없으면 아무것도 하지 않는다:
-// 그때 회사 값은 Claude Code 상태 줄이 적는 것(모든 모델 주간, 한도에 걸린 Fable)뿐이다
-async function refreshWorkUsage() {
+// 토큰 계정(회사·추가 개인): 조회 전용 로그인(deploy/usage-login.mjs 로 받아 둔 것)이 있으면 사용량을 조회해 공유 파일에 적는다.
+// 그 뒤는 전과 같다(공유 파일 값 → 그 계정 한도·기록·터미널 하단 줄). 로그인이 없으면 아무것도 하지 않는다:
+// 그때 그 계정 값은 Claude Code 상태 줄이 적는 것(모든 모델 주간, 한도에 걸린 Fable)뿐이다.
+// 추가 개인도 Fable 을 따로 보이게(사용자 요청 11-25 '추가 개인도 fable 을 따로 보여줘야지 전체랑')
+const TOKEN_ACCOUNTS = [
+  { provider: "anthropic-work", label: "회사", fakeUsage: FAKE_WORK_USAGE_FILE, fakeProfile: FAKE_WORK_PROFILE_FILE },
+  { provider: "anthropic-personal2", label: "추가 개인", fakeUsage: FAKE_PERSONAL2_USAGE_FILE, fakeProfile: FAKE_PERSONAL2_PROFILE_FILE },
+];
+async function refreshTokenUsage({ provider, label, fakeUsage, fakeProfile }) {
+  const noteKey = `${label} 조회`;
   try {
     let u;
     let profile = null;
-    if (FAKE_WORK_USAGE_FILE) {
-      if (!existsSync(FAKE_WORK_USAGE_FILE)) return;
-      u = JSON.parse(readFileSync(FAKE_WORK_USAGE_FILE, "utf8"));
-      if (FAKE_WORK_PROFILE_FILE) profile = async () => JSON.parse(readFileSync(FAKE_WORK_PROFILE_FILE, "utf8"));
+    if (fakeUsage) {
+      if (!existsSync(fakeUsage)) return;
+      u = JSON.parse(readFileSync(fakeUsage, "utf8"));
+      if (fakeProfile) profile = async () => JSON.parse(readFileSync(fakeProfile, "utf8"));
     } else {
-      const r = await tokenFor("회사", USAGE_AUTH_FILE, "anthropic-work");
+      const r = await tokenFor(label, USAGE_AUTH_FILE, provider);
       if (!r.token) return;
       u = await anthropicGet("/api/oauth/usage", r.token);
       profile = () => anthropicGet("/api/oauth/profile", r.token);
     }
-    recordSharedClaims("anthropic-work", claimsFromUsage(u));
-    tokenNotes.delete("회사 조회");
-    // 요금제 이름도 개인처럼 한 시간에 한 번(사용자 요청 11-19: 회사 카드에도 'Claude Max 20x' 처럼). 못 얻으면 '회사 계정'
-    if (profile && (!workPlanCache || Date.now() - workPlanCache.at > 3600_000)) {
+    recordSharedClaims(provider, claimsFromUsage(u));
+    tokenNotes.delete(noteKey);
+    // 요금제 이름도 개인처럼 한 시간에 한 번(사용자 요청 11-19: 회사 카드에도 'Claude Max 20x' 처럼). 못 얻으면 '회사 계정' 같은 기본 이름
+    const cached = tokenPlanCache.get(provider);
+    if (profile && (!cached || Date.now() - cached.at > 3600_000)) {
       try {
-        workPlanCache = { at: Date.now(), plan: planLabel((await profile()).organization) };
+        tokenPlanCache.set(provider, { at: Date.now(), plan: planLabel((await profile()).organization) });
       } catch {
         /* 요금제 이름은 없어도 됨 */
       }
     }
   } catch (e) {
-    if (tokenNotes.get("회사 조회") !== e.message) console.warn(`[pi-remote] 회사 계정 사용량 조회 실패: ${e.message}`);
-    tokenNotes.set("회사 조회", e.message);
+    if (tokenNotes.get(noteKey) !== e.message) console.warn(`[pi-remote] ${label} 계정 사용량 조회 실패: ${e.message}`);
+    tokenNotes.set(noteKey, e.message);
   }
 }
+const refreshTokenAccountsUsage = () => Promise.all(TOKEN_ACCOUNTS.map(refreshTokenUsage));
 
 async function anthropicGet(path, token) {
   const res = await fetch(`https://api.anthropic.com${path}`, {
@@ -374,6 +386,25 @@ function limitLabel(l) {
 // 회사 계정(claude-accounts 확장): 사용량 API 권한이 없는 장기 토큰이라, 확장과 Claude Code 상태 줄이 공유 파일에 적어 둔 값을 읽는다
 const workLimits = (now = Date.now()) => sharedLimits("anthropic-work", false, now);
 
+/** 맥 열쇠고리에 그 항목(장기 토큰)이 있는지. 값은 읽지 않음. 1분 동안 기억(사용량 요청마다 부르지 않게) */
+const keychainSeen = new Map();
+// 시험용: 열쇠고리를 보지 않고 항목이 없는 것으로(README 화면 사진이 이 맥의 계정 설정을 따라가지 않게)
+const NO_KEYCHAIN = process.env.PI_REMOTE_NO_KEYCHAIN === "1";
+function hasKeychainItem(service) {
+  if (NO_KEYCHAIN) return false;
+  const c = keychainSeen.get(service);
+  if (c && Date.now() - c.at < 60_000) return c.has;
+  let has = false;
+  try {
+    execFileSync("/usr/bin/security", ["find-generic-password", "-s", service], { stdio: "ignore", timeout: 3000 });
+    has = true;
+  } catch {
+    has = false;
+  }
+  keychainSeen.set(service, { has, at: Date.now() });
+  return has;
+}
+
 /** pi 로그인으로 사용량을 조회하지 못할 때: 공유 파일에 적힌 값(Claude Code 상태 줄·pi 확장)으로 만든 사용량.
  *  pi 를 쓰지 않고 Claude Code 만 써도 사용량이 보이게 한다. 요금제 이름·모델별 한도·추가 사용량은 조회가 될 때만 알 수 있다 */
 function sharedUsage() {
@@ -388,7 +419,7 @@ function sharedUsage() {
 
 async function fetchUsage(force = false) {
   if (!force && usageCache && Date.now() - usageCache.at < USAGE_TTL_MS) return usageCache.data;
-  const work = refreshWorkUsage();   // 회사 계정 값을 공유 파일에(조회 전용 로그인이 있을 때만). 개인 조회와 나란히 하고, 값을 읽기 전에 기다린다
+  const work = refreshTokenAccountsUsage();   // 회사·추가 개인 값을 공유 파일에(조회 전용 로그인이 있을 때만). 개인 조회와 나란히 하고, 값을 읽기 전에 기다린다
   const { token, error } = FAKE_USAGE_FILE ? { token: "" } : await anthropicToken();
   if (error) {
     await work;
@@ -477,7 +508,8 @@ function checkAccounts() {
 }
 
 // 사용량 기록(주간 그래프): 10분마다(usage-history.mjs)
-const usageTick = () => fetchUsage(true).then(recordUsage).then(recordWorkUsage).then(checkAccounts);
+// 토큰 계정(회사·추가 개인)은 공유 파일 값을 쌓음. then 에 함수를 그대로 넘기면 앞 결과가 계정 이름으로 들어가 감싸서 부름
+const usageTick = () => fetchUsage(true).then(recordUsage).then(() => { recordWorkUsage(); recordWorkUsage("anthropic-personal2"); }).then(checkAccounts);
 setTimeout(usageTick, Number(process.env.PI_REMOTE_USAGE_FIRST_MS ?? 10_000));
 setInterval(usageTick, 10 * 60_000);
 
@@ -552,7 +584,8 @@ function cleanupImages() {
   for (const dir of [IMG_DIR, THUMB_DIR]) {
     try {
       for (const f of readdirSync(dir)) {
-        if (!f.startsWith("img-")) continue;
+        // 폰에서 올린 사진과 그 썸네일(img-…), 답 속 경로로 본 맥 그림의 사본(mac-…)
+        if (!f.startsWith("img-") && !(dir === THUMB_DIR && f.startsWith("mac-"))) continue;
         const p = `${dir}/${f}`;
         if (Date.now() - statSync(p).mtimeMs > IMG_KEEP_MS) {
           unlinkSync(p);
@@ -566,10 +599,51 @@ function cleanupImages() {
   if (n) console.log(`[pi-remote] 지난 사진 ${n}개 정리`);
 }
 
-// 썸네일(작게: 360px, 미리보기: 1024px). 요청 경로는 파일 이름만 보고 사진 폴더 안에서만 찾는다(다른 파일 못 읽게).
+// 맥의 일반 그림(답에 나온 경로를 폰에서 눌러 본 것, 사용자 요청 11-25). 그 파일을 그대로 보내지 않고 늘 sips 로 다시 만들어 보낸다:
+// 그림이 아닌 파일(확장자만 바꾼 것·그림 이름의 바로가기가 가리키는 다른 파일)은 sips 가 못 읽어 보내지 않는다.
+// 원본보다 크게 늘리지 않고(QR 이 흐려지지 않게), 투명한 그림은 PNG 로(배경이 검게 되지 않게). 같은 파일·같은 수정 시각이면 만든 것을 다시 씀
+const MAC_IMG_EXT = /\.(png|jpe?g|gif|heic|heif|webp|bmp|tiff?)$/i;
+function macImage(path, size) {
+  let p = String(path ?? "");
+  if (p.startsWith("~/")) p = `${process.env.HOME}${p.slice(1)}`;
+  if (!p.startsWith("/") || p.includes("\0") || !MAC_IMG_EXT.test(p)) return { error: "그림 파일 경로가 아니에요" };
+  let real, st;
+  try {
+    real = realpathSync(p);
+    st = statSync(real);
+  } catch {
+    return { error: "맥에 그 파일이 없어요" };
+  }
+  if (!st.isFile()) return { error: "그림 파일이 아니에요" };
+  if (st.size > 200 * 1024 * 1024) return { error: "그림이 너무 커요" };
+  const px = size === "full" ? 2048 : size === "large" ? 1024 : 360;
+  const key = createHash("sha1").update(`${real}\n${st.mtimeMs}\n${st.size}\n${px}`).digest("hex").slice(0, 16);
+  const sips = (args) => execFileSync("/usr/bin/sips", args, { encoding: "utf8", timeout: 20_000, stdio: ["ignore", "pipe", "ignore"] });
+  try {
+    const info = sips(["-g", "pixelWidth", "-g", "pixelHeight", "-g", "hasAlpha", real]);
+    const w = Number(info.match(/pixelWidth:\s*(\d+)/)?.[1]);
+    const h = Number(info.match(/pixelHeight:\s*(\d+)/)?.[1]);
+    if (!w || !h) return { error: "그림으로 읽지 못했어요" };
+    const format = /hasAlpha:\s*yes/.test(info) ? "png" : "jpeg";
+    const out = `${THUMB_DIR}/mac-${key}.${format === "png" ? "png" : "jpg"}`;
+    if (!existsSync(out)) {
+      mkdirSync(THUMB_DIR, { recursive: true });
+      sips(["-s", "format", format, ...(Math.max(w, h) > px ? ["-Z", String(px)] : []), real, "--out", out]);
+    }
+    const data = readFileSync(out);
+    if (data.length > 15 * 1024 * 1024) return { error: "그림이 너무 커요" };
+    return { data: data.toString("base64") };
+  } catch {
+    return { error: "그림으로 읽지 못했어요" };
+  }
+}
+
+// 썸네일(작게: 360px, 미리보기: 1024px). 폰에서 올린 사진은 파일 이름만 보고 사진 폴더 안에서만 찾는다.
 function makeThumb(path, size) {
   const base = String(path).split("/").pop();
-  if (!/^img-\d+\.(jpe?g|png)$/i.test(base)) return { error: "허용되지 않은 경로" };
+  const dir = String(path).includes("/") ? String(path).slice(0, -base.length - 1) : "";
+  // 폰에서 올린 사진(사진 폴더의 img-숫자)이 아니면 맥의 일반 그림(답 속 경로를 폰에서 누름)
+  if (!/^img-\d+\.(jpe?g|png)$/i.test(base) || (dir && !dir.endsWith("/.cache/pi-remote"))) return macImage(path, size);
   const src = `${IMG_DIR}/${base}`;
   if (!existsSync(src)) return { error: "사진이 없어요(7일 지나 정리됐을 수 있어요)" };
   if (size === "full") {
@@ -905,6 +979,9 @@ wss.on("connection", (ws, req) => {
 
   const cols = clampInt(url.searchParams.get("cols"), 80, 20, 500);
   const rows = clampInt(url.searchParams.get("rows"), 24, 5, 300);
+  // chat=2: 탭마다 대화를 저장해 두는 앱(11-25). 처음 대화에 메시지 지문을 붙이고, 앱이 가진 것은 빼고 보낸다(server/chat-delta.mjs).
+  // 이 앱은 붙자마자 지금 탭에서 가진 지문(chat-have)부터 보내므로, 그것을 받을 때까지(길어야 1.5초) 대화 피드에 붙지 않는다
+  const deltaApp = url.searchParams.get("chat") === "2";
 
   console.log(`[pi-remote] 접속: ${peer}  (${cols}x${rows}${req.socket.encrypted ? ", 암호화" : ""}${who.device ? `, 기기 ${who.device.id}` : ", 예전 공유 토큰"})`);
 
@@ -946,6 +1023,9 @@ wss.on("connection", (ws, req) => {
   // 잘 붙어 있던 피드가 끊겼을 때(확장 다시 불러오기 0.3초·pi 재시작 3초 안팎) 이 시각까지는 '쓸 수 없음'을 보내지 않음
   // → 앱이 잠깐 터미널로 바뀌었다 돌아오는 깜빡임을 막는다. 처음부터 피드가 없는 창(셸 등)은 바로 알림
   let feedGraceUntil = 0;
+  // 앱이 탭(칸 번호)마다 가진 메시지 지문. 앱이 알려 주거나(chat-have·탭 고르기·미리 받기) 브리지가 처음 대화를 보낼 때마다 그 대화의 것으로 바뀐다
+  const chatHave = new Map();
+  let holdFeed = deltaApp;
   const sendChat = (raw) => {
     if (ws.readyState === ws.OPEN) ws.send(`{"type":"chat","d":${raw}}`);
   };
@@ -972,6 +1052,9 @@ wss.on("connection", (ws, req) => {
     if (!pane) return markFeed(false);
     const sock = createConnection(`${FEED_DIR}/${pane.replace(/\W/g, "")}.sock`);
     feed = sock;
+    // Claude Code 연결부는 붙은 쪽이 첫 줄을 보내지 않으면 0.15초 기다렸다가 대화를 준다(훅 연결과 가리려고).
+    // 명령 이름이 없는 줄을 먼저 보내 바로 받는다(예전 연결부·pi 확장도 이런 줄은 조용히 넘김)
+    sock.on("connect", () => sock.write('{"hello":true}\n'));
     let gotData = false;
     sock.setEncoding("utf8");
     sock.on("data", (chunk) => {
@@ -983,13 +1066,18 @@ wss.on("connection", (ws, req) => {
       while ((i = feedBuf.indexOf("\n")) >= 0) {
         const line = feedBuf.slice(0, i);
         feedBuf = feedBuf.slice(i + 1);
-        if (line) {
-          if (line.startsWith('{"t":"snapshot"')) {
-            feedCanSend = line.includes('"canSend":true');
-            feedAgent = line.includes('"agent":"claude"') ? "claude" : "pi";
+        if (!line) continue;
+        if (line.startsWith('{"t":"snapshot"')) {
+          feedCanSend = line.includes('"canSend":true');
+          feedAgent = line.includes('"agent":"claude"') ? "claude" : "pi";
+          const out = deltaApp ? snapshotForApp(line, chatHave.get(pane), pane) : null;
+          if (out) {
+            chatHave.set(pane, new Set(out.hashes));
+            sendChat(out.json);
+            continue;
           }
-          sendChat(line);
         }
+        sendChat(line);
       }
     });
     const fail = () => {
@@ -1040,8 +1128,49 @@ wss.on("connection", (ws, req) => {
     // 보고 있는 창이 바뀌면 그 창의 대화 피드로 갈아탄다
     // tmux 읽기가 한 번 실패해 빈 값이 오면 무시(창이 없어진 것으로 보지 않음)
     const pane = activePaneId();
-    if (pane && pane !== feedPane) connectFeed(pane);
+    if (pane && pane !== feedPane && !holdFeed) connectFeed(pane);
   };
+  const releaseFeed = (push = true) => {
+    if (!holdFeed) return;
+    holdFeed = false;
+    clearTimeout(holdTimer);
+    if (push) pushWindows();
+  };
+  const holdTimer = holdFeed ? setTimeout(releaseFeed, 1500) : null;
+
+  // 다른 탭의 대화를 뒤에서 미리 받기(앱이 바뀐 탭만 청함, 11-25). 그 탭 연결부에 잠깐 붙어 처음 대화만 받고 끊는다.
+  // 앱에는 {type:"chat-bg", key, d:처음 대화} · 연결부가 없는 탭이면 unavailable · 못 받았으면 error
+  const prefetch = (key, have) => {
+    const reply = (o) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: "chat-bg", key, ...o }));
+    if (!listWindows().some((w) => w.key === key)) return reply({ error: "no-tab" });   // 이 세션의 탭만
+    const s = createConnection(`${FEED_DIR}/${key.replace(/\W/g, "")}.sock`);
+    let buf = "";
+    let done = false;
+    const finish = (o, raw) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      s.destroy();
+      if (raw) {
+        if (ws.readyState === ws.OPEN) ws.send(`{"type":"chat-bg","key":${JSON.stringify(key)},"d":${raw}}`);
+      } else reply(o);
+    };
+    const timer = setTimeout(() => finish({ error: "timeout" }), 5000);
+    s.setEncoding("utf8");
+    s.on("connect", () => s.write('{"hello":true}\n'));
+    s.on("data", (d) => {
+      buf += d;
+      const i = buf.indexOf("\n");
+      if (i < 0) return;
+      const out = snapshotForApp(buf.slice(0, i), have, key);
+      if (!out) return finish({ error: "bad" });
+      chatHave.set(key, new Set(out.hashes));
+      finish(null, out.json);
+    });
+    s.on("error", (e) => finish(e.code === "ENOENT" || e.code === "ECONNREFUSED" ? { unavailable: true } : { error: "socket" }));
+    s.on("close", () => finish({ error: "closed" }));
+  };
+
   const winTimer = setInterval(pushWindows, 1000);
   pushWindows();
 
@@ -1085,8 +1214,31 @@ wss.on("connection", (ws, req) => {
           );
           return;
         }
+        if (msg.type === "chat-have") {
+          // 탭마다 대화를 저장해 두는 앱이 붙자마자 보냄: 지금 탭(이라고 앱이 아는 것)에서 가진 지문. 받으면 대화 피드에 붙는다
+          const have = parseHave(msg.have);
+          if (typeof msg.key === "string" && msg.key && have) chatHave.set(msg.key, have);
+          releaseFeed();
+          return;
+        }
+        if (msg.type === "chat-prefetch") {
+          if (typeof msg.key === "string" && /^%\d+$/.test(msg.key)) prefetch(msg.key, parseHave(msg.have));
+          return;
+        }
+        if (msg.type === "chat-resync") {
+          // 앱이 저장해 둔 것으로 대화를 잇지 못함(지문을 못 찾음) → 그 탭은 통째로 다시
+          const key = String(msg.key ?? "").slice(0, 16);
+          console.log(`[pi-remote] 앱이 대화를 통째로 다시 청함: ${key}`);
+          chatHave.delete(key);
+          if (key && key === feedPane) connectFeed(feedPane);
+          return;
+        }
         if (msg.type === "select-window") {
           // 앱 탭 터치 → tmux 창 전환 (index 는 정수로 강제해 인젝션 방지)
+          // 탭마다 대화를 저장해 두는 앱은 그 탭에서 가진 지문도 함께 보낸다(그 탭의 대화는 없는 것만 보냄)
+          const have = parseHave(msg.have);
+          if (typeof msg.key === "string" && msg.key && have) chatHave.set(msg.key, have);
+          releaseFeed(false);   // 곧 아래에서 고른 탭으로 붙는다(지금 탭에 먼저 붙었다 바꾸지 않게)
           const idx = clampInt(msg.index, 0, 0, 999);
           try {
             execSync(`${TMUX_BIN} select-window -t ${SESSION}:${idx}`);
@@ -1190,15 +1342,23 @@ wss.on("connection", (ws, req) => {
         if (msg.type === "usage") {
           fetchUsage(!!msg.force).then((data) => {
             const graph = data.error ? {} : { history: usageHistoryForApp(), daily: dailyUsage(readUsageHistory(Date.now() - 8 * 86400_000)) };
-            // 계정별(개인·회사): 앱이 카드 두 개·그래프 두 선으로 그림. 회사는 회사 계정을 쓸 때만 갱신된 값
+            // 계정별(개인·추가 개인·회사): 앱이 계정마다 카드·그래프 선으로 그림. 토큰 계정(추가 개인·회사)은 그 계정을 쓸 때만 갱신된 값
             recordWorkUsage();
+            recordWorkUsage("anthropic-personal2");
             const work = workUsageForApp();
             const wl = workLimits();
+            const p2 = workUsageForApp("anthropic-personal2");
+            const p2l = sharedLimits("anthropic-personal2", false);
+            // 이름을 개인 카드와 같게: 모든 모델 주간 한도는 '주간 한도 · 모든 모델'(사용자 요청 11-19)
+            const tidy = (ls) => ls.map((l) => ({ ...l, label: l.label.replace(/^회사 계정 · /, "").replace(/\s*\([^)]*전 기준\)$/, "").replace(/^주간 한도$/, "주간 한도 · 모든 모델") }));
             const accounts = data.error ? undefined : [
               { key: "personal", label: "개인", plan: data.plan || "", limits: (data.limits || []).filter((l) => !String(l.key).startsWith("work:")), ...graph },
+              // 추가 개인 계정(사용자 결정 11-25 '앱 사용량에 추가 개인 계정도'): 메인 개인이 95%를 넘어 바꾼 탭이 쓸 때 쌓인 값.
+              // 아직 쓰지 않아 값이 없어도 토큰이 있으면 카드를 보임(앱이 '쓰면 사용량이 보여요')
+              ...(p2l.length || p2.history.length || hasKeychainItem("pi-anthropic-personal2") ? [{ key: "personal2", label: "추가 개인", plan: tokenPlanCache.get("anthropic-personal2")?.plan || "추가 개인 계정", limits: tidy(p2l), ...p2 }] : []),
               ...(wl.length || work.history.length
-                // 요금제·이름을 개인 카드와 같게: 요금제를 알면 'Claude Max 20x' 처럼, 모든 모델 주간 한도는 '주간 한도 · 모든 모델'(사용자 요청 11-19)
-                ? [{ key: "work", label: "회사", plan: workPlanCache?.plan || "회사 계정", limits: wl.map((l) => ({ ...l, label: l.label.replace(/^회사 계정 · /, "").replace(/\s*\([^)]*전 기준\)$/, "").replace(/^주간 한도$/, "주간 한도 · 모든 모델") })), ...work }]
+                // 요금제를 알면 'Claude Max 20x' 처럼(사용자 요청 11-19)
+                ? [{ key: "work", label: "회사", plan: tokenPlanCache.get("anthropic-work")?.plan || "회사 계정", limits: tidy(wl), ...work }]
                 : []),
             ];
             if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "usage", ...data, ...graph, ...(accounts ? { accounts } : {}) }));
@@ -1278,7 +1438,7 @@ wss.on("connection", (ws, req) => {
         if (msg.type === "set-account") {
           // Claude Code 탭의 계정 고르기(앱 칩, 사용자 결정 11-18): 그 탭의 연결부가 고른 값을 탭 옵션에 적고,
           // 일이 끝나면 인수인계 문서를 받아 그 계정으로 새로 켠다(claude-remote/claude-feed.mjs 의 pickAccount)
-          const account = ["work", "personal", "auto"].includes(msg.account) ? msg.account : null;
+          const account = ["work", "personal", "personal2", "auto"].includes(msg.account) ? msg.account : null;
           if (account && feed && feedOn && feedAgent === "claude") {
             feed.write(`${JSON.stringify({ cmd: "set-account", account })}\n`);
             setTimeout(pushWindows, 900);

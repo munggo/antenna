@@ -265,6 +265,10 @@ enum MarkdownParser {
             attr[run.range].font = .system(size: Typo.inlineCode, design: .monospaced)
             attr[run.range].foregroundColor = Theme.codeInline
         }
+        // 맥의 그림 경로(누르면 앱에서 그림 보기): 밑줄로 누를 수 있다고 보임
+        for run in attr.runs where run.link.flatMap({ InlineMarkdown.imagePath($0) }) != nil {
+            attr[run.range].underlineStyle = .single
+        }
         return attr
     }
 

@@ -51,9 +51,16 @@ final class PiRemoteUITests: XCTestCase {
         openDrawer()
         let tab = el("tab-\(index)")
         XCTAssertTrue(tab.waitForExistence(timeout: 20), "탭 \(index) 이 보여야 함")
+        revealInDrawer(tab)
         tab.tap()
         _ = waitGone(el("drawer"), 5)
         sleep(2)
+    }
+
+    /// 서랍 목록 아래쪽의 탭은 사용량 칸에 가려 있을 수 있어, 화면 위쪽에 올 때까지 목록을 올린다(시험 탭이 늘어 11-25 부터 생김)
+    private func revealInDrawer(_ tab: XCUIElement) {
+        let list = el("drawer").scrollViews.firstMatch
+        for _ in 0..<6 where tab.frame.maxY > app.frame.height * 0.6 && list.exists { list.swipeUp() }
     }
 
     /// 앞 시험이 답하지 않고 남긴 질문 카드가 있으면 정지 버튼으로 치움(뒤 시험이 그 질문에 답해 버리지 않게)
@@ -1802,6 +1809,7 @@ final class PiRemoteUITests: XCTestCase {
         el("secretRun").tap()
         let field = el("secretInput")
         XCTAssertTrue(field.waitForExistence(timeout: 10), "실행하면 가려진 입력란")
+        XCTAssertEqual(field.placeholderValue, "비밀번호를 물으면 여기에(가려서 보내요)", "관리자 권한 창의 안내 글은 그대로('암호' 안내는 로그인 비밀번호 창에만)")
         XCTAssertFalse(el("secretRun").exists, "실행 뒤에는 실행 버튼이 없어야 함")
         XCTAssertFalse(el("secretSend").isEnabled, "빈 채로는 보낼 수 없어야 함")
         sleep(2)   // 창이 미리 눌린 글자를 비우고 비밀번호를 묻기까지
@@ -1825,6 +1833,34 @@ final class PiRemoteUITests: XCTestCase {
         let input = el("composerInput")
         XCTAssertTrue(input.waitForExistence(timeout: 10), "다른 탭은 보통 입력란")
         XCTAssertFalse((input.value as? String ?? "").contains("Tst"), "쓰던 글 저장에 남으면 안 됨")
+    }
+
+    /// QQ. 로그인 비밀번호 받기 창(🔐암호, 맥의 password-run.mjs 가 엶): 확인 단계 없이 바로 가려진 칸이 나오고, 안내 글은 키보드 위 '암호'에서 고르라고 한다.
+    ///     넣은 글은 화면에 보이지 않고 그 창에 그대로 전달된다.
+    ///     맥 쪽: 시험 세션에 🔐암호 창을 띄우고(진짜 탭은 맥 클립보드에 넣으므로 받은 글을 /tmp/ptest/password-got 에 적는 창으로 흉내) 창 번호를 /tmp/ptest/password-win 에 적는다
+    func testQQ_PasswordTab() throws {
+        guard let n = (try? String(contentsOfFile: "/tmp/ptest/password-win")).flatMap({ Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }) else { throw XCTSkip("로그인 비밀번호 창 시험 준비 안 됨") }
+        let pw = "Lg-Pw 7!x"
+        try? FileManager.default.removeItem(atPath: "/tmp/ptest/password-got")
+        relaunch(test: "")
+        openTab(n)
+        let field = el("secretInput")
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "확인 단계 없이 바로 가려진 입력란")
+        XCTAssertFalse(el("secretRun").exists || el("composerInput").exists, "실행 버튼·보통 입력란이 없어야 함")
+        XCTAssertEqual(field.placeholderValue, "눌러서 키보드 위 '암호'에서 고르기", "안내 글이 '암호'에서 고르라고 해야 함")
+        shot("qq-password")
+        field.tap()
+        field.typeText(pw)
+        XCTAssertFalse((field.value as? String ?? "").contains("Lg-Pw"), "입력란에 글자가 그대로 보이면 안 됨")
+        el("secretSend").tap()
+        var got = ""
+        for _ in 0..<20 {
+            got = (try? String(contentsOfFile: "/tmp/ptest/password-got")) ?? ""
+            if !got.isEmpty { break }
+            sleep(1)
+        }
+        XCTAssertEqual(got, pw, "가려서 보낸 글이 그 창에 그대로 전달돼야 함")
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Lg-Pw'")).count, 0, "보낸 글이 화면에 보이면 안 됨")
     }
 
     /// OO. 보내기 버튼을 길게 누르면 '백그라운드로 보내기(새 탭)': 고르면 브리지가 같은 폴더의 새 탭을 열고 안내
@@ -2744,6 +2780,112 @@ final class PiRemoteUITests: XCTestCase {
         return nil
     }
 
+    /// AAD. 답 속 맥의 그림 경로(사용자 요청 11-25 'QR 그림은 맥에 저장했습니다. /Users/…/한티 마스터 01.png' 를 누르면 앱에서 보기).
+    ///      코드 글자로 쓴 경로(한글·띄어쓰기)가 링크로 보이고, 누르면 시험 브리지가 맥의 그 그림을 줘 전체 화면 보기에 뜬다.
+    ///      없는 그림은 '받는 중'에 머물지 않고 까닭을 보인다. 맥 쪽: 가짜 피드(test/fake-feed.mjs --image)가 그림 파일과 대화를 줌
+    func testAAD_MacImagePath() throws {
+        guard let text = try? String(contentsOfFile: "/tmp/ptest/img-win", encoding: .utf8),
+              let win = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw XCTSkip("그림 시험 탭 준비 안 됨") }
+        relaunch(test: "")
+        openTab(win)
+        // 글 속 링크는 시험 도구에 따로 보이지 않아(시험 YY 와 같음) 경로 하나뿐인 문단을 눌러 링크를 누른다.
+        // 링크가 아니면 눌러도 그림 보기가 뜨지 않으므로 아래 판정이 곧 '링크인가'다
+        let link = { (path: String) in self.app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", path)).firstMatch }
+        let pic = link("/tmp/ptest/맥 그림 01.png")
+        XCTAssertTrue(pic.waitForExistence(timeout: 20), "답 속 그림 경로가 보여야 함")
+        shot("aad-answer")
+        pic.tap()
+        let viewer = el("imageViewer")
+        XCTAssertTrue(viewer.waitForExistence(timeout: 20), "누르면 맥의 그림이 전체 화면으로 떠야 함")
+        XCTAssertGreaterThan(viewer.frame.width, 100, "그림이 화면에 그려져야 함")
+        shot("aad-viewer")
+        el("viewerClose").tap()
+        XCTAssertTrue(pic.waitForExistence(timeout: 10), "닫으면 대화로 돌아옴")
+        // 없는 그림: 까닭을 보임
+        let gone = link("/tmp/ptest/없는 그림.png")
+        XCTAssertTrue(gone.waitForExistence(timeout: 5), "없는 그림 경로도 보임")
+        gone.tap()
+        XCTAssertTrue(el("imageViewerError").waitForExistence(timeout: 20), "없는 그림은 '받는 중'에 머물지 않고 까닭을 보여야 함")
+        XCTAssertTrue(app.staticTexts["맥에 그 파일이 없어요"].exists, "까닭: 맥에 그 파일이 없어요")
+        shot("aad-missing")
+        el("viewerClose").tap()
+    }
+
+    /// AAE. 탭마다 저장해 둔 대화(11-25 사용자 보고 '다른 탭 전환 시 가끔 느리다': 바꿀 때마다 긴 대화를 통째로 다시 받고 한꺼번에 다 그렸음).
+    ///     가짜 피드 둘(cache1: 메시지 70개, cache2: 4개, test/fake-feed.mjs --tabcache):
+    ///     ① 긴 대화는 최근 것만 그리고 맨 위에 '이전 대화 더 보기' → 누르면 맨 처음 질문까지
+    ///     ② 맥이 대화를 6초 늦게 주는 동안에도(느린 연결 흉내) 한 번 본 탭은 저장해 둔 대화가 곧바로 보이고 '최신 대화 받는 중' → 받으면 사라짐
+    ///     ③ 다른 탭을 보는 사이 끝난 탭(새 답)은 미리 받아 둬서, 맥이 늦게 줘도 탭을 열자마자 새 답까지 보임(겹치지 않고 하나)
+    ///     맥 쪽(test/app.sh): 앱이 대화를 잇지 못해 통째로 다시 청한 적이 없는지
+    func testAAE_TabCache() throws {
+        guard let text = try? String(contentsOfFile: "/tmp/ptest/cache-wins", encoding: .utf8) else { throw XCTSkip("탭 저장 시험 탭 준비 안 됨") }
+        let n = text.split(separator: " ").compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        guard n.count == 2 else { throw XCTSkip("탭 저장 시험 탭 준비가 이상함: \(text)") }
+        let fm = FileManager.default
+        let slow = "/tmp/ptest/cache1-slow", add = "/tmp/ptest/cache1-add"
+        try? fm.removeItem(atPath: slow)
+        defer {
+            try? fm.removeItem(atPath: slow)
+            try? fm.removeItem(atPath: add)
+        }
+        let says = { (t: String) in self.app.staticTexts.matching(NSPredicate(format: "label == %@", t)) }
+        /// 서랍에서 탭을 누르고 바로 돌아옴(openTab 처럼 2초 기다리지 않음: 얼마나 빨리 보이는지 보려고)
+        let pick = { (i: Int) in
+            self.openDrawer()
+            let tab = self.el("tab-\(i)")
+            XCTAssertTrue(tab.waitForExistence(timeout: 20), "탭 \(i) 이 보여야 함")
+            self.revealInDrawer(tab)
+            tab.tap()
+        }
+        relaunch(test: "")
+
+        // ① 최근 것부터 그리기
+        openTab(n[0])
+        let seen = says("cache1 답 69").firstMatch.waitForExistence(timeout: 20)
+        shot("aae-open")
+        XCTAssertTrue(seen, "긴 대화의 마지막 답이 보여야 함")
+        XCTAssertFalse(says("cache1 맨 처음 질문").firstMatch.exists, "긴 대화는 최근 것만 그려야 함(맨 처음 질문은 아직 없음)")
+        let earlier = el("showEarlier")
+        XCTAssertTrue(earlier.exists, "맨 위에 '이전 대화 더 보기'가 있어야 함")
+        shot("aae-recent")
+        for _ in 0..<4 where earlier.exists {
+            for _ in 0..<12 where !earlier.isHittable { app.swipeDown() }
+            earlier.tap()
+            sleep(1)
+        }
+        XCTAssertTrue(says("cache1 맨 처음 질문").firstMatch.waitForExistence(timeout: 5), "'이전 대화 더 보기'를 누르면 맨 처음 질문까지 보여야 함")
+        XCTAssertFalse(earlier.exists, "다 보이면 '이전 대화 더 보기'는 사라짐")
+        shot("aae-all")
+
+        // ② 맥이 늦게 줘도 저장해 둔 대화를 곧바로
+        openTab(n[1])
+        XCTAssertTrue(says("cache2 답 3").firstMatch.waitForExistence(timeout: 20), "둘째 탭의 대화가 보여야 함")
+        XCTAssertTrue(fm.createFile(atPath: slow, contents: Data()), "느린 연결 신호를 만들 수 있어야 함")
+        pick(n[0])
+        let t0 = Date()
+        XCTAssertTrue(says("cache1 답 69").firstMatch.waitForExistence(timeout: 3), "맥이 6초 늦게 줘도 한 번 본 탭은 저장해 둔 대화가 곧바로 보여야 함")
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 3, "저장해 둔 대화는 3초 안에")
+        XCTAssertTrue(el("refreshingBadge").waitForExistence(timeout: 3), "기다리는 동안 '최신 대화 받는 중'이 보여야 함")
+        shot("aae-cached")
+        XCTAssertTrue(waitGone(el("refreshingBadge"), 15), "맥의 대화가 오면 '받는 중'이 사라져야 함")
+        XCTAssertTrue(says("cache1 답 69").firstMatch.exists, "받은 뒤에도 대화가 그대로")
+
+        // ③ 다른 탭을 보는 사이 끝난 탭은 미리 받아 둠
+        try? fm.removeItem(atPath: slow)
+        openTab(n[1])
+        XCTAssertTrue(says("cache2 답 3").firstMatch.waitForExistence(timeout: 20), "둘째 탭으로 돌아옴")
+        XCTAssertTrue(fm.createFile(atPath: add, contents: Data()), "새 답 신호를 만들 수 있어야 함")
+        sleep(5)   // 맥이 탭 상태를 '끝남'으로 바꾸면 앱이 그 탭의 새 메시지를 뒤에서 받는다
+        XCTAssertFalse(fm.fileExists(atPath: add), "가짜 피드가 새 답을 더해야 함")
+        XCTAssertTrue(fm.createFile(atPath: slow, contents: Data()), "느린 연결 신호를 다시 만들 수 있어야 함")
+        pick(n[0])
+        XCTAssertTrue(says("cache1 새 답입니다").firstMatch.waitForExistence(timeout: 3), "미리 받아 둔 새 답이 탭을 열자마자 보여야 함(맥은 6초 늦게 줌)")
+        shot("aae-prefetched")
+        XCTAssertTrue(waitGone(el("refreshingBadge"), 15), "맥의 대화가 오면 '받는 중'이 사라져야 함")
+        XCTAssertEqual(says("cache1 새 답입니다").count, 1, "새 답은 하나만(저장해 둔 것과 받은 것이 겹치지 않게)")
+        XCTAssertTrue(says("cache1 답 69").firstMatch.exists, "앞의 대화도 그대로")
+    }
+
     /// XX. Claude Code 탭의 컨텍스트 사용량(11-17 사용자 보고 '앱에서 현재 컨텍스트 확인이 안 보인다': 고리가 pi 탭에서만 보였음).
     ///     가짜 Claude Code 의 대화 기록으로 본다(마지막 응답의 입력 토큰 152,000, Opus 5.5 의 기억 용량 1M):
     ///     ① 위쪽 고리에 15%  ② 누르면 사용 중 152K / 1M 토큰, 자동 압축은 97%(967K)에서, 설명 글은 pi 가 아니라 Claude Code
@@ -2864,5 +3006,30 @@ final class PiRemoteUITests: XCTestCase {
         XCTAssertNotNil(images, "칸에 그림이 채워져야 함")
         XCTAssertNotNil(ready, "두 장 모두 맥에 올라가야 함(현재: \(thumbs.allElementsBoundByIndex.map { $0.value as? String ?? "-" }))")
         while el("attachmentRemove").exists { el("attachmentRemove").tap() }   // 정리: 붙인 사진 빼기
+    }
+
+    /// README 화면 사진(시험이 아님): test/readme-shots.sh 가 띄운 예시 세션의 화면 넷을 PI_REMOTE_SHOTS_DIR 에 찍는다.
+    /// 탭 0 Claude Code(승인 카드), 탭 1 pi(질문 카드), 서랍, 탭 2 셸(터미널 화면)
+    func testReadmeShots() throws {
+        let dir = ProcessInfo.processInfo.environment["PI_REMOTE_SHOTS_DIR"] ?? ""
+        try XCTSkipIf(dir.isEmpty, "README 화면 준비 안 됨")
+        func snap(_ name: String) {
+            sleep(2)   // 그리기·움직임이 멎을 때까지
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "\(dir)/\(name).png"))
+        }
+        openTab(0)
+        XCTAssertTrue(el("approvalCard").waitForExistence(timeout: 20), "Claude Code 탭에 승인 카드가 보여야 함")
+        snap("chat")
+        openTab(1)
+        XCTAssertTrue(el("questionCard").waitForExistence(timeout: 20), "pi 탭에 질문 카드가 보여야 함")
+        snap("question")
+        openDrawer()
+        snap("drawer")
+        closeDrawer()
+        openTab(2)
+        // 맥 쪽 셸은 이 신호를 받은 뒤에 출력을 찍는다(폰 화면 너비로 바뀐 뒤에 찍히게)
+        FileManager.default.createFile(atPath: "\(dir)/terminal-go", contents: nil)
+        sleep(2)
+        snap("terminal")
     }
 }

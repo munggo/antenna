@@ -39,6 +39,7 @@ export const anthropicOAuth = {
     interaction.notify({ type: "progress", message: "..." });
     if (code === "work-code#test-state") return { type: "oauth", access: "test-work-access", refresh: "test-work-refresh", expires: Date.now() + 8 * 3600e3 };
     if (code === "personal-code#test-state") return { type: "oauth", access: "test-personal-access-2", refresh: "test-personal-refresh-2", expires: Date.now() + 8 * 3600e3 };
+    if (code === "p2-code#test-state") return { type: "oauth", access: "test-p2-access", refresh: "test-p2-refresh", expires: Date.now() + 8 * 3600e3 };
     throw new Error("Token exchange failed: invalid_grant body={\\"refresh\\":\\"test-leak\\"}");
   },
   refresh: async (c) => ({ ...c, access: c.access + "+", refresh: c.refresh + "+", expires: Date.now() + 8 * 3600e3 }),
@@ -53,14 +54,16 @@ globalThis.fetch = async (url, init) => {
   const u = String(url);
   if (!u.startsWith("https://api.anthropic.com/")) throw new Error("시험: 예상하지 못한 주소 " + u);
   const token = String(init?.headers?.Authorization ?? "").replace("Bearer ", "");
-  const acct = token.startsWith("test-work") ? "work" : token.startsWith("test-personal") ? "personal" : null;
+  const acct = token.startsWith("test-work") ? "work" : token.startsWith("test-personal") ? "personal" : token.startsWith("test-p2") ? "p2" : null;
   const json = (status, body) => ({ ok: status === 200, status, json: async () => body });
   if (!acct) return json(401, {});
   if (u.endsWith("/api/oauth/profile")) {
     if (process.env.FAKE_PROFILE_FAIL === acct) return json(500, {});
     return json(200, acct === "work"
       ? { account: { uuid: "acct-work", email: "work@example.com" }, organization: { name: "Example Co", organization_type: "claude_team" } }
-      : { account: { uuid: "acct-personal", email: "me@example.com" }, organization: { name: "Personal", organization_type: "claude_max" } });
+      : acct === "p2"
+        ? { account: { uuid: "acct-p2", email: "second@example.com" }, organization: { name: "Second", organization_type: "claude_max" } }
+        : { account: { uuid: "acct-personal", email: "me@example.com" }, organization: { name: "Personal", organization_type: "claude_max" } });
   }
   if (u.endsWith("/api/oauth/usage")) {
     if (process.env.FAKE_USAGE_FAIL) return json(500, {});
@@ -87,7 +90,7 @@ const run = (args, { code, env = {} } = {}) => new Promise((res) => {
   p.on("exit", (status) => { clearTimeout(timer); res({ status, out }); });
 });
 const stored = () => (existsSync(STORE) ? JSON.parse(readFileSync(STORE, "utf8")) : {});
-const noSecrets = (out) => !/test-work-access|test-work-refresh|test-personal-access|test-personal-refresh|test-leak/.test(out);
+const noSecrets = (out) => !/test-work-access|test-work-refresh|test-personal-access|test-personal-refresh|test-p2-access|test-p2-refresh|test-leak/.test(out);
 
 personalLogin();
 let r = await run(["status"]);
@@ -125,6 +128,30 @@ ok(noSecrets(r.out), "화면에 토큰을 찍지 않음");
 
 r = await run(["status"]);
 ok(r.status === 0 && /work@example\.com · Example Co/.test(r.out) && /접근 토큰 만료/.test(r.out) && noSecrets(r.out), "상태: 어느 계정인지와 만료(토큰은 찍지 않음)");
+
+// 추가 개인 계정(11-25): 같은 방식으로 받아 그 칸에. 메인 개인·회사 계정으로 승인하면 저장하지 않는다
+r = await run(["status", "personal2"]);
+ok(r.status === 1 && /추가 개인 계정 조회용 로그인이 없어요/.test(r.out), "상태(추가 개인): 아직 없다고 알림");
+r = await run(["personal2"], { code: "personal-code#test-state" });
+ok(r.status === 1 && /개인 계정\(me@example\.com/.test(r.out) && !stored()["anthropic-personal2"], `추가 개인 자리에 메인 개인 계정으로 승인하면 저장하지 않음 → 끝 코드 ${r.status}`);
+ok(/'추가 개인 계정'으로 승인해 주세요/.test(r.out) && /usage-login\.mjs personal2/.test(r.out), "추가 개인: 안내 글이 그 계정 이름과 다시 할 명령으로");
+r = await run(["personal2"], { code: "work-code#test-state" });
+ok(r.status === 1 && /회사 계정\(work@example\.com/.test(r.out) && !stored()["anthropic-personal2"], `추가 개인 자리에 회사 계정으로 승인하면 저장하지 않음 → 끝 코드 ${r.status}`);
+r = await run(["personal2"], { code: "p2-code#test-state" });
+ok(r.status === 0 && /저장했어요: second@example\.com/.test(r.out) && stored()["anthropic-personal2"]?.access === "test-p2-access", `추가 개인 계정으로 승인하면 그 칸에 저장 → 끝 코드 ${r.status}`);
+ok(stored()["anthropic-work"]?.access?.startsWith("test-work-access"), "회사 계정 조회용 로그인은 그대로");
+ok(/지금 추가 개인 계정: 모든 모델 12% · Fable 55%/.test(r.out), "추가 개인: 저장한 뒤 지금 사용량을 보여 줌");
+const p2 = JSON.parse(readFileSync(SHARED, "utf8"))["anthropic-personal2"];
+ok(p2?.["7d"]?.util === 0.12 && p2?.["7d:oi"]?.util === 0.55, "조회한 값을 공유 사용량 파일의 추가 개인 칸에 적음(앱에 Fable 이 따로 보이게)");
+ok(noSecrets(r.out), "추가 개인: 화면에 토큰을 찍지 않음");
+r = await run(["work"], { code: "p2-code#test-state" });
+ok(r.status === 1 && /추가 개인 계정\(second@example\.com/.test(r.out) && stored()["anthropic-work"]?.access?.startsWith("test-work-access"), "회사 자리에 추가 개인 계정으로 승인하면 저장하지 않음");
+r = await run(["status"]);
+ok(r.status === 0 && /회사 계정 조회용 로그인: work@example\.com/.test(r.out) && /추가 개인 계정 조회용 로그인: second@example\.com/.test(r.out) && noSecrets(r.out), "상태: 계정을 안 적으면 둘 다");
+r = await run(["status", "personal2"]);
+ok(r.status === 0 && /second@example\.com/.test(r.out) && !/work@example\.com/.test(r.out), "상태(추가 개인): 그 계정만");
+r = await run(["logout", "personal2"]);
+ok(r.status === 0 && stored()["anthropic-personal2"] === undefined && stored()["anthropic-work"] !== undefined, "지우기(추가 개인): 그 계정만 지우고 회사는 그대로");
 // 사용량 조회가 안 돼도 로그인은 저장됨
 rmSync(STORE);
 r = await run(["work"], { code: "work-code#test-state", env: { FAKE_USAGE_FAIL: "1" } });

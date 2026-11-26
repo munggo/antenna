@@ -151,6 +151,8 @@ process.stdin.on("end", async () => {
     miss(ev.hook_event_name, existsSync(feedFile("sock")) ? "연결부에 붙지 못해 새로 띄움" : "연결부가 없어 띄움");
     const env = { ...process.env };
     delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    delete env.PI_CLAUDE_ACCOUNT;   // 계정 표시도 넘기지 않음(연결부가 띄우는 다른 프로그램이 이 탭 계정을 물려받지 않게)
+    delete env.CLAUDE_CONFIG_DIR;   // 직접 로그인으로 켠 추가 계정의 설정 폴더도(11-25)
     spawn(process.execPath, [FEED, pane], { detached: true, stdio: "ignore", env }).unref();
     let sent = false;
     for (let i = 0; i < 25 && !sent; i++) {

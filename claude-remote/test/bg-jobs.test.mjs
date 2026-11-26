@@ -117,6 +117,8 @@ call("tb3", "Bash", { command: "ls", description: "알림 없이 끝난 셸", ru
 result("tb3", bgText("bsh3", `${ROOT}/bsh3.output`), { backgroundTaskId: "bsh3" });
 
 let jobs = null;
+let shell9 = 0;   // 9) exec 로 바뀐 셸
+const extra = [];   // 10) 더 띄운 셸들
 const notices = [];
 const c = createConnection(SOCK);
 let buf = "";
@@ -242,11 +244,78 @@ try {
   writeFileSync(sess, JSON.stringify({ sessionId: "s", startedAt: T0 - 35_000 }));   // 에이전트(T0-40초) 뒤, 감시(T0-30초) 앞
   const ids5 = ((await ask()) ?? []).map((j) => j.id).join(",");
   ok(ids5 === "bmo1,bmo5,bmo6", `5) 켜기 전에 시작한 에이전트는 빼고 그 뒤 감시만(${ids5})`);
+
+  // 9) 셸이 'exec 명령 >> 다른 파일' 로 자기를 그 명령으로 바꾸고 출력을 돌리면 출력 파일을 아무도 열지 않는다(11-24 사용자 보고:
+  //    개발 서버가 맥 화면에는 '1 shell' 인데 서랍 목록은 비어 있었다). 그 작업을 시작한 때에 생긴 묶음으로 찾아 목록에 넣고 종료도 됨
+  const now9 = Date.now() - T0;
+  call("tb9", "Bash", { command: "exec dev-server >> other.log 2>&1", description: "개발 서버", run_in_background: true }, now9);
+  result("tb9", bgText("bsh9", `${ROOT}/bsh9.output`), { backgroundTaskId: "bsh9" }, now9);
+  writeFileSync(`${ROOT}/bsh9.output`, "");
+  rmSync(`${ROOT}/shell.pid`, { force: true });
+  writeFileSync(`${ROOT}/cmd`, `exec sleep 300 >> ${ROOT}/other.log 2>&1`);
+  await waitFor(() => existsSync(`${ROOT}/shell.pid`), 3000);
+  shell9 = Number(readFileSync(`${ROOT}/shell.pid`, "utf8"));
+  await sleep(500);
+  cmd({ cmd: "hook", event: { hook_event_name: "PostToolUse", transcript_path: tr } });   // 새 기록 줄을 읽게
+  await sleep(500);
+  const ids9 = ((await ask()) ?? []).map((j) => j.id);
+  ok(ids9.includes("bsh9") && /sleep 300/.test(execFileSync("ps", ["-o", "command=", "-p", String(shell9)], { encoding: "utf8" })), `9) 출력을 다른 파일로 돌린 셸도 목록에(${ids9.join(",")})`);
+  jobs = null;
+  cmd({ cmd: "bg-job-kill", id: "bsh9" });
+  ok(await waitFor(() => !alive(shell9), 5000), "9) 그 셸을 종료함");
+  ok(!(((await ask()) ?? []).some((j) => j.id === "bsh9")), "9) 종료한 뒤 목록에서 빠짐");
+
+  // 10) 정확한 표시(사용자 11-24 '백그라운드 작업은 정확하게'): 저절로 뒤로 넘어간 명령, 하위 에이전트가 띄운 셸도 목록에.
+  //     보통 명령(자기 작업 파일을 연 묶음)은 시작 시각이 같아도 끝난 셸로 착각해 붙이지 않음. 탭 숫자는 목록과 같은 수
+  const spawnShell = async (cmdText) => {
+    rmSync(`${ROOT}/shell.pid`, { force: true });
+    writeFileSync(`${ROOT}/cmd`, cmdText);
+    await waitFor(() => existsSync(`${ROOT}/shell.pid`), 3000);
+    const pid = Number(readFileSync(`${ROOT}/shell.pid`, "utf8"));
+    extra.push(pid);
+    return pid;
+  };
+  const t10 = Date.now() - T0;
+  // 저절로(또는 Ctrl+B 로) 뒤로 넘어간 보통 명령: 부를 때 run_in_background 가 없고 결과에 작업 번호
+  call("tbA", "Bash", { command: "npm test", description: "긴 시험" }, t10);
+  result("tbA", `Command was manually moved to the background (ID: bshA). Output is being written to: ${ROOT}/bshA.output.`, { backgroundTaskId: "bshA" }, t10);
+  writeFileSync(`${ROOT}/bshA.output`, "");
+  const pidA = await spawnShell(`exec 1>>${ROOT}/bshA.output 2>&1; sleep 300`);
+  // 하위 에이전트가 띄운 셸: 에이전트 기록(에이전트의 출력 파일)에만 적힘
+  agentCall("taS", "aagS", { description: "서버 점검", subagent_type: "general-purpose" }, "claude-opus-5-5", t10);
+  writeFileSync(`${ROOT}/aagS.output`, [
+    { type: "assistant", isSidechain: true, agentId: "aagS", timestamp: at(t10), message: { content: [{ type: "tool_use", id: "tsb1", name: "Bash", input: { command: "serve", description: "점검 서버", run_in_background: true } }] } },
+    { type: "user", isSidechain: true, agentId: "aagS", timestamp: at(t10), toolUseResult: { backgroundTaskId: "bshS" }, message: { content: [{ type: "tool_result", tool_use_id: "tsb1", content: bgText("bshS", `${ROOT}/bshS.output`) }] } },
+  ].map((o) => JSON.stringify(o)).join("\n") + "\n");
+  writeFileSync(`${ROOT}/bshS.output`, "");
+  const pidS = await spawnShell(`exec 1>>${ROOT}/bshS.output 2>&1; sleep 300`);
+  // 출력을 아무도 열지 않는 끝난 셸 + 같은 때 시작한 보통 명령(자기 작업 파일을 엶)
+  call("tbD", "Bash", { command: "true", description: "곧 끝난 셸", run_in_background: true }, Date.now() - T0);
+  result("tbD", bgText("bshD", `${ROOT}/bshD.output`), { backgroundTaskId: "bshD" }, Date.now() - T0);
+  writeFileSync(`${ROOT}/bshD.output`, "");
+  await spawnShell(`exec 1>>${ROOT}/fg.output 2>&1; sleep 300`);
+  await sleep(500);
+  cmd({ cmd: "hook", event: { hook_event_name: "PostToolUse", transcript_path: tr } });
+  await sleep(500);
+  const l10 = (await ask()) ?? [];
+  const ids10 = l10.map((j) => j.id);
+  ok(ids10.includes("bshA") && l10.find((j) => j.id === "bshA")?.title === "긴 시험", `10) 저절로 뒤로 넘어간 명령도 목록에(${ids10.join(",")})`);
+  ok(l10.find((j) => j.id === "bshS")?.title === "점검 서버 · 에이전트 '서버 점검'", `10) 하위 에이전트가 띄운 셸도 목록에, 이름에 그 에이전트(${l10.find((j) => j.id === "bshS")?.title})`);
+  ok(!ids10.includes("bshD"), "10) 끝난 셸에 같은 때 시작한 보통 명령(작업 파일을 엶)을 붙이지 않음");
+  const n10 = (k) => l10.filter((j) => j.kind === k).length;
+  const want10 = [["셸", n10("shell")], ["에이전트", n10("agent")], ["감시", n10("monitor")]].filter(([, n]) => n).map(([k, n]) => `${k} ${n}개`).join(" · ");
+  const opt10 = await waitFor(() => (tm("show-options", "-w", "-v", "-t", pane, "@ai_jobs") ?? "") === want10, 8000) ? want10 : tm("show-options", "-w", "-v", "-t", pane, "@ai_jobs");
+  ok(opt10 === want10, `10) 탭 숫자는 목록과 같음(${opt10} / 목록 ${want10})`);
+  jobs = null;
+  cmd({ cmd: "bg-job-kill", id: "bshS" });
+  ok(await waitFor(() => !alive(pidS), 5000) && alive(pidA), "10) 하위 에이전트의 셸도 서랍에서 종료(다른 셸은 그대로)");
 } finally {
   c.destroy();
   feed.kill();
   outsider.kill();
   try { process.kill(-shellPid, "SIGKILL"); } catch { /* 이미 끝남 */ }
+  if (shell9) try { process.kill(-shell9, "SIGKILL"); } catch { /* 이미 끝남 */ }
+  for (const p of extra) try { process.kill(-p, "SIGKILL"); } catch { /* 이미 끝남 */ }
   spawnSync("pkill", ["-f", `claude-feed\\.mjs ${pane}$`]);
   tm("kill-session", "-t", `=${S}`);
   rmSync(ROOT, { recursive: true, force: true });

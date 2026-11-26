@@ -13,6 +13,7 @@ const SERVER = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WebSocket = createRequire(join(SERVER, "package.json"))("ws");
 const S = "usagetest", PORT = 8785, ROOT = `/tmp/antenna-usage-${process.pid}`, TOKEN = "f".repeat(64);
 const FAKE = `${ROOT}/usage.json`, ACCOUNTS = `${ROOT}/accounts.json`, WORKFAKE = `${ROOT}/work-usage.json`, WORKPROFILE = `${ROOT}/work-profile.json`;
+const P2FAKE = `${ROOT}/personal2-usage.json`, P2PROFILE = `${ROOT}/personal2-profile.json`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tm = (...a) => { try { return execFileSync("tmux", a, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return null; } };
 let fail = 0;
@@ -33,13 +34,15 @@ writeFileSync(FAKE, JSON.stringify({ limits: [weekly(43), weekly(74, "Fable")] }
 writeFileSync(ACCOUNTS, JSON.stringify({ "anthropic-work": { "7d": claim(0.06) } }));
 // 회사 계정 요금제 조회 응답(조회 전용 로그인이 있을 때만 쓰임: 7-1 에서 회사 조회 응답 파일을 만든 뒤부터)
 writeFileSync(WORKPROFILE, JSON.stringify({ organization: { organization_type: "claude_max", rate_limit_tier: "default_claude_max_20x" } }));
+writeFileSync(P2PROFILE, JSON.stringify({ organization: { organization_type: "claude_max", rate_limit_tier: "default_claude_max_5x" } }));
 tm("kill-session", "-t", `=${S}`);
 tm("new-session", "-d", "-s", S, "-x", "100", "-y", "30", "-c", "/tmp");
 const bridge = spawn(process.execPath, ["bridge.mjs"], {
   cwd: SERVER,
   env: { PATH: process.env.PATH, LANG: "ko_KR.UTF-8", HOME: `${ROOT}/home`, PI_BIN: `${ROOT}/no-such/pi`, PI_PKG: `${ROOT}/no-such/pi-pkg`, PI_REMOTE_TOKEN: TOKEN, HOST: "127.0.0.1", PORT: String(PORT),
     PI_TMUX_SESSION: S, PI_REMOTE_PUSH_DRYRUN: "1", PI_REMOTE_PUSH_FILE: `${ROOT}/push.json`, PI_REMOTE_TABS_FILE: `${ROOT}/tabs.json`,
-    PI_REMOTE_USAGE_DIR: `${ROOT}/usage`, PI_ACCOUNTS_CACHE: ACCOUNTS, PI_REMOTE_FAKE_USAGE_FILE: FAKE, PI_REMOTE_FAKE_WORK_USAGE_FILE: WORKFAKE, PI_REMOTE_FAKE_WORK_PROFILE_FILE: WORKPROFILE, PI_REMOTE_CRASH_LOG: `${ROOT}/crash.log` },
+    PI_REMOTE_USAGE_DIR: `${ROOT}/usage`, PI_ACCOUNTS_CACHE: ACCOUNTS, PI_REMOTE_FAKE_USAGE_FILE: FAKE, PI_REMOTE_FAKE_WORK_USAGE_FILE: WORKFAKE, PI_REMOTE_FAKE_WORK_PROFILE_FILE: WORKPROFILE,
+    PI_REMOTE_FAKE_PERSONAL2_USAGE_FILE: P2FAKE, PI_REMOTE_FAKE_PERSONAL2_PROFILE_FILE: P2PROFILE, PI_REMOTE_CRASH_LOG: `${ROOT}/crash.log` },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let log = "";
@@ -95,6 +98,13 @@ try {
   ok(keys(acct(u, "personal")?.limits) === "session=20 week=43 week:Fable=74" && acct(u, "personal").limits[0].session === true,
     `5시간 한도는 세션으로 → ${keys(acct(u, "personal")?.limits)}`);
 
+  // 4-2) 추가 개인 계정(11-25): 그 계정을 쓸 때 공유 파일에 적힌 값 → 개인·추가 개인·회사 차례, 이름은 개인처럼
+  writeFileSync(ACCOUNTS, JSON.stringify({ "anthropic-personal2": { "7d": claim(0.03) }, "anthropic-work": { "7d": claim(0.06) } }));
+  u = await ask();
+  ok((u?.accounts ?? []).map((a) => a.key).join(",") === "personal,personal2,work", `계정 차례: 개인·추가 개인·회사 → ${(u?.accounts ?? []).map((a) => a.key).join(",")}`);
+  ok(keys(acct(u, "personal2")?.limits) === "work:7d=3" && acct(u, "personal2").limits[0].label === "주간 한도 · 모든 모델" && acct(u, "personal2").label === "추가 개인",
+    `추가 개인: 공유 파일의 주간 값 → ${keys(acct(u, "personal2")?.limits)} '${acct(u, "personal2")?.limits[0]?.label}'`);
+
   // 5) 회사 계정의 Fable 한도: pi 로 회사 계정을 쓸 때 응답에 실려 온 값(구분 이름 oi)을 Fable 로 보낸다
   writeFileSync(ACCOUNTS, JSON.stringify({ "anthropic-work": { "7d": claim(0.06), "7d:oi": claim(0.31) } }));
   u = await ask();
@@ -144,6 +154,25 @@ try {
     `회사 조회가 실패해도 나머지는 그대로 → ${keys(acct(u, "work")?.limits)}`);
   ok((log.match(/회사 계정 사용량 조회 실패/g) ?? []).length === 1, `같은 실패는 기록에 한 번만 남김(${(log.match(/회사 계정 사용량 조회 실패/g) ?? []).length}번)`);
   rmSync(WORKFAKE, { force: true });
+
+  // 7-2) 추가 개인 계정도 조회 전용 로그인이 있으면(11-25): 모든 모델과 Fable 을 따로, 요금제 이름도. 회사 값과 섞이지 않는다
+  writeFileSync(ACCOUNTS, JSON.stringify({ "anthropic-personal2": { "7d": claim(0.03, 30) }, "anthropic-work": { "7d": claim(0.06) } }));
+  writeFileSync(P2FAKE, JSON.stringify({ limits: [weekly(8), weekly(21, "Fable")] }));
+  u = await ask();
+  ok(keys(acct(u, "personal2")?.limits) === "work:7d=8 work:7d:Fable=21", `추가 개인: 조회한 값으로(모든 모델·Fable) → ${keys(acct(u, "personal2")?.limits)}`);
+  ok(acct(u, "personal2")?.limits.map((l) => l.label).join(" | ") === "주간 한도 · 모든 모델 | 주간 한도 · Fable", `추가 개인: 이름 → ${acct(u, "personal2")?.limits.map((l) => l.label).join(" | ")}`);
+  ok(acct(u, "personal2")?.plan === "Claude Max 5x", `추가 개인: 요금제 이름 → ${acct(u, "personal2")?.plan}`);
+  ok(keys(acct(u, "work")?.limits) === "work:7d=6" && keys(acct(u, "personal")?.limits) === "week=43 week:Fable=74", "추가 개인 값이 회사·개인에 섞이지 않음");
+  const p2shared = JSON.parse(readFileSync(ACCOUNTS, "utf8"))["anthropic-personal2"];
+  ok(p2shared["7d"].util === 0.08 && p2shared["7d:oi"].util === 0.21, `조회한 추가 개인 값을 공유 파일의 그 칸에 적음 → ${Object.keys(p2shared).join()}`);
+  // 추가 개인 조회가 실패해도 앞서 적힌 값과 다른 계정은 그대로, 기록은 한 번만
+  writeFileSync(P2FAKE, "{ 깨진 글");
+  u = await ask();
+  u = await ask();
+  ok(keys(acct(u, "personal2")?.limits) === "work:7d=8 work:7d:Fable=21" && keys(acct(u, "work")?.limits) === "work:7d=6",
+    `추가 개인 조회가 실패해도 나머지는 그대로 → ${keys(acct(u, "personal2")?.limits)}`);
+  ok((log.match(/추가 개인 계정 사용량 조회 실패/g) ?? []).length === 1, `같은 실패는 기록에 한 번만 남김(${(log.match(/추가 개인 계정 사용량 조회 실패/g) ?? []).length}번)`);
+  rmSync(P2FAKE, { force: true });
 
   // 8) 아무 값도 없으면 안내 글(계정 카드는 보내지 않음)
   rmSync(FAKE, { force: true });

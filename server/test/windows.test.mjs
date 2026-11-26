@@ -37,11 +37,12 @@ ok(at(1).model === "Opus 5.5" && at(1).thinking === "high", `탭의 모델·생�
 ok(at(0).model === "" && at(0).thinking === "", "모델·생각 깊이를 모르는 탭은 빈 글");
 ok(JSON.stringify(at(1).account) === JSON.stringify({ now: "personal", pin: "work", next: "work", phase: "wait" }), `Claude Code 탭의 계정(지금·고른 것·바꿀 것·단계): ${JSON.stringify(at(1).account)}`);
 ok(at(0).account === null, "계정을 모르는 탭(Claude Code 가 아님·예전 연결부)은 null");
+ok(at(0).key === "%1" && at(8).key === "%9", "탭마다 칸 번호(폰이 대화를 저장하는 열쇠)");
 ok(parseWindows("").length === 0 && parseWindows(null).length === 0, "빈 출력 → 빈 목록");
 
 const app = forApp(w);
 ok(app.every((x) => !("id" in x)) && app[1].bg?.fromName === "메인 작업", "앱에 보낼 때는 창 고유 번호를 뺌");
-ok(JSON.stringify(Object.keys(app[0])) === JSON.stringify(["index", "name", "active", "status", "sudo", "bg", "jobs", "model", "thinking", "account"]), `앱에 보내는 칸: ${Object.keys(app[0]).join(", ")}`);
+ok(JSON.stringify(Object.keys(app[0])) === JSON.stringify(["index", "name", "active", "status", "sudo", "bg", "jobs", "model", "thinking", "account", "key"]), `앱에 보내는 칸: ${Object.keys(app[0]).join(", ")}`);
 
 // 끝난 것 모두 닫기: 결과를 보냈고 쉬는 백그라운드 탭만
 ok(!isFinishedBackground(at(0)), "보통 탭은 닫지 않음");

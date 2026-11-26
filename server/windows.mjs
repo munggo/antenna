@@ -4,8 +4,8 @@
  *   단축어로 시킨 탭은 시킨 칸이 없다(from 이 null).
  *   @bg_started(시작)·@bg_done(끝나 결과를 보낸 때)은 초 단위 시각. 시킨 칸은 @bg_from(결과를 보낸 뒤에도 남음),
  *   그 옵션이 없는 예전 탭은 @bg_origin(결과를 보내면 지워짐)
- * - 뒤에서 도는 일은 @ai_jobs(Claude Code 연결부가 화면의 모드 줄 '· 1 shell'·하위 에이전트 목록과 대화 기록에서 세어
- *   '셸 1개 · 에이전트 2개'처럼 적음)
+ * - 뒤에서 도는 일은 @ai_jobs(Claude Code 연결부가 서랍에서 눌러 보는 목록과 같은 기준, 곧 실제로 도는 셸·에이전트·감시만 세어
+ *   '셸 1개 · 에이전트 2개'처럼 적음. 11-24 부터 화면 모드 줄의 수는 쓰지 않음)
  * - 그 탭의 모델·생각 깊이는 @ai_model·@ai_thinking(Claude Code 는 연결부·브리지, pi 는 확장이 적음). 앱 서랍의 백그라운드 탭 줄에 보임(11-16)
  * 작성: 서문교
  */
@@ -25,7 +25,8 @@ const FIELDS = ["window_id", "window_index", "window_name", "window_active", "@p
 export const WINDOW_FORMAT = FIELDS.map((f) => `#{${f}}`).join(SEP);
 
 /**
- * list-windows 출력 → [{ id, index, name, active, status, sudo, bg, jobs, model, thinking, account }]. id(창 고유 번호)는 맥 쪽에서만 쓴다.
+ * list-windows 출력 → [{ id, index, name, active, status, sudo, bg, jobs, model, thinking, account, key }]. id(창 고유 번호)는 맥 쪽에서만 쓴다.
+ * key: 그 탭 칸의 번호(%12 처럼). 폰이 탭마다 대화를 저장해 두는 열쇠다(탭 순서가 바뀌어도 같음, 11-25)
  * account: Claude Code 탭의 계정(연결부가 적음, 11-18) { now: 지금 계정, pin: 앱에서 고른 계정(없으면 자동), next: 바꿀 계정,
  * phase: wait(일이 끝나기를 기다림) | switch(바꾸는 중) } — 모르면(Claude Code 탭이 아니거나 예전 연결부) null
  */
@@ -42,7 +43,7 @@ export function parseWindows(out) {
     const bg = r.by
       ? { by: r.by, started: Number(r.started) || 0, done: Number(r.done) || 0, from: src ? src.index : null, fromName: src ? src.name : "" }
       : null;
-    return { id: r.id, index: r.index, name: r.name, active: r.active, status: r.status, sudo: r.sudo, bg, jobs: r.jobs, model: r.model, thinking: r.thinking, account: r.account };
+    return { id: r.id, index: r.index, name: r.name, active: r.active, status: r.status, sudo: r.sudo, bg, jobs: r.jobs, model: r.model, thinking: r.thinking, account: r.account, key: r.pane || "" };
   });
 }
 

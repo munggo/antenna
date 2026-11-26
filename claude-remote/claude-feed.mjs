@@ -15,8 +15,9 @@ import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
-import { accountUsage, baseAccount, desiredAccount, hasWorkToken, limitResetAt, THRESHOLD } from "./claude-account.mjs";
+import { accountTotal, accountUsage, baseAccount, desiredAccount, hasToken, isAccount, LABEL, limitResetAt, procAccount, switchTarget, THRESHOLD } from "./claude-account.mjs";
 import { bgInfo, bgLine, bgTabsFrom, prettyModel } from "./bg-launch.mjs";
 
 // ── 코드의 판: 연결부를 고쳐 설치해도 돌던 것은 옛 코드로 남아, 탭마다 다른 판이 돌았다(2026-11) ──
@@ -380,44 +381,8 @@ export function backgroundShown(screen) {
   return panel.agents ? `${panel.agents} agent${panel.agents > 1 ? "s" : ""}` : null;
 }
 
-/**
- * 뒤에서 도는 일(앱 서랍 표시용): 모드 줄의 '· 1 shell', '· 2 agents' 같은 것을 '셸 1개', '에이전트 2개'로.
- * 모드 줄('⏵⏵ auto mode on · 1 shell · ↓ to manage')은 아래 15줄 안의 마지막 것을 찾는다. 응답이 끝나면 Claude Code 가
- * 그 아래에 안내 창('Teach auto mode about your environment?')을 띄우기도 해서 맨 아래 두 줄만 보면 놓친다(11-14 시험에서 확인).
- * 모드 줄을 못 찾으면 맨 아래 두 줄을 본다.
- * 아는 종류만 센다: 보내지 않은 피드백 초안('· 1 feedback draft')이나 '· 1 MCP server failed' 같은 안내는 도는 일이 아니다.
- * 하위 에이전트는 2.1.32x 부터 모드 줄에 수를 적지 않고 그 아래 목록으로만 보이므로(agentPanel) 목록에서 센 수를 쓴다.
- * 여럿이면 ' · '로 잇고, 없으면 빈 글
- */
-const JOB_KINDS = { shell: "셸", bash: "셸", agent: "에이전트", task: "작업", job: "작업", monitor: "감시", process: "프로세스" };
+/** 종류별 수 Map(['셸', 1], …) → '셸 1개 · 감시 2개'(0 은 뺌, 없으면 빈 글). 앱 서랍의 '백그라운드 작업 N'과 맥 화면 한 줄이 씀 */
 const jobsText = (counts) => [...counts].filter(([, n]) => n > 0).map(([kind, n]) => `${kind} ${n}개`).join(" · ");
-export function backgroundJobs(screen) {
-  const panel = agentPanel(screen);
-  const ls = panel.screen.split("\n").filter((x) => x.trim());
-  const mode = ls.slice(-15).findLast((l) => MODE_LINE.test(l));
-  const counts = new Map();
-  for (const l of mode ? [mode] : ls.slice(-2)) {
-    for (const m of l.matchAll(/·\s*(\d+)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)/g)) {
-      const word = m[2].trim().split(/\s+/).pop().toLowerCase();   // 'local agents' 처럼 두 낱말이면 뒤 낱말
-      const kind = JOB_KINDS[word] ?? JOB_KINDS[word.replace(/s$/, "")] ?? JOB_KINDS[word.replace(/es$/, "")];
-      if (kind) counts.set(kind, (counts.get(kind) ?? 0) + Number(m[1]));
-    }
-  }
-  if (panel.agents > (counts.get("에이전트") ?? 0)) counts.set("에이전트", panel.agents);
-  return jobsText(counts);
-}
-
-/**
- * 화면에서 센 것(backgroundJobs)에 대화 기록으로 아는 수({ 에이전트: 8, 감시: 1 })를 합친다: 종류마다 큰 쪽.
- * 화면 표시는 Claude Code 판마다 바뀌어 놓칠 수 있고(11-17: 에이전트 수가 모드 줄에서 사라져 서랍에 안 보임),
- * 대화 기록은 맥 화면의 '백그라운드:' 줄과 앱의 작업 목록이 이미 쓰는 값이라 서랍의 수도 그 둘과 어긋나지 않게 한다
- */
-export function mergeJobs(shown, known = {}) {
-  const counts = new Map();
-  for (const m of String(shown ?? "").matchAll(/(\S+) (\d+)개/g)) counts.set(m[1], (counts.get(m[1]) ?? 0) + Number(m[2]));
-  for (const [kind, n] of Object.entries(known ?? {})) if (Number(n) > (counts.get(kind) ?? 0)) counts.set(kind, Number(n));
-  return jobsText(counts);
-}
 
 /**
  * 훅 없이 묻는 Claude Code 창(11-15 사용자 보고: /exit 했더니 '보내지 않은 피드백 초안' 창이 맥에서 기다렸는데 폰은 몰랐다).
@@ -455,9 +420,15 @@ export function screenDialog(screen) {
   if (!guide) return null;
   // 창의 위 끝: 테두리(▔ 가 든 줄·─ 줄)를 먼저 찾고, 테두리 없이 그려진 창(종료 안내는 그때그때 테두리가 없기도 함)은
   // 지난 대화 줄(맨 앞 칸의 '❯ /exit'·'● 답'. 창 안 번호 고르기 '❯ 1.'은 아님)이나 빈 줄 둘에서 끊는다
+  // 맨 앞 칸의 '❯ No' 처럼 바로 위나 아래 줄이 같은 칸에 맞춰 이어지는 줄은 번호 없는 고르기 목록이라 끊지 않음(11-24 아티팩트 지우기 확인)
+  const listCursor = (i) => {
+    const m = ls[i].match(/^❯\s+(?=\S)/);
+    const at = (l) => !!l && l.trim() && !/^\s*❯/.test(l) && l.search(/\S/) === m[0].length;
+    return !!m && (at(ls[i + 1]) || at(ls[i - 1]));
+  };
   let top = -1;
   for (let i = gStart - 1; i >= 0 && top < 0; i--) {
-    if (/▔/.test(ls[i]) || /^\s*─{10,}/.test(ls[i]) || /^[❯●](?!\s*\d+\.\s)/.test(ls[i]) || (!ls[i].trim() && !(ls[i - 1] ?? "x").trim())) top = i;
+    if (/▔/.test(ls[i]) || /^\s*─{10,}/.test(ls[i]) || (/^[❯●](?!\s*\d+\.\s)/.test(ls[i]) && !listCursor(i)) || (!ls[i].trim() && !(ls[i - 1] ?? "x").trim())) top = i;
   }
   if (top >= 0 && /^\s*─/.test(ls[top]) && /^❯/.test(ls[top - 1] ?? "")) return null;   // 입력창 아래 테두리
   const block = ls.slice(top + 1, gStart);   // 빈 줄 포함(접힌 줄 이어 붙이기는 빈 줄에서 멈춤)
@@ -481,11 +452,44 @@ export function screenDialog(screen) {
     items.push({ n: Number(m[2]), label, desc });
   }
   if (items.some((it, i) => it.n !== i + 1)) items = [];
+  // 번호 없는 고르기 창('❯ No' / '  Yes', 11-24 아티팩트 지우기 확인. 번호만 읽어 폰 카드에 No·Yes 가 없었다.
+  // Claude Code 2.1.331 부터 /export 도 번호 없이 '❯ Copy to clipboard' 꼴): ❯ 줄과 글이 같은 칸에서 시작하는 위아래 줄들이 선택지,
+  // 더 깊게 들여 쓴 줄은 접힌 설명. ↑/↓ 로 옮겨 Enter. 키 안내의 Enter 가 고르기가 아닌 창(피드백 초안 목록 'Enter to review'
+  // 처럼 줄 사이에 머리글이 끼는 목록)은 예전처럼 키 안내로만
+  let cursor = -1;
+  if (!items.length && !guide.some((g) => /^(enter|return)$/i.test(g.key) && !/^(select|confirm|choose)$/i.test(g.action))) {
+    const fi = block.findIndex((l) => /^\s*❯\s+\S/.test(l) && !NUM_ITEM.test(l));
+    if (fi >= 0) {
+      const col = block[fi].match(/^\s*❯\s+/)[0].length;
+      const inList = (l) => !!l && l.trim() && !/^\s*❯/.test(l) && l.search(/\S/) >= col;
+      let a = fi, b = fi;
+      while (inList(block[a - 1])) a--;
+      while (inList(block[b + 1])) b++;
+      const opts = [];
+      let at = -1;
+      for (let i = a; i <= b; i++) {
+        const l = block[i];
+        if (i === fi || l.search(/\S/) === col) {
+          if (i === fi) at = opts.length;
+          const [first, ...rest] = l.replace(/^\s*❯?\s*/, "").split(/\s{2,}/);
+          opts.push({ label: first.trim(), desc: rest.join(" ").trim() });
+        } else if (opts.length) {
+          const o = opts.at(-1);   // 접힌 줄: 설명 칸이 있으면 설명에, 없으면 이름에
+          if (o.desc) o.desc += ` ${l.trim()}`;
+          else o.label += ` ${l.trim()}`;
+        }
+      }
+      if (opts.length >= 2) {
+        items = opts.map((o, i) => ({ n: i + 1, ...o, nav: true }));
+        cursor = at;
+      }
+    }
+  }
   // 고른 줄(❯): 서명에는 이름 부분만(목록 줄 끝의 '1m' 같은 시간이 바뀌어도 같은 창)
   const focusLine = lines.find((l) => /^❯/.test(l));
   const focus = focusLine ? focusLine.replace(/^❯\s*/, "").split(/\s{2,}/)[0].trim() : "";
   const guideLine = ls.slice(gStart, end + 1).map((l) => l.trim()).join(" ");
-  return { title: lines[0], lines, guide, guideLine, items, focus, sig: `${lines[0]}|${guideLine}|${focus}` };
+  return { title: lines[0], lines, guide, guideLine, items, cursor, focus, sig: `${lines[0]}|${guideLine}|${focus}` };
 }
 
 /** 창 키 안내의 동작 → 한글(사전에 없으면 원문) */
@@ -495,6 +499,8 @@ const ACTION_KO = {
   submit: "제출", continue: "계속", skip: "건너뛰기", retry: "다시 해 보기", toggle: "켜고 끄기", dismiss: "닫기",
   save: "저장", edit: "고치기", delete: "지우기", copy: "복사", open: "열기",
 };
+/** 번호 없는 선택지 이름 → 한글(예·아니요). 화면 글은 괄호로 함께 */
+const ITEM_KO = { yes: "예", no: "아니요" };
 const DIALOG_TITLE_KO = [
   [/^You have (\d+) unsent feedback drafts?$/, (m) => `보내지 않은 피드백 초안이 ${m[1]}개 있어요`],
   [/^Feedback drafts$/, () => "피드백 초안"],
@@ -520,9 +526,22 @@ export function dialogCard(d) {
     options.push({ label, description });
     press.set(label, key);
   };
-  for (const it of d.items) add(`${it.n}. ${it.label}`, it.desc, { text: String(it.n) });
+  for (const it of d.items) {
+    if (!it.nav) {
+      add(`${it.n}. ${it.label}`, it.desc, { text: String(it.n) });
+      continue;
+    }
+    // 번호 없는 목록: 지금 줄(❯)에서 그 줄까지 ↑/↓ 로 옮긴 뒤 Enter(누를 키 여러 개)
+    const steps = it.n - 1 - (d.cursor ?? 0);
+    const seq = [...Array(Math.abs(steps)).fill({ key: steps > 0 ? "Down" : "Up" }), { key: "Enter" }];
+    const ko = ITEM_KO[it.label.toLowerCase()];
+    add(ko ? `${ko} (${it.label})` : it.label, [it.desc, it.n - 1 === d.cursor ? "맥에서 지금 고른 줄" : ""].filter(Boolean).join(" · "), seq);
+  }
+  const navList = d.items.some((it) => it.nav);
   for (const g of d.guide) {
     const ko = ACTION_KO[g.action.toLowerCase()];
+    // 번호 없는 목록을 선택지로 바꿨으면 옮기기(↑/↓)·고르기(Enter) 안내는 빼서 카드를 간단히(선택지가 그 키를 대신 누름)
+    if (navList && (g.key === "↑/↓" || (/^(enter|return)$/i.test(g.key) && /^(select|confirm|choose)$/i.test(g.action)))) continue;
     if (g.key === "↑/↓") {
       add("위로 (↑)", `${g.key} to ${g.action}`, guideKey("↑"));
       add("아래로 (↓)", `${g.key} to ${g.action}`, guideKey("↓"));
@@ -578,6 +597,14 @@ export const closeMention = (t) => (/(^|\s)@\S+$/.test(t) ? `${t} ` : t);
 export function limitStopped(screen, error) {
   return /Stop\s+and\s+wait\s+for\s+limit\s+to\s+reset|Wait\s+here,\s+then\s+continue\s+automatically/.test(String(screen ?? ""))   // 좁은 화면에서 접혀도
     || /hit your [^\n]*limit|usage limit/i.test(String(error ?? ""));
+}
+
+/** 계정 전체 한도(모든 모델)에 걸려 멈췄는지(사용자 결정 11-24: 그러면 계정 카드를 다시 연다): 마지막 답이 한도 오류인데 모델 전용 한도는
+ *  아니고(그것은 모델 한도 카드), 한도 창·'저절로 이어 감' 대기가 보이거나, 쉬는 화면에서 공유 사용량(util)이 아직 95% 이상
+ *  (연결부가 새로 떠서 지난 오류로 다시 묻지 않게) */
+export function totalLimitStopped(err, screen, util) {
+  if (!err || modelLimit(err) || !limitStopped(null, err)) return false;
+  return limitStopped(screen, null) || /continuing\s+automatically\s+at/i.test(String(screen ?? "")) || (answerDone(screen) && util >= THRESHOLD);
 }
 
 /** 답이 나오기 전에 Esc 로 멈추면 Claude Code 가 방금 보낸 글을 입력창에 되돌려 놓는다(11-18 확인).
@@ -907,10 +934,24 @@ export function createConverter() {
 // ───────────────────────── 피드 프로그램 ─────────────────────────
 
 function tmux(...args) {
+  if (((args[0] === "send-keys" && !args.includes("-X")) || args[0] === "paste-buffer") && args.includes("-t")) leaveMode(args[args.indexOf("-t") + 1]);
   try {
     return execFileSync(TMUX, args, { encoding: "utf8", timeout: 3000, stdio: ["pipe", "pipe", "ignore"] }).trim();
   } catch {
     return null;
+  }
+}
+
+/** 칸이 보기·복사 모드면 닫는다. 그 모드에서는 보낸 키가 모드에 먹혀 Claude Code 에 닿지 않는다(11-25 쓰던 탭: 다른 탭의
+ *  tmux run-shell 실패 글이 보기 모드로 덮은 사이 폰에서 질문에 답한 키와 Enter 20여 번이 모두 사라지고, 질문 카드만 지워져
+ *  방향키뿐인 화면 카드가 떴다). 맥에서 스크롤하던 복사 모드도 폰에서 보낸 것이 앞선다 */
+function leaveMode(target) {
+  if (!target || target.startsWith("-")) return;
+  try {
+    if (execFileSync(TMUX, ["display", "-p", "-t", target, "#{pane_in_mode}"], { encoding: "utf8", timeout: 3000, stdio: ["ignore", "pipe", "ignore"] }).trim() !== "1") return;
+    execFileSync(TMUX, ["send-keys", "-t", target, "-X", "cancel"], { timeout: 3000, stdio: "ignore" });
+  } catch {
+    /* 칸이 없음 등: 원래 명령이 알아서 실패 */
   }
 }
 
@@ -973,12 +1014,13 @@ export const EFFORT_CHOICES = [
 export const effortLabel = (c) => `${c.name} (${c.id})`;
 /** 모델 한도에 걸려 멈췄을 때 폰 카드(사용자 요청 11-22 '이 상황에서 모델을 선택할 수 있는 화면', '정확한 날짜와 시간', '생각 깊이도 같이'):
  *  질문 1 모델(한도에 걸린 모델을 뺀 모델들과 기다리기), 질문 2 생각 깊이.
- *  ctx: waiting('저절로 이어 감' 대기 중), resetAt(풀리는 때, 초), account(지금 계정), otherResetAt(다른 계정도 같은 한도면 풀리는 때), effort(지금 깊이) */
+ *  ctx: waiting('저절로 이어 감' 대기 중), resetAt(풀리는 때, 초), account(지금 계정), otherAccount·otherResetAt(바꿀 만한 계정도 같은 한도면
+ *  그 계정과 풀리는 때), effort(지금 깊이) */
 export const LIMIT_WAIT_LABEL = "기다리기";
-export function limitCard(lim, { waiting = false, resetAt = null, account = "", otherResetAt = null, effort = "" } = {}) {
-  const who = account === "work" ? "회사" : account === "personal" ? "개인" : "";
+export function limitCard(lim, { waiting = false, resetAt = null, account = "", otherAccount = "", otherResetAt = null, effort = "" } = {}) {
+  const who = LABEL[account] ?? "";
   const when = resetAt ? resetText(resetAt) : "";
-  const other = who && otherResetAt ? ` ${who === "회사" ? "개인" : "회사"} 계정도 ${lim.family} 한도라 ${resetText(otherResetAt)}에 풀려요.` : "";
+  const other = who && otherResetAt && LABEL[otherAccount] ? ` ${LABEL[otherAccount]} 계정도 ${lim.family} 한도라 ${resetText(otherResetAt)}에 풀려요.` : "";
   const head = `${lim.family} 한도에 걸려 멈췄어요.${when ? ` ${who ? `${who} 계정은 ` : ""}${when}에 풀려요.` : ""}${other}`;
   const models = MODEL_CHOICES.filter((c) => c.id !== "default" && c.id !== lim.family.toLowerCase())
     .map((c) => ({ label: c.name, description: "이 모델로 바꾸고 멈춘 요청을 이어서 해요(이 세션만)" }));
@@ -989,6 +1031,21 @@ export function limitCard(lim, { waiting = false, resetAt = null, account = "", 
     { question: "생각 깊이는요? ('기다리기'를 골랐으면 쓰지 않아요)", options: efforts, multiSelect: false },
   ];
   return { question: [`질문 2개 · ${lim.family} 한도`, `1. ${head}`, "2. 생각 깊이"].join("\n"), items };
+}
+/** 계정 사용량(전체 한도)이 95%를 넘었거나 한도에 걸려 멈췄을 때 그대로 쓸지·바꿀지 묻는 폰 카드(사용자 결정 11-24).
+ *  첫 선택지는 그대로(멈춤이면 기다리기), 둘째는 다른 계정으로 바꾸기. otherIsBase: 바꿀 계정이 돌아올 곳(고른 계정·폴더 기본) */
+export function accountCard({ cur, other, util = 0, reset = null, otherUtil = 0, limitHit = false, otherIsBase = false }) {
+  const N = (a) => LABEL[a] ?? a;
+  const pct = (u) => `${Math.round(u * 100)}%`;
+  const head = limitHit
+    ? `${N(cur)} 계정이 사용 한도에 걸려 멈췄어요.${reset ? ` ${resetText(reset)}에 풀려요.` : ""}`
+    : `${N(cur)} 계정 사용량이 ${pct(util)}예요(전체 한도${reset ? ` · ${resetText(reset)} 초기화` : ""}). 하던 일을 멈췄어요.`;
+  const keep = limitHit
+    ? { label: "기다리기", description: "그대로 둬요. 한도가 풀린 뒤 이어 가요" }
+    : { label: `${N(cur)} 계정 그대로`, description: "멈춘 일을 이어 해요. 한도가 꽉 차 멈추면 다시 물어요" };
+  const back = otherIsBase ? " 원래 계정으로 돌아가요." : ` ${N(cur)} 계정 한도가 풀리면 저절로 돌아와요.`;
+  const go = { label: `${N(other)} 계정으로 바꾸기`, description: `${N(other)} 계정은 ${pct(otherUtil)} 썼어요. 인수인계 문서를 받고 새로 켜서 이어 가요.${back}` };
+  return { question: `${head} 어떻게 할까요?`, options: [keep, go] };
 }
 /** 모델 고르기 목록의 깊이 줄('● High effort ←/→ to adjust') → EFFORT_CHOICES 의 차례. 줄이 없으면 -1 */
 export function pickerEffort(screen) {
@@ -1057,6 +1114,7 @@ export function runFeed(pane) {
   const questions = new Map();   // 질문 창: id → {item, qs}
   let screenAsk = null;          // 훅 없이 묻는 맥 화면 창(피드백 초안 종료 안내 등) → 폰 질문 카드 하나: {id, sig, item, press}
   let limitAsk = null;           // 모델 전용 한도(예: Fable)에 걸려 멈춤 → 다른 모델로 이어 갈지 묻는 폰 카드: {id, errId, lim, item}
+  let accountAsk = null;         // 계정 사용량 95% 넘음·한도 멈춤 → 그대로 쓸지·바꿀지 묻는 폰 카드(accountCard)
   let lastCardAt = 0;            // 승인·질문 카드가 닫힌 때(그 답으로 맥 창의 키를 누르는 동안 화면 창으로 잘못 보지 않게)
   let todosSent = "[]";
 
@@ -1132,7 +1190,7 @@ export function runFeed(pane) {
     return {
       t: "snapshot", v: FEED_VERSION, agent: "claude", messages: msgs.slice(-MAX_MESSAGES), truncated: Math.max(0, msgs.length - MAX_MESSAGES),
       working, queue: q, canSend: true, notice: null, context: contextNow(), compacting: !!compactSince, since: working ? workSince : null,
-      approvals: [...approvals.values()], questions: [...[...questions.values()].map((q) => q.item), ...(screenAsk ? [screenAsk.item] : []), ...(limitAsk ? [limitAsk.item] : [])], todos: visibleTodos(), planMode: permMode === "plan", compactSince: compactSince || null,
+      approvals: [...approvals.values()], questions: [...[...questions.values()].map((q) => q.item), ...(screenAsk ? [screenAsk.item] : []), ...(accountAsk?.item ? [accountAsk.item] : []), ...(limitAsk ? [limitAsk.item] : [])], todos: visibleTodos(), planMode: permMode === "plan", compactSince: compactSince || null,
       permMode, modelChoices: MODEL_CHOICES, rev: CODE_REV,
     };
   };
@@ -1171,25 +1229,32 @@ export function runFeed(pane) {
   const bgJobs = new Map();     // 작업 번호 → { id, kind: shell|agent|monitor, title, output, startedAt }
   const bgStarting = new Map(); // 도구 호출 번호 → { kind, title } (시작 결과를 기다림)
   const bgStopping = new Map(); // 멈춤 도구(TaskStop 등) 호출 번호 → 작업 번호
+  const bashCalls = new Map();  // 보통(앞에서 도는) 명령 호출 번호 → 이름. 오래 걸려 저절로·Ctrl+B 로 뒤로 넘어가면 결과에 작업 번호가 옴
+  // 하위 에이전트의 기록 파일(뒤에서 도는 에이전트의 출력 파일 = 그 에이전트 기록): 에이전트가 띄운 백그라운드 셸·감시도 따라감.
+  // 에이전트가 끝나도 그 셸은 남을 수 있어(11-24 쓰던 탭: '자기 백그라운드 일을 기다리며 멈춤') 기록 파일은 계속 읽는다
+  const agentLogs = new Map();  // 에이전트 번호 → { path, offset, rest, title }
   // Claude Code 가 감시를 끝내며 보내는 이벤트 글: [Monitor expired after 30m with 1 event delivered. …](시간 제한), [Monitor timed out …],
   // [Monitor stopped — too much output …]. 끝 상태(<status>)가 없는 알림으로 온다(2.1.326 실행 파일과 실제 기록에서 확인, 11-18)
   const MONITOR_ENDED = /<event>\s*\[Monitor (expired after|timed out|stopped)\b/;
-  const trackJobs = (o) => {
-    if (o.isSidechain) return;
+  /** 기록 한 줄로 작업 시작·끝을 따라감. sub: 하위 에이전트 기록이면 그 에이전트 이름(그 기록의 줄은 모두 sidechain) */
+  const trackJobs = (o, sub = "") => {
+    if (o.isSidechain && !sub) return;
     const c = o.message?.content;
     if (o.type === "assistant" && Array.isArray(c)) {
       for (const b of c) {
         if (b?.type !== "tool_use") continue;
         const inp = b.input ?? {};
         const desc = String(inp.description ?? "").trim();
-        if (b.name === "Bash" && inp.run_in_background) bgStarting.set(b.id, { kind: "shell", title: desc || lines(inp.command)[0] || "셸" });
+        const named = (t) => (sub ? `${t} · 에이전트 '${sub}'` : t);
+        if (b.name === "Bash" && inp.run_in_background) bgStarting.set(b.id, { kind: "shell", title: named(desc || lines(inp.command)[0] || "셸") });
+        else if (b.name === "Bash") bashCalls.set(b.id, named(desc || lines(inp.command)[0] || "셸"));
         else if (b.name === "Agent" || b.name === "Task") {
           // 하위 에이전트는 이제 부를 때 run_in_background 를 적지 않고 늘 뒤에서 돈다(2.1.32x, 11-16 확인). 뒤에서 도는지는 결과의 isAsync 로 가림.
           // 생각 깊이를 정할 때 쓸 것도 적어 둠: 종류·부를 때 적은 깊이·이 호출을 만든 시킨 쪽 모델·정의를 찾을 폴더
           bgStarting.set(b.id, { kind: "agent", bg: !!inp.run_in_background, title: desc || String(inp.subagent_type ?? "에이전트"),
             type: String(inp.subagent_type ?? "") || "general-purpose", effort: inp.effort, parentModel: o.message?.model || conv.model(), cwd: o.cwd });
         }
-        else if (b.name === "Monitor") bgStarting.set(b.id, { kind: "monitor", title: desc || "감시" });
+        else if (b.name === "Monitor") bgStarting.set(b.id, { kind: "monitor", title: named(desc || "감시") });
         else if (/^(TaskStop|KillShell|KillBash)$/.test(b.name)) bgStopping.set(b.id, String(inp.task_id ?? inp.shell_id ?? inp.bash_id ?? ""));
       }
     }
@@ -1197,11 +1262,14 @@ export function runFeed(pane) {
       for (const b of c) {
         if (b?.type !== "tool_result") continue;
         const r = o.toolUseResult ?? {};
-        const s = bgStarting.get(b.tool_use_id);
+        // 보통 명령이 오래 걸려 저절로(또는 Ctrl+B 로) 뒤로 넘어가면 결과에 작업 번호가 옴('moved to the background (ID: …)')
+        const fg = bashCalls.get(b.tool_use_id);
+        bashCalls.delete(b.tool_use_id);
+        const s = bgStarting.get(b.tool_use_id) ?? (fg !== undefined && (r.backgroundTaskId || /moved to the background \(ID: \w+\)/.test(textOf(b.content))) ? { kind: "shell", title: fg } : null);
         if (s) {
           bgStarting.delete(b.tool_use_id);
           const text = textOf(b.content);
-          const id = String(r.backgroundTaskId ?? r.agentId ?? r.taskId ?? text.match(/with ID: (\w+)/)?.[1] ?? "");
+          const id = String(r.backgroundTaskId ?? r.agentId ?? r.taskId ?? text.match(/(?:with ID:|\(ID:) (\w+)/)?.[1] ?? "");
           const output = String(r.outputFile ?? text.match(/Output is being written to: (\S+?\.output)/)?.[1] ?? "");
           // 끝까지 기다린 하위 에이전트(뒤에서 돌지 않은 호출)는 넣지 않음. 모델은 결과의 resolvedModel(실제로 답한 모델과 같음, 11-16 확인)
           const inBackground = s.kind !== "agent" || s.bg || r.isAsync === true;
@@ -1210,6 +1278,7 @@ export function runFeed(pane) {
             // 감시의 시간 제한(결과의 timeoutMs. 계속 도는 감시는 0): 그때가 지나면 Claude Code 가 감시를 끝낸다
             bgJobs.set(id, { id, ...s, output, startedAt, ...(s.kind === "agent" ? { model: String(r.resolvedModel ?? "") } : {}),
               ...(s.kind === "monitor" && Number(r.timeoutMs) > 0 ? { expiresAt: startedAt + Number(r.timeoutMs) } : {}) });
+            if (s.kind === "agent" && output && !agentLogs.has(id)) agentLogs.set(id, { path: output, offset: 0, rest: "", title: s.title });
           }
         }
         const stop = bgStopping.get(b.tool_use_id);
@@ -1498,13 +1567,19 @@ export function runFeed(pane) {
       broadcast({ t: "notice", text: "맥 화면이 그사이 바뀌어 누르지 않았어요" });
       return;
     }
-    logHook(`폰에서 맥 화면 창에 답: ${k.text ?? k.key}`);
-    if (k.text !== undefined) tmux("send-keys", "-t", pane, "-l", k.text);
-    else tmux("send-keys", "-t", pane, k.key);
+    const seq = Array.isArray(k) ? k : [k];   // 번호 없는 목록은 ↑/↓ 몇 번 + Enter
+    logHook(`폰에서 맥 화면 창에 답: ${seq.map((x) => x.text ?? x.key).join(" ")}`);
+    void (async () => {
+      for (const [i, x] of seq.entries()) {
+        if (i) await sleepMs(120);
+        if (x.text !== undefined) tmux("send-keys", "-t", pane, "-l", x.text);
+        else tmux("send-keys", "-t", pane, x.key);
+      }
+    })();
   };
   setInterval(() => {
     if (switching) return;
-    const busy = approvals.size > 0 || questions.size > 0 || !!limitAsk || Date.now() - lastCardAt < 4000;
+    const busy = approvals.size > 0 || questions.size > 0 || !!limitAsk || !!accountAsk || Date.now() - lastCardAt < 4000;
     const d = busy ? null : screenDialog(tmux("capture-pane", "-p", "-t", pane) ?? "");
     if (!d) {
       if (!busy) {
@@ -1634,6 +1709,8 @@ export function runFeed(pane) {
       workSince = Date.now();
       broadcast({ t: "working", value: true, since: workSince });
       setStatus("working");
+      // 계정 사용량이 95%를 넘었으면 일이 막 시작된 지금 멈추고 묻는다(30초 주기를 기다리지 않게. 쉬는 탭은 이때 처음 물음, 사용자 결정 11-24)
+      setTimeout(() => accountTick(), 800);   // 답이 나오기 전에 멈추면 보낸 글이 입력창에 되돌아와 그대로 다시 보내거나 넘길 수 있음
     } else if (name === "PreToolUse") {
       readNew(false);
       for (const id of [...approvals.keys()]) approvalDone(id);   // 다음 도구가 돌면 앞 승인은 끝난 것
@@ -1754,13 +1831,16 @@ export function runFeed(pane) {
     logHook(`바로잡음: 화면에 작업 표시가 없어 작업 중 → 쉬는 중 | ${[...near, ...mode].map((l) => l.trim().slice(0, 120)).join(" ⏎ ")}`);
   }, Number(process.env.PI_REMOTE_IDLE_CHECK_MS ?? 5000));
 
-  // 뒤에서 도는 일(셸·에이전트)을 탭 옵션 @ai_jobs 에 적음(바뀔 때만). 브리지가 탭 목록과 함께 앱에 보내 서랍에 보임.
-  // 화면에서 센 것에 대화 기록으로 아는 에이전트·감시 수를 합친다(knownJobs: 화면 표시가 바뀌어 못 세도 서랍에 보이게).
+  // 뒤에서 도는 일(셸·에이전트·감시)을 탭 옵션 @ai_jobs 에 적음(바뀔 때만). 브리지가 탭 목록과 함께 앱에 보내 서랍에 보임.
+  // 눌러서 보는 목록(jobList: 실제로 도는 것만)과 똑같이 센다(사용자 11-24 '백그라운드 작업은 정확하게'). 화면 모드 줄의 수는 쓰지 않는다:
+  // Claude Code 는 이미 끝난 셸을 기다린다는 에이전트까지 세어(쓰던 탭 '2 background tasks', 실제로 도는 것은 셸 1) 목록과 어긋났다.
   // 처음 한 번은 꼭 적거나 지움(예전 연결부가 남긴 값이 있을 수 있어서)
   let jobsShown = null;
   setInterval(() => {
     if (switching) return;
-    const jobs = mergeJobs(backgroundJobs(tmux("capture-pane", "-p", "-t", pane) ?? ""), knownJobs());
+    const list = jobList();
+    const n = (k) => list.filter((j) => j.kind === k).length;
+    const jobs = jobsText(new Map([["셸", n("shell")], ["에이전트", n("agent")], ["감시", n("monitor")]]));
     if (jobs === jobsShown) return;
     jobsShown = jobs;
     if (jobs) tmux("set-option", "-w", "-t", pane, "@ai_jobs", jobs);
@@ -1819,17 +1899,58 @@ export function runFeed(pane) {
       return "";
     }
   };
-  /** 그 출력 파일을 연 프로세스 가운데, 이 칸의 Claude Code 가 띄운 명령 셸(shell-snapshots 를 읽음)이 우두머리인 프로세스 묶음들.
-   *  비어 있으면 그 셸 작업은 끝났다(끝 알림을 못 받았어도). Claude Code 자신이나 칸 밖에서 같은 파일을 연 프로세스는 넣지 않는다 */
-  const shellGroups = (output) => {
-    const pids = openers(output);
-    if (!pids.length) return new Set();
-    const panePid = Number(String(tmux("display", "-p", "-t", pane, "#{pane_pid}") ?? "").trim());
+  /** 프로세스 표: pid → { pid, ppid, pgid, at(시작 ms), command }. 시작 시각 글이 맥 언어에 따라 바뀌지 않게 LC_ALL=C */
+  const procTable = () => {
     const table = new Map();
-    for (const l of run("ps", ["-axo", "pid=,ppid=,pgid=,command="]).split("\n")) {
-      const m = l.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
-      if (m) table.set(Number(m[1]), { pid: Number(m[1]), ppid: Number(m[2]), pgid: Number(m[3]), command: m[4] });
+    let text = "";
+    try {
+      text = execFileSync("ps", ["-axo", "pid=,ppid=,pgid=,lstart=,command="], { encoding: "utf8", timeout: 3000, stdio: ["ignore", "pipe", "ignore"], maxBuffer: 16 << 20, env: { ...process.env, LC_ALL: "C" } });
+    } catch {
+      return table;
     }
+    for (const l of text.split("\n")) {
+      const m = l.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s+(.*)$/);
+      if (m) table.set(Number(m[1]), { pid: Number(m[1]), ppid: Number(m[2]), pgid: Number(m[3]), at: Date.parse(m[4]) || 0, command: m[5] });
+    }
+    return table;
+  };
+  /** 그 폴더들 아래 파일을 연 프로세스(실제 경로 → Set(pid)). 한 번의 lsof 로 */
+  const openedUnder = (dirs) => {
+    const map = new Map();
+    if (!dirs.length) return map;
+    let pid = 0;
+    for (const l of run("lsof", ["-F", "pn", ...dirs.flatMap((d) => ["+D", d])]).split("\n")) {
+      if (l[0] === "p") pid = Number(l.slice(1));
+      else if (l[0] === "n" && pid) {
+        const s = map.get(l.slice(1)) ?? new Set();
+        s.add(pid);
+        map.set(l.slice(1), s);
+      }
+    }
+    return map;
+  };
+  const realOf = (p) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return "";
+    }
+  };
+  /** 셸 작업마다 지금 도는 프로세스 묶음(id → Set). 비어 있으면 그 셸은 끝났다(끝 알림을 못 받았어도).
+   *  1) 그 출력 파일을 연 프로세스 가운데, 이 칸의 Claude Code 가 띄운 명령 셸(shell-snapshots 를 읽음)이 우두머리인 묶음
+   *     (Claude Code 자신이나 칸 밖에서 같은 파일을 연 프로세스는 넣지 않음)
+   *  2) 그것으로 못 찾으면, 그 작업을 시작한 때(±20초)에 Claude Code 바로 아래 생긴 자기 묶음 가운데 가장 가까운 하나:
+   *     'exec 명령 >> 다른 파일' 처럼 셸이 자기를 그 명령으로 바꾸고 출력을 돌리면 출력 파일을 아무도 열지 않는다(11-24 사용자 보고:
+   *     개발 서버가 맥 화면에는 '1 shell' 인데 서랍 목록은 비어 있었다). MCP 서버 등은 Claude Code 와 같은 묶음이라 빠지고,
+   *     다른 작업 파일을 연 묶음(지금 도는 보통 명령도 작업 파일을 연다, 11-24 확인)도 뺀다. 묶음 하나는 한 작업에만 붙인다 */
+  const shellLive = () => {
+    const shells = [...bgJobs.values()].filter((j) => j.kind === "shell");
+    const res = new Map();
+    if (!shells.length) return res;
+    const outs = new Map(shells.map((j) => [j.id, j.output ? realOf(j.output) : ""]));
+    const opened = openedUnder([...new Set([...outs.values()].filter(Boolean).map((p) => dirname(p)))]);
+    const table = procTable();
+    const panePid = Number(String(tmux("display", "-p", "-t", pane, "#{pane_pid}") ?? "").trim());
     const inPane = (pid) => {
       for (let p = pid, i = 0; p > 1 && i < 16; i++) {
         if (p === panePid) return true;
@@ -1837,13 +1958,66 @@ export function runFeed(pane) {
       }
       return false;
     };
-    const groups = new Set();
-    for (const pid of pids) {
-      const g = table.get(pid)?.pgid;
-      const leader = g ? table.get(g) : null;
-      if (leader && leader.pid !== panePid && /shell-snapshots\//.test(leader.command) && inPane(leader.pid)) groups.add(g);
+    // Claude Code: 칸의 셸 아래(보통), 또는 셸 없이 켠 탭이면 칸의 첫 프로세스 자신(세션 파일이 있는 쪽)
+    const cc = [panePid, ...[...table.values()].filter((p) => p.ppid === panePid).map((p) => p.pid)].find((p) => existsSync(`${HOME}/.claude/sessions/${p}.json`));
+    // 명령 셸의 묶음 우두머리: shell-snapshots 를 읽는 셸, 또는 셸이 'exec 명령' 으로 바뀌어 명령 줄은 달라도 Claude Code 바로 아래의 자기 묶음
+    const shellLeader = (l) => !!l && l.pid !== panePid && inPane(l.pid) && (/shell-snapshots\//.test(l.command) || (!!cc && l.ppid === cc && l.pgid === l.pid));
+    const used = new Set();
+    for (const j of shells) {
+      const groups = new Set();
+      for (const p of opened.get(outs.get(j.id)) ?? []) {
+        const g = table.get(p)?.pgid;
+        if (g && shellLeader(table.get(g))) groups.add(g);
+      }
+      res.set(j.id, groups);
+      for (const g of groups) used.add(g);
     }
-    return groups;
+    const missing = shells.filter((j) => !res.get(j.id).size);
+    if (!missing.length || !cc) return res;
+    const holding = new Set();   // Claude Code 작업 파일(*.output)을 연 묶음: 다른 셸이거나 지금 도는 보통 명령
+    for (const [path, pids] of opened) if (path.endsWith(".output")) for (const p of pids) if (table.get(p)) holding.add(table.get(p).pgid);
+    const cands = [...table.values()].filter((p) => p.ppid === cc && p.pgid === p.pid && p.at && !holding.has(p.pid));
+    for (const j of missing) {
+      const best = cands.filter((s) => !used.has(s.pid) && Math.abs(s.at - j.startedAt) <= 20_000)
+        .sort((a, b) => Math.abs(a.at - j.startedAt) - Math.abs(b.at - j.startedAt))[0];
+      if (!best) continue;
+      used.add(best.pid);
+      res.set(j.id, new Set([best.pid]));
+    }
+    return res;
+  };
+  /** 하위 에이전트 기록에서 새로 생긴 줄을 읽어 그 에이전트가 띄운 작업(셸·감시)을 따라감 */
+  const readAgentLogs = () => {
+    for (const a of agentLogs.values()) {
+      let size;
+      try {
+        size = statSync(a.path).size;
+      } catch {
+        continue;
+      }
+      if (size < a.offset) Object.assign(a, { offset: 0, rest: "", dec: null });
+      if (size === a.offset) continue;
+      const n = Math.min(size - a.offset, 32 << 20);
+      const buf = Buffer.alloc(n);
+      const fd = openSync(a.path, "r");
+      try {
+        readSync(fd, buf, 0, n, a.offset);
+      } finally {
+        closeSync(fd);
+      }
+      a.offset += n;
+      a.dec ??= new StringDecoder("utf8");   // 읽은 조각 끝에서 잘린 한글이 깨지지 않게
+      const parts = (a.rest + a.dec.write(buf)).split("\n");
+      a.rest = parts.pop() ?? "";
+      for (const l of parts) {
+        if (!l.trim()) continue;
+        try {
+          trackJobs(JSON.parse(l), a.title);
+        } catch {
+          /* 반쪽 줄 */
+        }
+      }
+    }
   };
   /** 하위 에이전트의 종류·모델(짧은 이름)·생각 깊이(확실할 때만, subagentThinking). 깊이는 처음 물을 때 한 번 정함(시작 때 시킨 쪽 깊이에 가깝게) */
   const agentInfo = (j) => {
@@ -1856,23 +2030,16 @@ export function runFeed(pane) {
   /** 지금 도는 작업(시작 순). 셸은 이 칸 Claude Code 가 띄운 셸이 출력 파일을 열고 있어야, 에이전트·감시는 Claude Code 를 켠 뒤에 시작했어야
    *  (감시는 시간 제한도 남아 있어야) */
   const jobList = () => {
+    readAgentLogs();
     const since = claudeStartedAt();
+    const live = shellLive();
     const out = [];
     for (const j of bgJobs.values()) {
-      if (j.kind === "shell" ? !shellGroups(j.output).size : (since && j.startedAt < since) || expired(j)) continue;
+      if (j.kind === "shell" ? !live.get(j.id)?.size : (since && j.startedAt < since) || expired(j)) continue;
       out.push({ id: j.id, kind: j.kind, title: j.title.slice(0, 120), startedAt: j.startedAt, ...(j.kind === "shell" ? { tail: tailOf(j.output) } : {}),
         ...(j.kind === "agent" ? agentInfo(j) : {}) });
     }
     return out.sort((a, b) => a.startedAt - b.startedAt);
-  };
-  /** 대화 기록으로 아는, 지금 뒤에서 도는 에이전트·감시 수(jobList 와 같은 조건) → { 에이전트, 감시 }. 서랍의 수(@ai_jobs)에 합침.
-   *  셸은 넣지 않는다: 도는지 알려면 프로세스를 뒤져야 하고, 화면의 모드 줄에 수가 그대로 나온다 */
-  const knownJobs = () => {
-    const tracked = [...bgJobs.values()].filter((j) => j.kind !== "shell");
-    if (!tracked.length) return {};
-    const since = claudeStartedAt();
-    const live = tracked.filter((j) => !(since && j.startedAt < since) && !expired(j));
-    return { 에이전트: live.filter((j) => j.kind === "agent").length, 감시: live.filter((j) => j.kind === "monitor").length };
   };
   /** 뒤에서 도는 하위 에이전트(jobList 와 같은 조건) → 맥 화면 한 줄에 쓸 [{ type, model, thinking }] */
   const runningAgents = () => {
@@ -1899,9 +2066,8 @@ export function runFeed(pane) {
   const jobsReply = () => ({ t: "bg-jobs", window: Number(tmux("display", "-p", "-t", pane, "#{window_index}") ?? -1), jobs: jobList() });
   /** 셸 작업 종료: 그 셸의 프로세스 묶음만(셸과 그 안에서 돌던 명령까지) 종료한다. 못 하면 그 까닭 */
   const killShell = async (j) => {
-    if (!openers(j.output).length) return "이미 끝난 작업이에요";
-    const groups = shellGroups(j.output);
-    if (!groups.size) return "이 탭의 Claude Code 가 띄운 셸을 찾지 못해 종료하지 않았어요";
+    const groups = shellLive().get(j.id) ?? new Set();
+    if (!groups.size) return openers(j.output).length ? "이 탭의 Claude Code 가 띄운 셸을 찾지 못해 종료하지 않았어요" : "이미 끝난 작업이에요";
     for (const g of groups) {
       try {
         process.kill(-g, "SIGTERM");
@@ -1938,7 +2104,8 @@ export function runFeed(pane) {
   };
 
   const onCommand = (o, sock) => {
-    if (o?.cmd !== "hook" && o?.cmd !== "detail" && o?.cmd !== "toolimage" && o?.cmd !== "bg-jobs") lastActivity = Date.now();
+    // 명령 이름이 없는 줄({hello:true}: 브리지가 붙자마자 대화를 받으려고 보냄, 앱의 미리 받기 포함)은 쓰는 움직임이 아니다
+    if (o?.cmd && o.cmd !== "hook" && o.cmd !== "detail" && o.cmd !== "toolimage" && o.cmd !== "bg-jobs") lastActivity = Date.now();
     // 계정 전환 중(인수인계·비우기·다시 켜기)에 넣은 글은 비워질 대화나 셸에 들어가므로 받지 않음
     if (switching && ["send", "slash", "set-model", "set-thinking", "compact", "set-account"].includes(o?.cmd)) {
       return void write(sock, { t: "notice", text: "계정을 바꾸는 중이라 지금은 보낼 수 없어요. 다시 켜진 뒤 보내 주세요" });
@@ -2016,6 +2183,7 @@ export function runFeed(pane) {
         const id = String(o.id ?? "");
         if (screenAsk?.id === id) return void answerScreenAsk(o);
         if (limitAsk?.id === id) return void answerLimitAsk(o);
+        if (accountAsk?.id === id) return void answerAccountAsk(o);
         const q = questions.get(id);
         if (!q) return;
         questionDone(id);
@@ -2139,10 +2307,10 @@ export function runFeed(pane) {
   };
   setTimeout(tidyName, 2000);
 
-  // ── 계정 자동 전환(pi 처럼, 사용자 결정 11-12): 폴더 기본 계정이 95% 넘으면 다른 계정, 초기화되면 돌아옴 ──
+  // ── 계정 전환: 95%를 넘으면 물어서 바꾸고(아래 계정 카드, 사용자 결정 11-24 — 11-12 의 자동 전환을 바꿈), 떠난 계정 한도가 풀리면 돌아옴 ──
   // 셸에서 켠 Claude Code 만. 순서(사용자 결정 11-18): 일하는 중이면 멈춤 → 지금 세션에게 인수인계 문서를 받아 저장 → /clear →
   // /exit → 그 셸에 'claude-as.sh <계정> [켤 때 옵션] --permission-mode <지금 모드>'(같은 대화를 이어 켜지 않음) → 새 세션에 문서를 읽고 이어 가라는 글.
-  // 기본 계정을 떠날 때(95% 넘음)는 일하는 중이어도 바로 시작(남은 5%로 문서를 써야 함). 돌아올 때는 예전처럼 쉴 때(1분 넘게 조용)만.
+  // 돌아올 곳(고른 계정·폴더 기본)을 떠날 때는 일하는 중이어도 바로 시작(남은 5%로 문서를 써야 함). 돌아올 때는 예전처럼 쉴 때(1분 넘게 조용)만.
   // 어느 쪽이든 확인 창·질문 카드·돌고 있는 명령·뒤에서 도는 작업·입력창의 글이 있으면 기다린다.
   // 셸 함수 claude() 에 맡기지 않는다: 셸이 켜질 때 읽혀서, 함수를 고치기 전에 켠 셸에는 예전 정의가 남는다
   // (11-15: 11-11 에 켠 셸이 늘 개인으로 켜, 1분마다 끄고 켜기를 되풀이). claude-as.sh 가 없으면(예전 설치) 셸 함수로
@@ -2195,7 +2363,7 @@ export function runFeed(pane) {
       const f = `${HOME}/.claude/sessions/${pid}.json`;
       if (!existsSync(f)) continue;
       const info = JSON.parse(readFileSync(f, "utf8"));
-      const account = /(^|\s)CLAUDE_CODE_OAUTH_TOKEN=\S/.test(sh("ps", ["eww", "-o", "command=", "-p", pid])) ? "work" : "personal";
+      const account = procAccount(sh("ps", ["eww", "-o", "command=", "-p", pid]));   // claude-as.sh 의 PI_CLAUDE_ACCOUNT, 없으면 토큰 유무(11-25)
       return { pid, args: sh("ps", ["-ww", "-o", "args=", "-p", pid]).trim(), cwd: String(info.cwd ?? ""), sessionId: String(info.sessionId ?? ""), account };
     }
     return null;
@@ -2247,6 +2415,32 @@ export function runFeed(pane) {
     tmux("send-keys", "-t", pane, "Enter");
     return true;
   };
+  /** 입력창 비우기. Ctrl+U 는 한 줄만 지워서 여러 줄 글(인수인계 이어 가기 글 등)이 남았다(11-24 실제 시험) →
+   *  빌 때까지 줄 지우기·앞 줄과 잇기를 되풀이(최대 40번). 비었으면 참 */
+  const clearInput = async () => {
+    for (let i = 0; i < 40 && !inputEmpty(screenNow()); i++) {
+      tmux("send-keys", "-t", pane, "C-u");
+      await sleepMs(80);
+      if (inputEmpty(screenNow())) break;
+      tmux("send-keys", "-t", pane, "BSpace");
+      await sleepMs(80);
+    }
+    return inputEmpty(screenNow());
+  };
+  /** Esc 로 멈춘 뒤 입력창에 되돌아온 사용자 글(없으면 null). 대화 기록에 그 글이 늦게 적힐 수 있어 3초까지 다시 읽고 견준다.
+   *  기록이 끝내 맞지 않아도 멈추기 전에 입력창이 비어 있었으면(wasEmpty) 지금 입력창 글을 되돌아온 글로 본다
+   *  (11-24 실제 시험: 막 켠 세션은 기록을 아직 못 읽어 알아채지 못했고, 남은 글 때문에 /exit 를 치지 못해 조용히 멈춤) */
+  const restoredAfterEsc = async (wasEmpty) => {
+    for (let t = 0; t < 3000; t += 250) {
+      readNew(false);
+      const scr = screenNow();
+      if (inputEmpty(scr)) return null;
+      if (restoredPrompt(inputLine(scr), conv.lastPrompt())) return conv.lastPrompt();
+      await sleepMs(250);
+    }
+    const shown = inputLine(screenNow());
+    return wasEmpty && shown ? shown : null;
+  };
   /** 입력창에 글을 넣고 Claude Code 가 받았는지(일하는 표시·새 답) 확인. 막 켜져 Enter 가 먹지 않았으면 Enter 를 다시 */
   const submit = async (text) => {
     const before = conv.lastAnswerText();
@@ -2277,14 +2471,15 @@ export function runFeed(pane) {
     return null;
   };
   // ── 앱에서 탭마다 계정 고르기(사용자 결정 11-18) ──
-  // 고른 계정은 tmux 탭 옵션 @ai_account_pin(work | personal, 없으면 자동: 폴더 기본·한도). 고른 계정도 한도 95% 면 다른 계정으로 넘김.
+  // 고른 계정은 tmux 탭 옵션 @ai_account_pin(work | personal | personal2, 없으면 자동: 폴더 기본). 고른 계정도 한도 95% 면 묻는다(11-24).
   // 앱이 보는 상태도 탭 옵션에 적는다(브리지가 탭 목록에 실음): @ai_account(지금 계정) · @ai_account_next(바꿀 계정) ·
   // @ai_account_phase(wait: 작업이 끝나기를 기다림 | switch: 바꾸는 중)
   const accountPin = () => {
     const v = String(tmux("show-options", "-w", "-v", "-t", pane, "@ai_account_pin") ?? "").trim();
-    return v === "work" || v === "personal" ? v : "";
+    return isAccount(v) ? v : "";
   };
   const shownAccount = {};   // 마지막으로 적은 값(같은 값은 다시 적지 않음)
+  let staleNoted = "";   // 새 판 설치로 계정 전환을 미룬다고 알린 설치본 판(같은 판에는 한 번만 알림)
   const showAccount = (key, value) => {
     if (shownAccount[key] === value) return;
     shownAccount[key] = value;
@@ -2294,10 +2489,23 @@ export function runFeed(pane) {
   // 앱에서 고른 때(0 이면 아님): 이 요청은 쉬는 즉시(1분 조용하기를 기다리지 않고, 쉬는 때 설정도 무시) 바꾼다. 한 번 시도하면 지움
   let manualAt = 0;
 
-  const switchAccount = async (want, proc, { pin = "", manual = false } = {}) => {
+  // given: 계정 카드가 이미 멈추며 받아 둔 사용자 글(입력창은 비운 뒤 부름), why: 안내에 쓸 까닭
+  const switchAccount = async (want, proc, { pin = "", manual = false, pending: given = "", why = "" } = {}) => {
+    const name = LABEL[want] ?? want;
+    // 설치본이 이 연결부보다 새 판이면 바꾸지 않는다(11-25): 계정 판정이 바뀌었을 수 있어서다. 옛 판이 새 방식(계정별 로그인 폴더)으로
+    // 켠 추가 개인을 개인으로 보고 '전환 실패'로 6시간 쉬며 칩에 '개인→추가 개인'을 남겼다(안녕내친구 탭).
+    // 쉬는 틈에 새 판으로 바뀐 뒤 그 연결부가 다시 판단한다. 고른 계정·떠난 계정(탭 옵션)은 남아 새 연결부가 이어받는다
+    const installed = codeRev();
+    if (installed && installed !== CODE_REV) {
+      const first = staleNoted !== installed;
+      staleNoted = installed;
+      if (first) logHook(`계정 전환 미룸: 설치본이 새 판(${installed}, 이 연결부 ${CODE_REV})`);
+      const held = given ? ` 보내려던 글('${given.replace(/\s+/g, " ").slice(0, 40)}…')은 보내지 않았어요. 바뀐 뒤 다시 보내 주세요` : "";
+      if (manual && (first || given)) broadcast({ t: "notice", text: `연결부를 새 판으로 바꾸는 중이라, 쉬는 틈에 새 판이 된 뒤 ${name} 계정으로 바꿔요.${held}` });
+      return;
+    }
     const back = want === baseAccount(proc.cwd || process.cwd(), pin);
-    const name = want === "work" ? "회사" : "개인";
-    const other = want === "work" ? "개인" : "회사";
+    const other = LABEL[proc.account] ?? proc.account;   // 떠나는 계정(계정이 셋이라 '반대쪽'이 아님, 11-25)
     const args = relaunchArgs(proc.args, permMode);
     const sid = transcript ? basename(transcript).replace(/\.jsonl$/, "") : proc.sessionId;
     if (!args || !/^[0-9a-f-]{36}$/i.test(sid)) {
@@ -2308,29 +2516,34 @@ export function runFeed(pane) {
     // 이어 받을 대화: 켜고 아무것도 묻지 않은 세션은 기록 파일이 아직 없음 → 인수인계·비우기 없이 바로 바꿈
     const hasConv = convExists(sid);
     const prevTranscript = transcript;
-    const reason = manual ? (pin ? `앱에서 ${name} 계정을 골라` : `앱에서 자동으로 되돌려 ${name} 계정으로 바꾸려고`)
+    const reason = why ? why : manual ? (pin ? `앱에서 ${name} 계정을 골라` : `앱에서 자동으로 되돌려 ${name} 계정으로 바꾸려고`)
       : back ? (pin ? `고른 계정(${name})의 한도가 풀려` : `기본 계정(${name})의 한도가 풀려`)
       : pin ? `고른 ${other} 계정 사용 한도가 95%를 넘어` : `${other} 계정 사용 한도가 95%를 넘어`;
     let docPath = null;
     const docNote = () => (docPath ? ` 인수인계 문서: ${docPath}` : "");
+    // 멈추느라 답하지 못한 사용자 글: 계정 카드가 받아 둔 것, 앱에서 계정을 고를 때 카드에서 넘어온 것, 아래 0)에서 되돌아온 것
+    let pending = given || carryPending;
+    carryPending = "";
+    // 돌아올 곳으로 바꾸면 '떠난 계정' 기록을 바로 지움. 다음 주기 확인까지 남겨 두면, 돌아온 직후 다시 95%를 넘을 때
+    // 묻지 않고 또 떠났다(11-24 실제 시험)
+    if (back) setTabOpt("@ai_account_away", "");
     switching = true;
     showAccount("@ai_account_next", want);
     showAccount("@ai_account_phase", "switch");
     try {
       if (hasConv) {
         // 0) 일하는 중이면 Esc 로 멈춤(사용자 결정 11-18: 남은 5%로 문서를 써야 하므로 답이 끝나기를 기다리지 않음)
-        let pending = "";
         if (!doneScreen()) {
+          const wasEmpty = inputEmpty(screenNow());
           tmux("send-keys", "-t", pane, "Escape");
           await waitFor(doneScreen, 30_000);
           // 답이 나오기 전에 멈췄으면 방금 보낸 글이 입력창에 되돌아옴(11-18 확인) → 그 글은 인수인계로 넘기고 입력창을 비움
           await sleepMs(500);
-          readNew(false);
-          const shown = inputLine(screenNow());
-          logHook(`계정 전환: 멈춘 뒤 입력창 '${String(shown ?? "(없음)").slice(0, 40)}' · 마지막 글 '${String(conv.lastPrompt() ?? "").slice(0, 40)}'`);
-          if (!inputEmpty(screenNow()) && restoredPrompt(shown, conv.lastPrompt())) {
-            pending = conv.lastPrompt();
-            tmux("send-keys", "-t", pane, "C-u");
+          const restored = await restoredAfterEsc(wasEmpty);
+          logHook(`계정 전환: 멈춘 뒤 입력창 '${String(inputLine(screenNow()) ?? "(없음)").slice(0, 40)}' · 되돌아온 글 '${String(restored ?? "").slice(0, 40)}'`);
+          if (restored) {
+            pending = restored;
+            await clearInput();
           }
         }
         if (!(await waitFor(idleScreen, 30_000))) {
@@ -2371,23 +2584,23 @@ export function runFeed(pane) {
           // 답이 나오기 전이었으면(예: 한도가 다 차 재시도만 함) 인수인계 요청 글이 입력창에 되돌아옴 → 우리가 넣은 글이니 지움
           await sleepMs(500);
           readNew(false);
-          if (!inputEmpty(screenNow()) && restoredPrompt(inputLine(screenNow()), conv.lastPrompt())) tmux("send-keys", "-t", pane, "C-u");
+          if (!inputEmpty(screenNow()) && restoredPrompt(inputLine(screenNow()), conv.lastPrompt())) await clearInput();
         }
         if (doc) docPath = saveHandoff(proc.cwd || process.cwd(), handoffWithPending(doc, pending));
         logHook(`계정 전환 인수인계: ${docPath ?? "받지 못함"}`);
         // 2) 대화 비우기(사용자가 정한 순서: /clear → 종료 → 계정 변경 → 다시 실행)
         if (!(await typeSlash("/clear"))) {
           pauseSwitch(5 * 60_000);
-          if (docPath) broadcast({ t: "notice", text: `계정을 바꾸려다 맥 입력창에 글이 있어 멈췄어요. 5분 뒤 다시 해 볼게요.${docNote()}` });
+          broadcast({ t: "notice", text: `계정을 바꾸려다 맥 입력창에 글이 있어 멈췄어요. 5분 뒤 다시 해 볼게요.${docNote()}` });
           return;
         }
         await sleepMs(1000);
         await waitFor(idleScreen, 15_000);
       }
-      // 3) /exit
+      // 3) /exit (조용히 멈추지 않게 늘 알림: 11-24 실제 시험에서 남은 글 때문에 여기서 아무 말 없이 멈췄다)
       if (!(await typeSlash("/exit"))) {
         pauseSwitch(5 * 60_000);
-        if (docPath) broadcast({ t: "notice", text: `계정을 바꾸려다 맥 입력창에 글이 있어 멈췄어요. 5분 뒤 다시 해 볼게요.${docNote()}` });
+        broadcast({ t: "notice", text: `계정을 바꾸려다 맥 입력창에 글이 있어 멈췄어요. 5분 뒤 다시 해 볼게요.${docNote()}` });
         return;
       }
       if (!(await waitFor(() => SHELL_RE.test(paneCmd()), 15_000))) {
@@ -2435,7 +2648,7 @@ export function runFeed(pane) {
       const how = !hasConv ? "" : docPath ? "(인수인계 문서로 이어 감)" : "(인수인계 문서를 받지 못해 앞 대화 기록으로 이어 감)";
       let text;
       if (!up) text = `${name} 계정으로 다시 켜는 데 실패했어요. claude 로 다시 켜 주세요(6시간 동안 다시 바꾸지 않아요).${docNote()}`;
-      else if (wrong) text = `${name} 계정으로 다시 켰는데 ${other} 계정으로 켜졌어요. 6시간 동안 다시 바꾸지 않아요${how}`;
+      else if (wrong) text = `${name} 계정으로 다시 켰는데 ${LABEL[now.account] ?? now.account} 계정으로 켜졌어요. 6시간 동안 다시 바꾸지 않아요${how}`;
       else if (manual) text = `앱에서 고른 대로 ${name} 계정으로 다시 켰어요${how}`;
       else if (back) text = `한도가 풀려 ${pin ? "고른 " : ""}${name} 계정으로 돌아왔어요${how}`;
       else text = `${pin ? "고른 " : ""}${other} 계정 사용량이 95%를 넘어 ${name} 계정으로 다시 켰어요${how}`;
@@ -2452,6 +2665,9 @@ export function runFeed(pane) {
         if (!(await waitFor(idleScreen, 20_000)) || !(await submit(handoffResume({ reason, docPath, transcript: prevTranscript })))) {
           broadcast({ t: "notice", text: `새 세션에 이어 갈 글을 넣지 못했어요. 맥에서 인수인계 문서를 읽게 해 주세요.${docNote() || ` 앞 대화 기록: ${prevTranscript}`}` });
         }
+      } else if (up && pending) {
+        // 이어 받을 대화는 없지만(막 켠 세션) 멈추느라 답하지 못한 글이 있음 → 새 세션에 그 글을 그대로 넣음
+        if (!(await waitFor(idleScreen, 20_000)) || !(await submit(pending))) broadcast({ t: "notice", text: "새 세션에 멈춘 글을 넣지 못했어요. 폰에서 다시 보내 주세요" });
       }
     } finally {
       switching = false;
@@ -2462,8 +2678,139 @@ export function runFeed(pane) {
   };
   /** 계정 판정에 쓸 모델: 대화 기록의 모델, 아직 없으면(막 켬·첫 답이 한도 오류) 켤 때 준 --model, 그것도 없으면 판정이 설정의 기본 모델을 씀 */
   const modelNow = (proc) => conv.model() ?? (String(proc?.args ?? "").match(/(?:^|\s)--model[= ](\S+)/) ?? [])[1] ?? "";
+  // ── 95%를 넘으면 묻기(사용자 결정 11-24: 저절로 바꾸지 않고, 하던 일을 멈춘 뒤 그대로 쓸지·어느 계정으로 바꿀지 폰에 묻는다) ──
+  // 95%는 계정 전체 한도(5시간·주간)만 본다. 쉬는 탭은 다음 글을 보내 일이 시작될 때 묻는다(쓰지 않는 탭에 알림이 가지 않게).
+  // 답은 탭 옵션에 적어 연결부가 새로 떠도 이어진다:
+  //   @ai_account_keep: 그대로 쓰기로 한 계정. 다시 묻지 않다가 한도가 꽉 차 멈추면 다시 묻는다. 그 계정이 95% 아래로 내려오면 지움
+  //   @ai_account_away: 바꾸기로 해 떠난 계정. 그 계정의 한도가 풀리면 쉴 때 저절로 돌아오고(사용자 결정 11-24) 돌아오면 지움
+  const tabOpt = (key) => String(tmux("show-options", "-w", "-v", "-t", pane, key) ?? "").trim();
+  const setTabOpt = (key, v) => (v ? tmux("set-option", "-w", "-t", pane, key, v) : tmux("set-option", "-w", "-u", "-t", pane, key));
+  let switchQueued = false;   // 카드에서 바꾸기를 골라 전환을 시작하는 중
+  let carryPending = "";      // 카드가 열린 채 앱에서 계정을 골랐을 때, 카드가 받아 둔 되돌아온 글(다음 전환이 넘겨받음)
+  const acctName = (a) => LABEL[a] ?? a;
+  // 95%를 넘어 물을 때 바꿀 곳(계정이 셋, 11-25): 원래 계정에 있으면 개인 → 추가 개인·추가 개인 → 개인·회사 → 개인, 바꿔 간 계정이면 원래 계정으로
+  const targetOf = (proc) => switchTarget(proc.account, baseAccount(proc.cwd || process.cwd(), accountPin()));
+  const accountAway = () => {
+    const v = tabOpt("@ai_account_away");
+    return isAccount(v) ? v : "";
+  };
+  const accountAskDone = () => {
+    if (!accountAsk) return;
+    if (accountAsk.item) broadcast({ t: "question-done", id: accountAsk.id });
+    accountAsk = null;
+    if (!approvals.size && !questions.size && !screenAsk && tmux("show-options", "-w", "-v", "-t", pane, "@pi_status") === "asking") setStatus(working ? "working" : viewing() ? "" : "yourturn");
+  };
+  /** 카드 열기. 일하는 중이면 먼저 Esc 로 멈춘다(답이 나오기 전이면 보낸 글이 입력창에 되돌아옴 → 답에 따라 다시 보내거나 인수인계로 넘김).
+   *  limitHit: 이미 한도에 걸려 멈춤(꽉 참) → 멈추지 않고 바로 물음 */
+  const openAccountAsk = async (proc, { util, reset, limitHit = false }) => {
+    const cur = proc.account;
+    const other = targetOf(proc);
+    const id = `cc-a-${Date.now()}`;
+    accountAsk = { id, cur, other, pending: "", inInput: false, interrupted: false, limitHit, item: null };
+    if (!limitHit && !doneScreen()) {
+      const wasEmpty = inputEmpty(screenNow());
+      tmux("send-keys", "-t", pane, "Escape");
+      await waitFor(doneScreen, 30_000);
+      await sleepMs(500);
+      accountAsk.interrupted = true;
+      const restored = await restoredAfterEsc(wasEmpty);
+      if (restored) {
+        accountAsk.pending = restored;
+        accountAsk.inInput = true;
+      }
+      // 사용자가 멈춘 것이 아니라 Stop 훅이 오지 않으므로 여기서 쉬는 중으로
+      working = false;
+      workSince = null;
+      broadcast({ t: "working", value: false });
+    }
+    const card = accountCard({ cur, other, util, reset, otherUtil: accountTotal(other).util, limitHit, otherIsBase: other === baseAccount(proc.cwd || process.cwd(), accountPin()) });
+    accountAsk.item = { id, question: card.question, options: card.options, multiSelect: false, since: Date.now() };
+    screenAskDone();
+    broadcast({ t: "question", question: accountAsk.item });
+    setStatus("asking");
+    logHook(`계정 카드: ${cur} ${Math.round(util * 100)}%${limitHit ? " 한도에 걸려 멈춤" : ""}${accountAsk.inInput ? " · 되돌아온 글 있음" : ""}`);
+    askNotify("choice", limitHit ? `${acctName(cur)} 계정이 한도에 걸려 멈췄어요` : `${acctName(cur)} 계정 사용량이 ${Math.round(util * 100)}%예요`, "그대로 쓸지, 다른 계정으로 바꿀지 골라 주세요");
+  };
+  /** 되돌아온 글을 다시 보냄: 입력창에 그대로 있으면 Enter(붙여 넣은 글·사진도 그대로), 안 되면 비우고 글로 다시 넣음 */
+  const resendRestored = async (text) => {
+    if (restoredPrompt(inputLine(screenNow()), text)) {
+      tmux("send-keys", "-t", pane, "Enter");
+      if (await waitFor(() => screenBusy(screenNow()), 5000)) return true;
+    }
+    await clearInput();
+    return submit(text);
+  };
+  /** 계정 카드의 답. 취소는 계정을 정하지 않음(다음 글을 보낼 때 다시 물음). 되돌아온 글은 입력창에서 지우고 보내지 않았다고 알림:
+   *  남겨 두면 폰에서 보낸 다음 글이 그 뒤에 붙어 함께 나간다(붙여 넣기는 입력창 글 뒤에 들어감) */
+  const answerAccountAsk = (o) => {
+    const a = accountAsk;
+    if (!a?.item) return;
+    accountAskDone();
+    const pick = String((Array.isArray(o.answers) ? o.answers : [])[0] ?? "");
+    if (o.cancel === true || !pick) {
+      logHook("계정 카드: 취소");
+      if (a.inInput) {
+        void clearInput();
+        broadcast({ t: "notice", text: `계정을 정하지 않아 보낸 글은 보내지 않았어요('${a.pending.replace(/\s+/g, " ").slice(0, 40)}…'). 다시 보내면 그때 다시 물어요` });
+      }
+      return;
+    }
+    let proc = null;
+    try {
+      proc = claudeProc();
+    } catch {
+      proc = null;
+    }
+    if (!proc || proc.account !== a.cur) return void broadcast({ t: "notice", text: "그사이 계정이 바뀌어 그대로 둬요" });
+    const pin = accountPin();
+    const base = baseAccount(proc.cwd || process.cwd(), pin);
+    if (pick === a.item.options[1].label) {
+      const to = a.other;
+      setTabOpt("@ai_account_away", to === base ? "" : base);
+      // 바꿀 계정도 95%를 넘었는데 골랐으면 그 계정은 그대로 쓰기로 한 것(켜자마자 다시 묻지 않게)
+      setTabOpt("@ai_account_keep", accountTotal(to).util >= THRESHOLD ? to : "");
+      logHook(`계정 카드: ${to} 로 바꾸기`);
+      switchQueued = true;   // 아래에서 바꾸기 전에 주기 확인이 같은 전환을 또 시작하지 않게
+      void (async () => {
+        try {
+          if (a.inInput) await clearInput();   // 되돌아온 글은 인수인계 문서로 넘김
+          const why = `${acctName(a.cur)} ${a.limitHit ? "계정이 한도에 걸려" : "계정 사용량이 95%를 넘어"} 고른 대로 ${acctName(to)} 계정으로 바꾸려고`;
+          await switchAccount(to, proc, { pin, manual: true, pending: a.pending, why });
+        } finally {
+          switchQueued = false;
+        }
+      })();
+      return;
+    }
+    setTabOpt("@ai_account_keep", a.cur);
+    logHook("계정 카드: 그대로");
+    if (a.limitHit) return void broadcast({ t: "notice", text: `${acctName(a.cur)} 계정 그대로 둬요. 한도가 풀린 뒤 이어 가 주세요` });
+    broadcast({ t: "notice", text: `${acctName(a.cur)} 계정을 그대로 써요. 한도가 꽉 차 멈추면 다시 물어요` });
+    void (async () => {
+      const sent = a.inInput ? await resendRestored(a.pending)
+        : a.interrupted ? await submit(`[계정] 사용량이 95%를 넘어 잠깐 멈췄지만 ${acctName(a.cur)} 계정을 그대로 쓰기로 했습니다. 멈춘 일을 이어서 해 주세요.`) : true;
+      if (!sent) broadcast({ t: "notice", text: "이어 가라는 글을 넣지 못했어요. 폰에서 '계속'이라고 보내 주세요" });
+    })();
+  };
+  /** 지금 계정이 95%를 넘었으면(그대로 쓰기로 하지 않았고 바꿀 계정이 있고 일하는 중이면) 묻기 */
+  const askTick = (proc) => {
+    const cur = proc.account;
+    const keep = tabOpt("@ai_account_keep");
+    const t = accountTotal(cur);
+    if (t.util < THRESHOLD) {
+      if (keep === cur) setTabOpt("@ai_account_keep", "");   // 초기화됨: 다음에 넘으면 다시 물음
+      return;
+    }
+    if (keep === cur) return;
+    const scr = screenNow();
+    if (!(working || screenBusy(scr))) return;   // 쉬는 탭은 다음 글을 보낼 때
+    if (compactSince || approvals.size || questions.size || limitAsk || screenAsk || dialogOpen(scr)) return;
+    if (!hasToken(targetOf(proc))) return;   // 바꿀 계정의 토큰이 없음(계정을 하나만 씀 등): 물어도 소용없음
+    void openAccountAsk(proc, t);
+  };
+
   const accountTick = () => {
-    if (switching) return;
+    if (switching || switchQueued || accountAsk) return;
     let proc;
     try {
       proc = claudeProc();
@@ -2474,11 +2821,14 @@ export function runFeed(pane) {
     showAccount("@ai_account", proc.account);
     const pin = accountPin();
     const cwd = proc.cwd || process.cwd();
-    const want = desiredAccount(cwd, modelNow(proc), pin);
+    const away = accountAway();
+    const want = desiredAccount(cwd, pin, away);
     if (want === proc.account) {
       manualAt = 0;
       showAccount("@ai_account_next", "");
       showAccount("@ai_account_phase", "");
+      if (away && proc.account === baseAccount(cwd, pin)) setTabOpt("@ai_account_away", "");   // 돌아옴
+      askTick(proc);
       return;
     }
     showAccount("@ai_account_next", want);
@@ -2502,12 +2852,22 @@ export function runFeed(pane) {
   };
   setInterval(accountTick, SWITCH_TICK_MS);
   setTimeout(accountTick, 3000);   // 켜자마자 앱에 지금 계정을 알림
-  /** 앱에서 이 탭의 계정을 고름(account: work | personal | auto) */
+  /** 앱에서 이 탭의 계정을 고름(account: work | personal | personal2 | auto) */
   const pickAccount = (account, sock) => {
-    const pin = account === "work" || account === "personal" ? account : "";
-    if (pin === "work" && !hasWorkToken()) return void write(sock, { t: "notice", text: "이 맥에 회사 계정 토큰이 없어 회사 계정을 고를 수 없어요" });
+    const pin = isAccount(account) ? account : "";
+    if (pin && !hasToken(pin)) return void write(sock, { t: "notice", text: `이 맥에 ${LABEL[pin]} 계정 토큰이 없어 ${LABEL[pin]} 계정을 고를 수 없어요` });
     if (pin) tmux("set-option", "-w", "-t", pane, "@ai_account_pin", pin);
     else tmux("set-option", "-w", "-u", "-t", pane, "@ai_account_pin");
+    // 직접 고른 것이 앞선다: 95% 카드의 답(떠난 계정)은 지우고, 95%를 넘은 계정을 골랐으면 그대로 쓰기로 한 것(바로 다시 묻지 않게)
+    setTabOpt("@ai_account_away", "");
+    setTabOpt("@ai_account_keep", pin && accountTotal(pin).util >= THRESHOLD ? pin : "");
+    // 계정 카드가 열려 있었으면 이 고르기가 그 답: 카드를 닫고, 카드가 받아 둔 되돌아온 글은 아래에서 다시 보내거나 전환에 넘김
+    let carry = "";
+    if (accountAsk?.item) {
+      const a = accountAsk;
+      accountAskDone();
+      if (a.inInput) carry = a.pending;
+    }
     let proc = null;
     try {
       proc = claudeProc();
@@ -2515,18 +2875,31 @@ export function runFeed(pane) {
       proc = null;
     }
     if (!proc) return void write(sock, { t: "notice", text: "셸에서 켠 Claude Code 가 아니라 계정을 바꿀 수 없어요. 고른 계정은 다음에 켤 때부터 써요" });
-    const want = desiredAccount(proc.cwd || process.cwd(), modelNow(proc), pin);
-    const name = (a) => (a === "work" ? "회사" : "개인");
+    const want = desiredAccount(proc.cwd || process.cwd(), pin);
+    const name = (a) => LABEL[a] ?? a;
     let text;
     if (want === proc.account) {
-      text = pin ? `이미 ${name(want)} 계정이에요. 이 탭은 앞으로 ${name(want)} 계정을 써요(한도가 95%를 넘으면 다른 계정으로 넘어가요)` : "이 탭은 다시 자동(폴더·한도 기준)으로 계정을 골라요. 지금 계정 그대로예요";
+      text = pin ? `이미 ${name(want)} 계정이에요. 이 탭은 앞으로 ${name(want)} 계정을 써요(한도가 95%를 넘으면 물어봐요)` : "이 탭은 다시 자동(폴더 기준)으로 계정을 골라요. 지금 계정 그대로예요";
+      if (carry) {
+        // 이 계정을 그대로 쓰기로 한 것: 멈춘 글을 다시 보냄(지금 계정이 95%를 넘었으면 위에서 '그대로 쓰기'로 적었음)
+        if (accountTotal(proc.account).util >= THRESHOLD) setTabOpt("@ai_account_keep", proc.account);
+        void resendRestored(carry);
+      }
     } else {
       manualAt = Date.now();
       switchPausedUntil = 0;   // 직접 고른 것이니 실패 뒤 쉬는 때도 무시
-      const why = pin === want ? "" : pin ? `(고른 ${name(pin)} 계정이 한도 95%를 넘어 ${name(want)} 계정으로) ` : "(자동: 폴더·한도 기준) ";
+      const why = pin ? "" : "(자동: 폴더 기준) ";
       text = working || screenBusy(screenNow()) || questions.size || approvals.size
         ? `${why}지금 일이 끝나면 ${name(want)} 계정으로 바꿔요. 인수인계 문서를 쓰게 한 뒤 대화를 비우고 새로 켜요`
         : `${why}곧 ${name(want)} 계정으로 바꿔요. 인수인계 문서를 쓰게 한 뒤 대화를 비우고 새로 켜요`;
+      if (carry) {
+        // 되돌아온 글은 입력창에서 비우고(남아 있으면 전환이 기다림) 전환이 인수인계 문서·새 세션에 넘김.
+        // 전환은 다 비운 뒤에 시작: 같이 돌면 비우기가 막 붙여 넣은 인수인계 요청 글까지 지웠다(11-24 실제 시험 13번)
+        carryPending = carry;
+        broadcast({ t: "notice", text });
+        void clearInput().then(() => accountTick());
+        return;
+      }
     }
     broadcast({ t: "notice", text });
     accountTick();
@@ -2537,15 +2910,32 @@ export function runFeed(pane) {
   // 다른 계정이 그 모델을 쓸 수 있으면 계정 자동 전환이 맡으므로 열지 않는다(11-22: 두 계정 모두 Fable 한도가 참)
   const LIMIT_WAITING = /continuing\s+automatically\s+at/i;
   let limitAskedFor = null;   // 카드를 연 오류 답의 번호(같은 오류에는 한 번만. 취소해도 다시 열지 않음)
+  let accountAskedFor = null;   // 전체 한도로 멈춰 계정 카드를 연 오류 답의 번호(같은 오류에는 한 번만)
   setInterval(() => {
-    if (switching) return;
+    if (switching || switchQueued || accountAsk) return;
     const scr = screenNow();
     // 일하는 중(진행 표시)에는 보지 않음: 한도 상황이 아니고, 이때 기록을 읽으면 계정 전환이 글을 막 보낸 순간에
     // 멈추는 흐름과 겹쳐 되돌아온 글을 놓쳤다(11-22 계정 전환 실제 시험 10번이 가끔 실패)
     if (!limitStopped(scr, null) && !LIMIT_WAITING.test(scr) && screenBusy(scr)) return;
     readNew(false);
     const errId = conv.lastAnswerId();
-    const lim = modelLimit(conv.lastAnswerError());
+    const err = conv.lastAnswerError();
+    const lim = modelLimit(err);
+    // 전체 한도(모든 모델)에 걸려 멈춤 → 계정 카드(사용자 결정 11-24: '그대로'를 골랐어도 꽉 차 멈추면 다시 묻기)
+    if (!lim && limitStopped(null, err) && errId && accountAskedFor !== errId && !limitAsk && !approvals.size && !questions.size) {
+      let p = null;
+      try {
+        p = claudeProc();
+      } catch {
+        p = null;
+      }
+      const t = p ? accountTotal(p.account) : null;
+      if (p && totalLimitStopped(err, scr, t.util) && hasToken(targetOf(p))) {
+        accountAskedFor = errId;
+        void openAccountAsk(p, { util: t.util, reset: t.reset, limitHit: true });
+      }
+      return;
+    }
     let proc = null;
     try {
       proc = lim ? claudeProc() : null;
@@ -2557,14 +2947,15 @@ export function runFeed(pane) {
     const stopped = !!lim && (onScreen || (doneScreen() && (!proc || accountUsage(proc.account, modelNow(proc)) >= THRESHOLD)));
     if (limitAsk && (!stopped || limitAsk.errId !== errId)) limitAskDone();   // 맥에서 먼저 풀었거나 새 글이 들어감
     if (!stopped || limitAsk || limitAskedFor === errId || approvals.size || questions.size) return;
-    if (proc && desiredAccount(proc.cwd || process.cwd(), modelNow(proc), accountPin()) !== proc.account) return;   // 계정 전환이 맡음
+    if (proc && desiredAccount(proc.cwd || process.cwd(), accountPin(), accountAway()) !== proc.account) return;   // 계정 전환이 맡음
     limitAskedFor = errId;
     screenAskDone();
     // 풀리는 때는 공유 사용량 파일의 정확한 값(Claude Code 글은 24시간 안이면 '4pm' 처럼 시각만 적음), 없으면 그 글에서 계산
     const resetAt = (proc && limitResetAt(proc.account, lim.family)) || resetFromText(lim.reset);
-    const otherResetAt = proc ? limitResetAt(proc.account === "work" ? "personal" : "work", lim.family) : null;
+    const otherAccount = proc ? switchTarget(proc.account, baseAccount(proc.cwd || process.cwd(), accountPin())) : "";
+    const otherResetAt = otherAccount ? limitResetAt(otherAccount, lim.family) : null;
     const effort = String(tmux("show-options", "-w", "-v", "-t", pane, "@ai_thinking") ?? "").trim();
-    const card = limitCard(lim, { waiting: LIMIT_WAITING.test(scr), resetAt, account: proc?.account ?? "", otherResetAt, effort });
+    const card = limitCard(lim, { waiting: LIMIT_WAITING.test(scr), resetAt, account: proc?.account ?? "", otherAccount, otherResetAt, effort });
     const id = `cc-l-${Date.now()}`;
     limitAsk = { id, errId, lim, item: { id, question: card.question, options: [], multiSelect: false, since: Date.now(), items: card.items } };
     broadcast({ t: "question", question: limitAsk.item });
@@ -2645,7 +3036,7 @@ export function runFeed(pane) {
   let failedRev = "";
   let failedAt = 0;
   setInterval(() => {
-    if (handingOver || switching || working || compactSince || approvals.size || questions.size || screenAsk || conv.queue().length) return;
+    if (handingOver || switching || working || compactSince || approvals.size || questions.size || screenAsk || accountAsk || conv.queue().length) return;
     if (Date.now() - lastActivity < REV_IDLE_MS) return;
     const now = codeRev();
     if (!now || now === CODE_REV) return;
@@ -2653,6 +3044,8 @@ export function runFeed(pane) {
     handingOver = true;
     const env = { ...process.env };
     delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    delete env.PI_CLAUDE_ACCOUNT;
+    delete env.CLAUDE_CONFIG_DIR;
     try {
       spawn(process.execPath, [SELF_PATH, pane], { detached: true, stdio: "ignore", env }).unref();
     } catch {

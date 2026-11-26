@@ -18,7 +18,8 @@ fi
 
 if [ "${1:-}" != "--remove" ]; then
   mkdir -p "$DEST"
-  cp "$HERE/claude-feed.mjs" "$HERE/pi-remote-hook.mjs" "$HERE/claude-account.mjs" "$HERE/bg-launch.mjs" "$HERE/sudo-check.mjs" "$HERE/sudo-run.mjs" "$HERE/claude-as.sh" "$DEST/"
+  cp "$HERE/claude-feed.mjs" "$HERE/pi-remote-hook.mjs" "$HERE/claude-account.mjs" "$HERE/artifact-relay.mjs" "$HERE/bg-launch.mjs" "$HERE/sudo-check.mjs" "$HERE/sudo-run.mjs" "$HERE/claude-as.sh" \
+    "$HERE/password-run.mjs" "$HERE/password-tab.sh" "$HERE/secret-clip.js" "$HERE/login-dir.mjs" "$DEST/"
   # 계정을 바꿔 다시 켤 때 연결부가 셸에 치는 실행 파일(정한 계정으로 claude 를 켬)
   chmod +x "$DEST/claude-as.sh"
   # 관리자 권한(sudo) 탭 화면과 판정 함수는 pi 확장과 같은 것을 씀
@@ -26,6 +27,9 @@ if [ "${1:-}" != "--remove" ]; then
   # 셸 함수 claude() 가 켤 때 부르는 계정 고르기(노드 경로를 박아 둠: 셸의 node 는 nvm 을 늦게 불러와 0.8초 걸림)
   printf '#!/bin/sh\nexec "%s" "%s/claude-account.mjs" "$@"\n' "$NODE" "$DEST" > "$DEST/claude-account"
   chmod +x "$DEST/claude-account"
+  # 추가 계정을 직접 로그인으로 쓰는 설정 폴더 도구(claude-as.sh 가 켤 때마다 바로가기를 맞추려고 부른다. 같은 까닭으로 노드 경로를 박아 둠)
+  printf '#!/bin/sh\nexec "%s" "%s/login-dir.mjs" "$@"\n' "$NODE" "$DEST" > "$DEST/login-dir"
+  chmod +x "$DEST/login-dir"
   # 백그라운드 탭 명령: '/bgtab <할 일>' 은 훅(pi-remote-hook.mjs)이 가로채 새 탭을 엶. 이 파일은 명령 이름·설명용
   # (훅이 없으면 아래 글이 AI 에 가서 열지 못했다고만 알림)
   mkdir -p "$HOME/.claude/commands"
@@ -36,15 +40,15 @@ argument-hint: <할 일>
 ---
 The /bgtab hook (pi-remote) did not run, so no background tab was opened. Tell the user in one short Korean sentence that the background tab could not be started, and do nothing else.
 MDEOF
-  echo "설치: $DEST/{claude-feed.mjs,pi-remote-hook.mjs,claude-account.mjs,bg-launch.mjs,sudo-check.mjs,sudo-run.mjs,claude-as.sh,sudo-tab.sh}, ~/.claude/commands/bgtab.md"
+  echo "설치: $DEST/{claude-feed.mjs,pi-remote-hook.mjs,claude-account.mjs,artifact-relay.mjs,bg-launch.mjs,sudo-check.mjs,sudo-run.mjs,claude-as.sh,password-run.mjs,password-tab.sh,secret-clip.js,sudo-tab.sh}, ~/.claude/commands/bgtab.md"
 else
   rm -f "$HOME/.claude/commands/bgtab.md"
 fi
 cp "$SETTINGS" "$SETTINGS.bak-pi-remote" && chmod 600 "$SETTINGS.bak-pi-remote"
 
-/usr/bin/python3 - "$SETTINGS" "$NODE" "$DEST/pi-remote-hook.mjs" "${1:-}" <<'PYEOF'
+/usr/bin/python3 - "$SETTINGS" "$NODE" "$DEST/pi-remote-hook.mjs" "${1:-}" "$DEST/artifact-relay.mjs" <<'PYEOF'
 import json, sys
-path, node, hook, mode = sys.argv[1:5]
+path, node, hook, mode, relay = sys.argv[1:6]
 s = json.load(open(path))
 hooks = s.setdefault("hooks", {})
 cmd = f'"{node}" "{hook}"'
@@ -63,6 +67,15 @@ for ev in EVENTS:
         changed += 1
     if not groups:
         del hooks[ev]
+# 아티팩트는 폴더 기준 계정에(artifact-relay.mjs): 지금 계정이 폴더 계정과 다르면 폴더 계정으로 대신 실행. 대신 실행이 몇 초~수십 초라 시간을 넉넉히
+pre = hooks.setdefault("PreToolUse", [])
+for g in pre:
+    g["hooks"] = [h for h in g.get("hooks", []) if "artifact-relay.mjs" not in h.get("command", "")]
+pre[:] = [g for g in pre if g.get("hooks")]
+if mode != "--remove":
+    pre.append({"matcher": "Artifact|ArtifactComments|ArtifactData", "hooks": [{"type": "command", "command": f'"{node}" "{relay}"', "timeout": 300}]})
+if not pre:
+    del hooks["PreToolUse"]
 json.dump(s, open(path, "w"), ensure_ascii=False, indent=2)
 open(path, "a").write("\n")
 print(("뺌" if mode == "--remove" else "훅 설정") + f": {', '.join(EVENTS)}")

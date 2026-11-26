@@ -114,7 +114,8 @@ const labels = (q) => (q?.options ?? []).map((o) => o.label).join(", ");
 let n = ev.length;
 await say("/export");
 let q = await card(n);
-ok(q?.kind === "select" && labels(q) === "1. Copy to clipboard, 2. Save to file, 취소 (Esc)" && q.question.startsWith("맥 화면: 대화 내보내기"), `/export 창 → 폰 카드(${labels(q)})`);
+// 2.1.331 부터 번호 없는 목록(↑/↓·Enter 로 고름). 예전 판은 번호 목록
+ok(q?.kind === "select" && ["Copy to clipboard, Save to file, 취소 (Esc)", "1. Copy to clipboard, 2. Save to file, 취소 (Esc)"].includes(labels(q)) && q.question.startsWith("맥 화면: 대화 내보내기"), `/export 창 → 폰 카드(${labels(q)})`);
 ok(await waitFor(() => alerts() === 1, 5000), `카드와 함께 알림 하나(${alerts()}개)`);
 cancel(q);
 ok(await done(q?.id, 3000), "폰 '취소' → 카드 닫힘");

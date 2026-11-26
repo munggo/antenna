@@ -72,5 +72,39 @@ eq(limitStopped("❯ \n────\n  ⏵⏵ auto mode on", "Claude usage limit
 eq(limitStopped(" Do you want to proceed?\n ❯ 1. Yes\n   2. No\n Esc to cancel", null), false, "다른 확인 창은 아님");
 eq(limitStopped("❯ \n────", "API Error: 500 Internal server error"), false, "다른 API 오류는 아님");
 eq(limitStopped("⏺ # 인수인계\n지금까지 한 일…", null), false, "보통 답");
+
+// 95%를 넘어 묻는 계정 카드(사용자 결정 11-24): 첫 선택지 그대로(멈춤이면 기다리기), 둘째 바꾸기
+{
+  const { accountCard, resetText } = await import(new URL("../claude-feed.mjs", import.meta.url).pathname);
+  const at = Math.floor(new Date(2026, 10, 30, 16, 0).getTime() / 1000);
+  const a = accountCard({ cur: "personal", other: "work", util: 0.963, reset: at, otherUtil: 0.82 });
+  eq(a.question, `개인 계정 사용량이 96%예요(전체 한도 · ${resetText(at)} 초기화). 하던 일을 멈췄어요. 어떻게 할까요?`, "95% 카드 질문(사용률·초기화 때)");
+  eq(a.options.map((o) => o.label), ["개인 계정 그대로", "회사 계정으로 바꾸기"], "95% 카드 선택지");
+  eq(/회사 계정은 82% 썼어요/.test(a.options[1].description) && /개인 계정 한도가 풀리면 저절로 돌아와요/.test(a.options[1].description), true, "바꾸기 설명: 바꿀 계정 사용량, 돌아옴");
+  const b = accountCard({ cur: "work", other: "personal", util: 0.97, otherUtil: 0.5, otherIsBase: true });
+  eq(b.question, "회사 계정 사용량이 97%예요(전체 한도). 하던 일을 멈췄어요. 어떻게 할까요?", "초기화 때를 모르면 빼고 씀");
+  eq(/원래 계정으로 돌아가요/.test(b.options[1].description), true, "바꿀 계정이 돌아올 곳이면 '원래 계정으로'");
+  const c = accountCard({ cur: "personal", other: "work", util: 1, reset: at, otherUtil: 0.3, limitHit: true });
+  eq(c.question, `개인 계정이 사용 한도에 걸려 멈췄어요. ${resetText(at)}에 풀려요. 어떻게 할까요?`, "꽉 차 멈춤 카드 질문");
+  eq(c.options.map((o) => o.label), ["기다리기", "회사 계정으로 바꾸기"], "꽉 차 멈춤 카드 선택지");
+  // 계정 셋(11-25): 개인 → 추가 개인, 추가 개인에서는 원래 개인으로
+  const p2 = accountCard({ cur: "personal", other: "personal2", util: 0.96, otherUtil: 0 });
+  eq(p2.options.map((o) => o.label), ["개인 계정 그대로", "추가 개인 계정으로 바꾸기"], "개인 95% 카드: 바꿀 곳은 추가 개인");
+  eq(/추가 개인 계정은 0% 썼어요/.test(p2.options[1].description) && /개인 계정 한도가 풀리면 저절로 돌아와요/.test(p2.options[1].description), true, "추가 개인 사용량과 돌아옴 설명");
+  const back = accountCard({ cur: "personal2", other: "personal", util: 0.97, otherUtil: 0.99, otherIsBase: true });
+  eq(back.question.startsWith("추가 개인 계정 사용량이 97%예요") && back.options[1].label === "개인 계정으로 바꾸기" && /원래 계정으로 돌아가요/.test(back.options[1].description), true, "추가 개인 95% 카드: 원래 개인으로 돌아가기");
+  // 전체 한도에 걸려 멈춤(꽉 참) → 계정 카드를 다시 열지
+  const { totalLimitStopped } = await import(new URL("../claude-feed.mjs", import.meta.url).pathname);
+  const idle = "⏺ 답\n\n────────────────────────\n❯ \n────────────────────────\n  ⏵⏵ auto mode on";
+  const dialog = " What do you want to do?\n ❯ 1. Stop and wait for limit to reset\n   2. Wait here, then continue automatically\n Esc to cancel";
+  const ERR = "You've hit your limit · resets 4pm (Asia/Seoul)";
+  eq(totalLimitStopped(ERR, dialog, 0), true, "한도 오류 + 한도 창 → 멈춤(사용량 기록과 상관없이)");
+  eq(totalLimitStopped(ERR, idle, 1), true, "한도 오류 + 쉬는 화면 + 아직 100% → 멈춤");
+  eq(totalLimitStopped(ERR, idle, 0.5), false, "쉬는 화면인데 한도가 이미 풀림 → 지난 오류(다시 묻지 않음)");
+  eq(totalLimitStopped("You've hit your fable limit · resets 4pm", dialog, 1), false, "모델 전용 한도는 모델 한도 카드가 맡음");
+  eq(totalLimitStopped(null, dialog, 1), false, "오류 답이 없으면 아님");
+  eq(totalLimitStopped("API Error: 500 Internal server error", idle, 1), false, "다른 오류는 아님");
+  eq(totalLimitStopped(ERR, "⏺ 쓰는 중…\n✻ Working… (esc to interrupt)", 1), false, "일하는 중이면 아님");
+}
 console.log(`전체 ${total}개 중 틀림 ${fail}개`);
 process.exit(fail ? 1 : 0);

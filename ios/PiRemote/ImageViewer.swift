@@ -79,13 +79,25 @@ struct ImageViewer: View {
                               onDismissProgress: { dragProgress = $0 },
                               onDismiss: { dismiss() })
                     .accessibilityIdentifier("imageViewer")
+            } else if let why = thumbs.errors[path] {
+                // 답 속 경로를 눌러 연 맥의 그림을 받지 못함(없는 파일 등)
+                VStack(spacing: 10) {
+                    Image(systemName: "photo").font(.system(size: 36)).foregroundColor(.white.opacity(0.6))
+                    Text(why).font(.system(size: 15)).foregroundColor(.white).multilineTextAlignment(.center)
+                    Text(path).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.6))
+                        .multilineTextAlignment(.center).lineLimit(3)
+                }
+                .padding(.horizontal, 32)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("imageViewerError")
             } else {
                 ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .ignoresSafeArea()
-        // pi 가 읽은 사진은 큰 그림이 원본 대신(넘겨서 처음 보는 사진도 받아 오게)
-        .onAppear { thumbs.request(path, path.hasPrefix("toolimg-") ? .large : .full) }
+        // pi 가 읽은 사진은 큰 그림이 원본 대신(넘겨서 처음 보는 사진도 받아 오게).
+        // 답 속 경로로 연 맥의 그림은 열 때마다 새로 받는다(같은 경로에 다시 만들어질 수 있음)
+        .onAppear { thumbs.request(path, path.hasPrefix("toolimg-") ? .large : .full, fresh: ThumbStore.isMacFile(path)) }
     }
 }
 

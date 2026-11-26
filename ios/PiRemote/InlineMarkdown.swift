@@ -10,7 +10,54 @@ enum InlineMarkdown {
             interpretedSyntax: .inlineOnlyPreservingWhitespace,
             failurePolicy: .returnPartiallyParsedIfPossible
         )
-        return (try? AttributedString(markdown: escapeLoneTildes(s), options: opts)) ?? AttributedString(s)
+        var attr = (try? AttributedString(markdown: escapeLoneTildes(s), options: opts)) ?? AttributedString(s)
+        linkImagePaths(&attr)
+        return attr
+    }
+
+    // ── 맥의 그림 파일 경로 → 누르면 앱에서 그 그림을 보는 링크(11-25 사용자 요청: 답에 '그림은 맥에 저장했습니다. /Users/…/qr.png') ──
+    /// 링크 주소의 앞부분. 뒤에 퍼센트 인코딩한 경로를 붙인다. 채팅 화면이 이 주소를 받아 그림 보기를 연다
+    static let imageScheme = "antenna-image"
+    private static let imageExt = "(?:png|jpe?g|gif|heic|heif|webp|bmp|tiff?)"
+    /// 코드 글자 하나가 통째로 경로인 것(띄어쓰기가 있어도 됨: 백틱이 끝을 정해 줌)
+    private static let wholePath = try! NSRegularExpression(pattern: "^(?:~/|/)(?!/)[^\\n`]*\\.\(imageExt)$", options: .caseInsensitive)
+    /// 꾸밈 없는 글 속의 경로(띄어쓰기 없음). 앞이 글자·숫자·/·: 면 주소나 낱말의 일부라 보지 않고,
+    /// 뒤에 붙은 한글 조사·마침표는 뺀다('…/a.png를', '…/a.png.'). '…/a.png.bak' 처럼 확장자가 이어지면 그림이 아니다
+    private static let barePath = try! NSRegularExpression(
+        pattern: "(?<![\\p{L}\\p{N}/_.~:\\-])(?:~/|/)(?!/)[^\\s`'\"<>()\\[\\]{}]*?\\.\(imageExt)(?![A-Za-z0-9_]|\\.[A-Za-z0-9])",
+        options: .caseInsensitive)
+
+    static func imageURL(_ path: String) -> URL? {
+        guard let enc = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return URL(string: "\(imageScheme):\(enc)")
+    }
+
+    /// 그림 링크 주소 → 맥의 경로(그림 링크가 아니면 nil)
+    static func imagePath(_ url: URL) -> String? {
+        guard url.scheme == imageScheme else { return nil }
+        return String(url.absoluteString.dropFirst(imageScheme.count + 1)).removingPercentEncoding
+    }
+
+    /// 이미 링크인 곳은 그대로 두고, 그림 경로에 그림 링크를 단다
+    static func linkImagePaths(_ attr: inout AttributedString) {
+        var found: [(Range<AttributedString.Index>, String)] = []
+        for run in attr.runs where run.link == nil {
+            let text = String(attr[run.range].characters)
+            let full = NSRange(location: 0, length: (text as NSString).length)
+            if run.inlinePresentationIntent?.contains(.code) == true {
+                if wholePath.firstMatch(in: text, range: full) != nil { found.append((run.range, text)) }
+                continue
+            }
+            for m in barePath.matches(in: text, range: full) {
+                guard let r = Range(m.range, in: text) else { continue }
+                let lo = attr.characters.index(run.range.lowerBound, offsetBy: text.distance(from: text.startIndex, to: r.lowerBound))
+                let hi = attr.characters.index(lo, offsetBy: text.distance(from: r.lowerBound, to: r.upperBound))
+                found.append((lo..<hi, String(text[r])))
+            }
+        }
+        for (range, path) in found {
+            if let url = imageURL(path) { attr[range].link = url }
+        }
     }
 
     /// 물결표 하나짜리는 취소선으로 보지 않게 `\~` 로 가린다. `~~두 개~~` 는 그대로 취소선.

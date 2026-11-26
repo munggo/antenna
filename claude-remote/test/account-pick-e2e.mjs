@@ -1,5 +1,5 @@
-// 앱에서 Claude Code 탭의 계정 고르기 실제 시험(사용자 결정 11-18: 탭마다 고르기 · 일하는 중이면 끝나면 바꾸기 ·
-// 직접 고른 계정도 한도 95% 면 자동으로 넘기고 알림). 시험 tmux 세션(pitest)의 셸에서 Claude Code(Haiku)를 켜고,
+// 앱에서 Claude Code 탭의 계정 고르기 실제 시험(사용자 결정 11-18: 탭마다 고르기 · 일하는 중이면 끝나면 바꾸기.
+// 11-24: 고른 계정도 한도 95% 면 자동으로 넘기지 않고 글을 보낼 때 묻기). 시험 tmux 세션(pitest)의 셸에서 Claude Code(Haiku)를 켜고,
 // 폰처럼 시험 브리지에 붙어 {type:"set-account"} 를 보낸다. 두 계정을 조금씩 쓴다. 토큰은 값을 읽지 않고 '있음/없음'만 봄.
 // 실행: node claude-remote/test/account-pick-e2e.mjs (포트 8799, 세션 pitest 를 만들고 끝나면 지움. 앱 화면 시험과 같이 돌리지 말 것)
 // 작성: 서문교
@@ -205,13 +205,21 @@ p = s3 ?? proc(1);
 await settle(1);
 await switchDone();
 
-// 4) 고른 개인 계정이 97% → 일이 없어도 회사로 넘기고 폰 알림(고른 것과 달라졌으니)
+// 4) 고른 개인 계정이 97%: 저절로 넘기지 않음(사용자 결정 11-24). 글을 보내면 멈추고 묻고(폰 알림), 바꾸기를 고르면 회사로
 const e4 = since();
 setPersonal(0.97);
+await sleep(10000);
+ok(proc(1)?.pid === p?.pid && !e4().some((e) => e.t === "question"), "4) 쉬는 동안은 97% 여도 그대로(묻지도 않음)");
+tm("send-keys", "-t", `${S}:1`, "-l", "Write a 400-word story about a fisherman named Bada. Do not use any tools.");
+await sleep(600);
+tm("send-keys", "-t", `${S}:1`, "Enter");
+const q4 = await waitFor(() => e4().find((e) => e.t === "question" && /^cc-a-/.test(e.question?.id ?? ""))?.question, 30000);
+ok(q4 && /^개인 계정 사용량이 97%예요/.test(q4.question), "4) 글을 보내자 멈추고 물음");
+ok(await waitFor(() => /알림\(시험·안 보냄\) choice/.test(readFileSync(BOUT, "utf8")), 10000), "4) 폰 알림(골라 주세요)");
+if (q4) ws.send(JSON.stringify({ type: "question-answer", id: q4.id, answers: [q4.options[1].label], other: "" }));
 const s4 = await waitFor(() => { const q = proc(1); return q && q.work && q.pid !== p.pid ? q : null; }, 180000);
-ok(Boolean(s4), "4) 고른 개인 계정 97% → 회사 계정으로 다시 켜짐");
-ok(await waitFor(() => notice(e4, /고른 개인 계정 사용량이 95%를 넘어 회사 계정으로 다시 켰어요/), 30000), "4) 폰에 안내(고른 계정이 한도를 넘어)");
-ok(await waitFor(() => /알림\(시험·안 보냄\) account/.test(readFileSync(BOUT, "utf8")), 10000), "4) 폰 알림(계정을 바꿨어요)");
+ok(Boolean(s4), "4) 바꾸기 → 회사 계정으로 다시 켜짐");
+ok(await waitFor(() => notice(e4, /고른 대로 회사 계정으로 다시 켰어요/), 30000), "4) 폰에 안내(고른 대로 다시 켬)");
 ok(acc()?.pin === "personal", "4) 고른 값은 그대로(한도가 풀리면 돌아올 곳)");
 p = s4 ?? proc(1);
 await settle(1);
@@ -230,7 +238,7 @@ await switchDone();
 // 6) 자동으로 되돌림: 개인 폴더·개인 50% 라 지금 계정 그대로, 고른 값은 지움
 const e6 = since();
 pick("auto");
-ok(await waitFor(() => notice(e6, /다시 자동\(폴더·한도 기준\)으로 계정을 골라요/), 10000), "6) 폰에 안내(자동으로, 계정 그대로)");
+ok(await waitFor(() => notice(e6, /다시 자동\(폴더 기준\)으로 계정을 골라요/), 10000), "6) 폰에 안내(자동으로, 계정 그대로)");
 ok(opt("@ai_account_pin") === "" && await waitFor(() => acc()?.pin === "" && acc()?.now === "personal", 15000), "6) 고른 값이 지워짐");
 await sleep(8000);
 ok(proc(1)?.pid === p?.pid, "6) 다시 켜지 않음");

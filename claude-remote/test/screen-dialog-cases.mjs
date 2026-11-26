@@ -128,5 +128,31 @@ ok(dialogCard(screenDialog(nudgeNoBorder)).question.split("\n")[0] === "맥 화�
 ok(dialogCard(screenDialog(nudgeBlankAbove)).title === "보내지 않은 피드백 초안이 2개 있어요", "초안이 여럿(drafts)이어도 한글 제목");
 ok(screenDialog(approvalCol0).items.length === 2, "맨 앞 칸 '❯ 1.' 번호 항목도 선택지");
 
+// 번호 없는 고르기 창(11-24 사용자 보고: 아티팩트 지우기 확인 '❯ No / Yes' 가 폰 카드에 No·Yes 없이 Esc·Tab 만 나옴)
+const del = (focusYes = false, pad = "") => `● Artifact(delete "시험" · https://claude.ai/artifact/abc)\n  ⎿  Waiting…\n\n${LINE}\n${pad}Permanently delete "시험"?\n\n` +
+  `${pad}${focusYes ? "  No" : "❯ No"}\n${pad}${focusYes ? "❯ Yes" : "  Yes"}\n\n${pad}Esc to cancel · Tab to amend\n`;
+const D1 = screenDialog(del());
+ok(D1?.title === 'Permanently delete "시험"?' && D1.items.map((i) => i.label).join("|") === "No|Yes" && D1.cursor === 0, `번호 없는 선택지 No·Yes 를 읽음(${D1?.items.map((i) => i.label).join("|")}, 지금 줄 ${D1?.cursor})`);
+const C1 = dialogCard(D1);
+ok(labelsOf(del()) === "아니요 (No), 예 (Yes), 취소 (Esc), amend (Tab)", `카드 선택지: 아니요·예 다음에 키 안내(${labelsOf(del())})`);
+ok(JSON.stringify(C1.press.get("아니요 (No)")) === '[{"key":"Enter"}]' && JSON.stringify(C1.press.get("예 (Yes)")) === '[{"key":"Down"},{"key":"Enter"}]', "누를 키: 지금 줄은 Enter, 아래 줄은 ↓ 다음 Enter");
+ok(/맥에서 지금 고른 줄/.test(C1.options[0].description) && !/맥에서 지금 고른 줄/.test(C1.options[1].description), "지금 맥에서 고른 줄을 설명에 표시");
+const D2 = screenDialog(del(true, " "));
+ok(D2?.cursor === 1 && JSON.stringify(dialogCard(D2).press.get("아니요 (No)")) === '[{"key":"Up"},{"key":"Enter"}]', "맥에서 Yes 로 옮겨 둔 창(한 칸 들여 씀): No 는 ↑ 다음 Enter");
+ok(D1.sig !== D2.sig, "고른 줄이 다르면 다른 창(옮긴 뒤 옛 카드의 키를 누르지 않게)");
+ok(screenDialog(list()).items.length === 0 && screenDialog(review).items.length === 0, "Enter 동작이 따로 있는 창(초안 목록·검토)은 예전처럼 키 안내로만");
+// Claude Code 2.1.331 의 /export: 번호 없이 '❯ Copy to clipboard', 키 안내 '↑/↓ to navigate · Enter to select · Esc to cancel'(11-24 캡처)
+const export331 = (down = false) => ` ▐▛███▛█   Claude Code v2.1.331\n\n❯ /export\n\n${LINE}\n  Export conversation\n\n` +
+  `  ${down ? "  " : "❯ "}Copy to clipboard  Copy the conversation to your system clipboard\n  ${down ? "❯ " : "  "}Save to file       Save the conversation to a file in the current directory\n` +
+  "  ↑/↓ to navigate · Enter to select · Esc to cancel\n";
+const X = screenDialog(export331());
+ok(X?.items.map((i) => i.label).join("|") === "Copy to clipboard|Save to file" && X.items[1].desc === "Save the conversation to a file in the current directory" && X.cursor === 0, `2.1.331 /export: 번호 없는 선택지(${X?.items.map((i) => i.label).join("|")})`);
+ok(labelsOf(export331()) === "Copy to clipboard, Save to file, 취소 (Esc)", `2.1.331 /export 카드: 옮기기·고르기 안내는 빼고 선택지와 취소(${labelsOf(export331())})`);
+ok(JSON.stringify(dialogCard(screenDialog(export331(true))).press.get("Copy to clipboard")) === '[{"key":"Up"},{"key":"Enter"}]', "아래 줄로 옮겨 둔 창에서 위 선택지: ↑ 다음 Enter");
+const export331n = `${blank(3)}${"▔".repeat(40)}\n   Export conversation\n   ❯ Copy to clipboard  Copy the\n                        conversation to your\n                        system clipboard\n` +
+  "     Save to file       Save the\n                        conversation to a\n                        file\n   ↑/↓ to navigate · Enter to\n   select · Esc to cancel\n";
+const XN = screenDialog(export331n);
+ok(XN?.items.length === 2 && XN.items[0].desc === "Copy the conversation to your system clipboard" && XN.items[1].label === "Save to file", `50칸 접힌 설명도 한 선택지로(${XN?.items.map((i) => `${i.label}: ${i.desc}`).join(" / ")})`);
+
 console.log(`전체 ${total}개 중 틀림 ${bad}개`);
 process.exit(bad ? 1 : 0);

@@ -143,6 +143,36 @@ enum InlineMarkdownTest {
         same("코드와 주소 안은 그대로", InlineMarkdown.escapeLoneTildes("`~/a` https://e.com/~b 와 ~c"), "`~/a` https://e.com/~b 와 \\~c")
         same("한글·그림 글자는 그대로", InlineMarkdown.escapeLoneTildes("가~나 😀~👍🏽 다"), "가\\~나 😀\\~👍🏽 다")
 
+        // ── 맥의 그림 경로는 누르면 앱에서 보는 링크(11-25) ──
+        /// 그림 링크로 바뀐 경로들(나온 순서)과, 그림 링크가 아닌 링크들
+        func pics(_ s: String) -> (paths: [String], others: [String]) {
+            let attr = InlineMarkdown.parse(s)
+            var paths: [String] = [], others: [String] = []
+            var last = ""
+            for run in attr.runs {
+                guard let url = run.link, url.absoluteString != last else { continue }
+                last = url.absoluteString
+                if let p = InlineMarkdown.imagePath(url) { paths.append(p) } else { others.append(url.absoluteString) }
+            }
+            return (paths, others)
+        }
+        let hanti = "/Users/me/Downloads/한티 마스터 01.png"
+        same("코드 글자로 쓴 경로(띄어쓰기·한글)", pics("QR 그림은 맥에 저장했습니다. `\(hanti)`").paths.joined(separator: "|"), hanti)
+        check("코드 글자의 경로도 보이는 글자와 코드 꾸밈은 그대로", "저장 `\(hanti)`", text: "저장 \(hanti)", code: [hanti])
+        same("띄어 쓴 맨 경로", pics("저장: /Users/me/out/chart.png 를 보세요").paths.joined(separator: "|"), "/Users/me/out/chart.png")
+        same("조사가 붙은 맨 경로는 조사를 뺌", pics("/Users/me/out/chart.png를 열어").paths.joined(separator: "|"), "/Users/me/out/chart.png")
+        same("홈 경로·대문자 확장자·끝 마침표", pics("만들었습니다 ~/Desktop/qr.PNG.").paths.joined(separator: "|"), "~/Desktop/qr.PNG")
+        same("맨 경로 둘", pics("/a/1.png 와 /b/2.jpeg 둘").paths.joined(separator: "|"), "/a/1.png|/b/2.jpeg")
+        same("그림이 아닌 파일은 그대로", pics("`/Users/me/a.txt` 와 /Users/me/b.pdf").paths.joined(separator: "|"), "")
+        same("확장자가 이어지면 그림이 아님", pics("/tmp/a.png.bak 남김").paths.joined(separator: "|"), "")
+        same("상대 경로는 그대로", pics("out/a.png 와 ./b.png").paths.joined(separator: "|"), "")
+        same("명령이 든 코드 글자는 그대로", pics("`open /tmp/a.png`").paths.joined(separator: "|"), "")
+        let web = pics("https://example.com/a.png 를 보면")
+        same("웹 주소의 그림은 웹 링크 그대로", "\(web.paths)|\(web.others)", "[]|[\"https://example.com/a.png\"]")
+        let given = pics("[그림](/tmp/a.png) 뒤")
+        same("이미 링크로 쓴 것은 그대로", "\(given.paths)|\(given.others)", "[]|[\"/tmp/a.png\"]")
+        same("링크 주소에서 경로를 그대로 되찾음", InlineMarkdown.imageURL(hanti).flatMap { InlineMarkdown.imagePath($0) } ?? "(없음)", hanti)
+
         print(failed == 0 ? "모두 통과: \(passed)가지" : "실패 \(failed)가지 / 통과 \(passed)가지")
         exit(failed == 0 ? 0 : 1)
     }

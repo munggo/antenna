@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import UIKit
 
@@ -65,8 +66,29 @@ final class ThumbStore: ObservableObject {
         return d
     }()
 
+    /// 맥의 일반 그림 파일인지(답 속 경로를 눌러 본 것, 11-25). 폰에서 올린 사진(…/.cache/pi-remote/img-숫자)·도구가 읽은 사진(toolimg-)이 아닌 것
+    static func isMacFile(_ path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent
+        if name.hasPrefix("toolimg-") { return false }
+        let uploaded = name.range(of: #"^img-\d+\.(?:jpe?g|png)$"#, options: [.regularExpression, .caseInsensitive]) != nil
+        // 맥 연결부(server/bridge.mjs 의 makeThumb)와 같은 가름: 폴더 없이 이름만이거나 사진 폴더(…/.cache/pi-remote)에 있으면 올린 사진
+        return !(uploaded && (!path.contains("/") || (path as NSString).deletingLastPathComponent.hasSuffix("/.cache/pi-remote")))
+    }
+
     private func key(_ path: String, _ size: Size) -> String {
-        "\((path as NSString).lastPathComponent)|\(size.rawValue)"
+        // 맥의 일반 그림은 폴더가 달라도 이름이 같을 수 있어 경로 전체로 가른다
+        guard Self.isMacFile(path) else { return "\((path as NSString).lastPathComponent)|\(size.rawValue)" }
+        let digest = SHA256.hash(data: Data(path.utf8)).prefix(10).map { String(format: "%02x", $0) }.joined()
+        return "mac-\(digest)|\(size.rawValue)"
+    }
+
+    /// 맥이 그림을 주지 못한 까닭(키: 경로). 전체 화면 보기가 '받는 중' 대신 이 글을 보인다
+    @Published private(set) var errors: [String: String] = [:]
+
+    /// 맥이 그림을 주지 못함(없는 파일·그림이 아님 등) → 까닭을 남기고 다시 요청할 수 있게
+    func fail(_ path: String, _ size: Size, _ why: String) {
+        requested.remove(key(path, size))
+        errors[path] = why
     }
 
     private func file(_ key: String) -> URL {
@@ -91,10 +113,17 @@ final class ThumbStore: ObservableObject {
         return FileManager.default.fileExists(atPath: u.path) ? u : nil
     }
 
-    /// 화면에 처음 보일 때 호출: 기기에 없으면 맥에 한 번만 요청
-    func request(_ path: String, _ size: Size) {
+    /// 화면에 처음 보일 때 호출: 기기에 없으면 맥에 한 번만 요청.
+    /// fresh 면 받아 둔 것이 있어도 다시 받는다(맥의 일반 그림은 같은 경로에 다시 만들어질 수 있어서. 받는 동안은 받아 둔 것을 보임)
+    func request(_ path: String, _ size: Size, fresh: Bool = false) {
         let k = key(path, size)
-        guard images[k] == nil, !FileManager.default.fileExists(atPath: file(k).path), !requested.contains(k) else { return }
+        if fresh {
+            requested.remove(k)
+            errors[path] = nil
+        } else {
+            guard images[k] == nil, !FileManager.default.fileExists(atPath: file(k).path) else { return }
+        }
+        guard !requested.contains(k) else { return }
         requested.insert(k)
         fetch?(path, size)
     }
@@ -104,6 +133,7 @@ final class ThumbStore: ObservableObject {
         let k = key(path, size)
         try? data.write(to: file(k), options: .atomic)
         if let img = UIImage(data: data) { images[k] = img }
+        errors[path] = nil
     }
 
     /// 요청 실패(연결 끊김 등) → 나중에 다시 요청할 수 있게

@@ -69,6 +69,8 @@ export function recordUsage(data) {
 
 // --- 회사 계정(claude-accounts): 사용량 API 권한이 없어 응답 헤더로 모인 값(공유 파일)을 갱신될 때만 쌓음 ---
 const WORK_HISTORY = `${DIR}/usage-history-work.jsonl`;
+// 토큰으로 쓰는 계정(사용량 API 를 못 씀)마다 공유 파일 값을 쌓는 기록: 회사, 추가 개인(11-25)
+const HISTORY_FILES = { "anthropic-work": WORK_HISTORY, "anthropic-personal2": `${DIR}/usage-history-personal2.jsonl` };
 const WORK_SUMMARY = `${DIR}/usage-summary-work.json`;   // 터미널 하단 줄의 회사 계정 막대그래프용
 const ACCOUNTS_FILE = process.env.PI_ACCOUNTS_CACHE || `${process.env.HOME}/.cache/pi-remote/claude-accounts.json`;
 
@@ -238,33 +240,35 @@ export const MIXED_TEXT = {
   },
 };
 
-export function readWorkHistory(sinceMs = 0) {
+/** 그 계정(공유 파일 이름, 기본 회사)의 쌓인 기록 */
+export function readWorkHistory(sinceMs = 0, provider = "anthropic-work") {
   try {
-    return readFileSync(WORK_HISTORY, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((x) => x.t >= sinceMs);
+    return readFileSync(HISTORY_FILES[provider], "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((x) => x.t >= sinceMs);
   } catch {
     return [];
   }
 }
 
-/** 공유 파일의 회사 주간 값이 새로 갱신됐으면 기록(시각은 값이 갱신된 때). 요약 파일은 매번(날짜가 바뀌어도 막대가 맞게) */
-export function recordWorkUsage() {
+/** 공유 파일의 그 계정(기본 회사) 주간 값이 새로 갱신됐으면 기록(시각은 값이 갱신된 때). 회사는 요약 파일도 매번(날짜가 바뀌어도 막대가 맞게) */
+export function recordWorkUsage(provider = "anthropic-work") {
+  const file = HISTORY_FILES[provider];
   try {
-    const claims = JSON.parse(readFileSync(ACCOUNTS_FILE, "utf8"))["anthropic-work"] ?? {};
+    const claims = JSON.parse(readFileSync(ACCOUNTS_FILE, "utf8"))[provider] ?? {};
     const w = claims["7d"];
-    const all = readWorkHistory(0);
-    if (w && typeof w.util === "number" && w.at && !(all.length && all[all.length - 1].t >= w.at)) {
+    const all = readWorkHistory(0, provider);
+    if (file && w && typeof w.util === "number" && w.at && !(all.length && all[all.length - 1].t >= w.at)) {
       const s = claims["5h"];
       const sample = { t: w.at, w: Math.round(w.util * 1000) / 10, wr: w.reset ? new Date(w.reset * 1000).toISOString() : null,
         s: s && typeof s.util === "number" ? Math.round(s.util * 1000) / 10 : null };
       mkdirSync(DIR, { recursive: true });
-      appendFileSync(WORK_HISTORY, `${JSON.stringify(sample)}\n`);
+      appendFileSync(file, `${JSON.stringify(sample)}\n`);
       const kept = all.filter((x) => x.t >= Date.now() - USAGE_KEEP_MS);
-      if (all.length - kept.length > 144) writeFileSync(WORK_HISTORY, [...kept, sample].map((x) => JSON.stringify(x)).join("\n") + "\n");
+      if (all.length - kept.length > 144) writeFileSync(file, [...kept, sample].map((x) => JSON.stringify(x)).join("\n") + "\n");
     }
   } catch {
-    /* 회사 계정을 아직 안 씀 */
+    /* 그 계정을 아직 안 씀 */
   }
-  writeWorkSummary();
+  if (provider === "anthropic-work") writeWorkSummary();
 }
 
 /** 회사 계정 요약(터미널 하단 줄): 쓴 시각, 마지막 주간 값, 최근 7일 하루 사용량. 최근 8일 기록이 없으면 쓰지 않음 */
@@ -283,9 +287,9 @@ function writeWorkSummary(now = Date.now()) {
   }
 }
 
-/** 회사 계정 기록(앱용): 최근 8일 [시각, 세션%, 주간%], 하루 사용량, 마지막 갱신 시각 */
-export function workUsageForApp() {
-  const samples = readWorkHistory(Date.now() - 8 * 86400_000);
+/** 그 계정(기본 회사) 기록(앱용): 최근 8일 [시각, 세션%, 주간%], 하루 사용량, 마지막 갱신 시각 */
+export function workUsageForApp(provider = "anthropic-work") {
+  const samples = readWorkHistory(Date.now() - 8 * 86400_000, provider);
   const out = [];
   let last = 0;
   for (const x of samples) {

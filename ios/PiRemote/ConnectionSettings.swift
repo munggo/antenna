@@ -202,7 +202,9 @@ final class ConnectionSettings: ObservableObject {
         var seen = Set<String>()
         let all = (extra + hosts).filter { seen.insert($0).inserted }
         return all.compactMap { host in
-            request(host: host, path: "/", query: [URLQueryItem(name: "cols", value: String(cols)), URLQueryItem(name: "rows", value: String(rows))])
+            // chat=2: 탭마다 대화를 저장해 두는 앱(맥이 폰에 없는 메시지만 보냄, 11-25)
+            request(host: host, path: "/", query: [URLQueryItem(name: "cols", value: String(cols)), URLQueryItem(name: "rows", value: String(rows)),
+                                                    URLQueryItem(name: "chat", value: "2")])
         }
     }
 

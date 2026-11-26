@@ -120,7 +120,10 @@ ok(resetFromText("4pm", at(2026, 11, 22, 17, 44)) * 1000 === at(2026, 11, 23, 16
 ok(resetFromText("4pm", at(2026, 11, 22, 15, 0)) * 1000 === at(2026, 11, 22, 16) && resetFromText("4:30am", at(2026, 11, 22, 15, 0)) * 1000 === at(2026, 11, 23, 4, 30), "아직 안 지났으면 오늘, 분까지");
 ok(resetFromText("Nov 23 at 4pm", at(2026, 11, 21, 12)) * 1000 === at(2026, 11, 23, 16) && resetFromText("Jan 2 at 9am", at(2026, 12, 30, 12)) * 1000 === at(2027, 1, 2, 9), "날짜가 있으면 그 날(해를 넘기면 다음 해)");
 ok(resetFromText("soon") === null, "모르는 모양은 없음");
-const LC = limitCard({ family: "Fable", reset: "4pm" }, { waiting: true, resetAt: at(2026, 11, 23, 16) / 1000, account: "personal", otherResetAt: at(2026, 11, 26, 14) / 1000, effort: "xhigh" });
+const LC = limitCard({ family: "Fable", reset: "4pm" }, { waiting: true, resetAt: at(2026, 11, 23, 16) / 1000, account: "personal", otherAccount: "work", otherResetAt: at(2026, 11, 26, 14) / 1000, effort: "xhigh" });
+// 계정 셋(11-25): 바꿀 만한 계정(연결부가 넘김)이 추가 개인이면 그 이름으로
+const LC2 = limitCard({ family: "Fable", reset: "4pm" }, { resetAt: at(2026, 11, 23, 16) / 1000, account: "personal", otherAccount: "personal2", otherResetAt: at(2026, 11, 26, 14) / 1000 });
+ok(LC2.items[0].question.includes("추가 개인 계정도 Fable 한도라 11월 26일(목) 오후 2시에 풀려요"), `카드: 바꿀 계정이 추가 개인(${LC2.items[0].question})`);
 ok(LC.items.length === 2 && LC.items[0].options.map((o) => o.label).join(",") === "Opus,Sonnet,Haiku,기다리기", "카드 질문 1: 걸린 모델을 뺀 모델들과 기다리기");
 ok(LC.items[0].question.includes("개인 계정은 11월 23일(월) 오후 4시에 풀려요") && LC.items[0].question.includes("회사 계정도 Fable 한도라 11월 26일(목) 오후 2시에 풀려요"), `카드: 정확한 날짜와 두 계정(${LC.items[0].question})`);
 ok(/저절로 이어 해요/.test(LC.items[0].options[3].description) && LC.items[0].options[3].description.includes("11월 23일(월) 오후 4시"), "기다리기: 저절로 이어 가는 때");

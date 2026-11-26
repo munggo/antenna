@@ -19,15 +19,36 @@ struct ChatView: View {
     @State private var viewportHeight: CGFloat = 0
     @StateObject private var stepsPresenter = StepsPresenter()
     @StateObject private var foldEvents = FoldEvents()
+    /// '최신 대화 받는 중' 표시(저장해 둔 대화를 보여 주는 동안 0.5초가 넘게 걸릴 때만)
+    @State private var showRefreshing = false
 
     var body: some View {
-        let items = store.items
+        let all = store.items
+        // 긴 대화는 최근 것부터 그린다(탭을 바꿀 때마다 300개를 한꺼번에 그리느라 느렸음, 11-25). 위는 '이전 대화 더 보기'로
+        let hidden = store.firstShown < all.count ? store.firstShown : 0
+        let items = hidden > 0 ? Array(all[hidden...]) : all
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
                     // LazyVStack 은 맨 아래부터 시작할 때 높이 추정이 어긋나 빈 화면이 되는 문제가 있어
-                    // 미리 다 그리는 VStack 을 쓴다(받는 대화가 최대 400개라 부담이 작다).
+                    // 미리 다 그리는 VStack 을 쓴다(그리는 수는 위에서 줄임).
                     VStack(alignment: .leading, spacing: 16) {
+                        if hidden > 0 {
+                            Button {
+                                // 더 그린 뒤에도 보던 자리(지금 맨 위 항목)를 그대로
+                                let anchor = items.first?.id
+                                follow = false
+                                store.showMore()
+                                if let anchor { DispatchQueue.main.async { proxy.scrollTo(anchor, anchor: .top) } }
+                            } label: {
+                                Text("이전 대화 더 보기")
+                                    .font(.system(size: Typo.caption + 1, weight: .medium))
+                                    .foregroundColor(Theme.accent)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 6)
+                            }
+                            .accessibilityIdentifier("showEarlier")
+                        }
                         ForEach(items) { item in
                             ChatItemView(item: item)
                                 .equatable()
@@ -68,6 +89,12 @@ struct ChatView: View {
             }
             .coordinateSpace(name: "chat")
             .environmentObject(session.thumbs)
+            // 답 속 맥의 그림 경로를 누르면 맥에서 받아 전체 화면으로(11-25). 다른 링크는 전처럼 브라우저 등으로
+            .environment(\.openURL, OpenURLAction { [weak thumbs] url in
+                guard let path = InlineMarkdown.imagePath(url) else { return .systemAction }
+                thumbs?.viewing = ViewingImage(id: path)
+                return .handled
+            })
             .environment(\.stepsPresenter, stepsPresenter)
             .environment(\.foldEvents, foldEvents)
             .environment(\.rewindAction) { [weak session] id, text in session?.rewind(id: id, text: text) }
@@ -100,7 +127,10 @@ struct ChatView: View {
             .simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
             .accessibilityIdentifier("chatScroll")
             .modifier(StartAtBottom())
-            .onAppear { scrollToBottomSettled(proxy) }
+            .onAppear {
+                scrollToBottomSettled(proxy)
+                if store.refreshing { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { if store.refreshing { showRefreshing = true } } }
+            }
             .onChange(of: store.snapshotCount) { _ in if follow { scrollToBottomSettled(proxy) } }
             .onChange(of: viewportHeight) { _ in
                 // 키보드가 오르내려 화면 높이가 바뀌면, 따라가는 중이었다면 같은 속도로 맨 아래 유지
@@ -145,6 +175,29 @@ struct ChatView: View {
                 }
             }
             .animation(.easeOut(duration: 0.25), value: store.notice)
+            .overlay(alignment: .top) {
+                // 저장해 둔 대화를 보여 주며 맥의 최신 대화를 기다림(안내가 떠 있으면 그것을 먼저)
+                if showRefreshing && store.notice == nil && session.status == .connected {
+                    HStack(spacing: 6) {
+                        ProgressView().scaleEffect(0.7)
+                        Text("최신 대화 받는 중")
+                            .font(.system(size: Typo.caption, weight: .medium))
+                            .foregroundColor(Theme.muted)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Theme.surfaceHigh))
+                    .overlay(Capsule().stroke(Theme.border))
+                    .padding(.top, 8)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("refreshingBadge")
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: showRefreshing)
+            .onChange(of: store.refreshing) { on in
+                if !on { showRefreshing = false; return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { if store.refreshing { showRefreshing = true } }
+            }
             .overlay(alignment: .bottom) {
                 // 따라가는 중(키보드가 오르내리는 순간 포함)엔 숨기고, 사용자가 위로 올려 읽을 때만 보인다
                 if !atBottom && !follow {

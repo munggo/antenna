@@ -26,19 +26,46 @@ ok(JSON.stringify(readWorkDirs()) === JSON.stringify([`${H}/works/company`, "/op
 ok(homeAccount("/opt/company/app") === "work", "파일에 적은 다른 폴더도 회사");
 ok(readWorkDirs(join(WD, "없는-파일")).length === 0 && homeAccount(`${H}/works/company`, readWorkDirs(join(WD, "없는-파일"))) === "personal", "파일이 없으면 어디서나 개인(계정을 하나만 쓰는 사람)");
 ok(d(P, {}) === "personal", "사용량 기록 없음 → 기본 계정");
+// 한도로는 저절로 바꾸지 않음(사용자 결정 11-24: 95%를 넘으면 연결부가 묻는다)
 ok(d(P, { anthropic: { "7d": c(0.94) } }) === "personal", "94% → 그대로");
-ok(d(P, { anthropic: { "7d": c(0.95) } }) === "work", "95% → 회사(경계)");
-ok(d(P, { anthropic: { "7d": c(0.97) } }) === "work", "97% → 회사");
-ok(d(P, { anthropic: { "5h": c(0.96) } }) === "work", "5시간 한도 96% → 회사");
-ok(d(P, { anthropic: { "7d": c(0.99, past) } }) === "personal", "초기화 시각이 지난 값은 무시 → 개인으로 돌아옴");
-ok(d(P, { anthropic: { "7d:fable": c(0.97) } }, { modelId: "claude-opus-5-5" }) === "personal", "다른 모델 전용 한도는 무시");
-ok(d(P, { anthropic: { "7d:fable": c(0.97) } }, { modelId: "claude-fable-5-2" }) === "work", "그 모델 전용 한도 → 회사");
-ok(d(P, { anthropic: { "7d:fable": c(0.97) } }) === "personal", "모델을 모르면(켤 때) 모델 전용 한도는 무시");
-// Fable 한도는 응답 헤더 이름(oi = overage_included)으로도 적힌다(11-21: 이 이름을 몰라 한도가 차도 넘어가지 않음)
-ok(d(P, { anthropic: { "7d": c(0.89), "7d:oi": c(1) } }, { modelId: "claude-fable-5-2" }) === "work", "Fable 한도(oi) 100% → 회사");
-ok(d(P, { anthropic: { "7d": c(0.89), "7d:oi": c(1) } }, { modelId: "claude-opus-5-5" }) === "personal", "Fable 한도(oi)는 다른 모델에는 무시");
-ok(d(W, { "anthropic-work": { "7d:overage_included": c(0.96) } }, { modelId: "claude-fable-5-2" }) === "personal", "회사 Fable 한도(overage_included) 96% → 개인");
-ok(d(P, { anthropic: { "7d:oi": { at: now, ok: true } } }, { modelId: "claude-fable-5-2" }) === "personal", "풀렸다는 표시(사용률 없음)는 무시");
+ok(d(P, { anthropic: { "7d": c(0.97) } }) === "personal" && d(W, { "anthropic-work": { "7d": c(1) } }) === "work", "97%·100% 여도 저절로 바꾸지 않음");
+ok(d(P, { anthropic: { "7d:oi": c(1), 429: c(1) } }) === "personal", "모델 전용 한도·한도 오류 표시로도 바꾸지 않음");
+// 물어서 떠난 계정(away): 떠난 계정이 95% 이상인 동안만 바꿀 곳, 내려오면(초기화) 돌아옴(사용자 결정 11-24).
+// 바꿀 곳(11-25 계정 셋): 개인 → 추가 개인, 회사 → 개인
+ok(d(P, { anthropic: { "7d": c(0.97) } }, { away: "personal" }) === "personal2", "떠난 개인 97% → 추가 개인");
+ok(d(P, { anthropic: { "7d": c(0.95) } }, { away: "personal" }) === "personal2", "떠난 개인 95%(경계) → 추가 개인");
+ok(d(P, { anthropic: { "5h": c(0.96), "7d": c(0.5) } }, { away: "personal" }) === "personal2", "떠난 개인 5시간 한도 96% → 추가 개인");
+ok(d(P, { anthropic: { "7d": c(0.94) } }, { away: "personal" }) === "personal", "떠난 개인이 94% 로 내려옴 → 돌아옴");
+ok(d(P, { anthropic: { "7d": c(0.99, past) } }, { away: "personal" }) === "personal", "초기화 시각이 지난 값은 무시 → 돌아옴");
+ok(d(P, { anthropic: { "7d": c(0.5), "7d:oi": c(1) } }, { away: "personal" }) === "personal", "모델 전용 한도는 전체 한도가 아님 → 돌아옴");
+ok(d(P, { anthropic: { "7d": c(0.97) } }, { away: "work" }) === "personal", "떠난 계정이 돌아올 곳이 아니면 무시");
+ok(d(P, { anthropic: { "7d": c(0.97) } }, { away: "personal", hasPersonal2: false }) === "personal", "추가 개인 토큰이 없으면 떠날 수 없음");
+ok(d(P, { anthropic: { "7d": c(0.97) } }, { away: "personal", hasWork: false }) === "personal2", "개인 폴더는 회사 토큰과 상관없음");
+ok(d(W, { "anthropic-work": { "7d": c(0.97) } }, { away: "work" }) === "personal", "회사 폴더, 떠난 회사 97% → 개인(추가 개인 아님)");
+ok(d(P, {}, { pin: "personal2" }) === "personal2" && d(P, {}, { pin: "personal2", hasPersonal2: false }) === "personal", "추가 개인을 고르면 추가 개인(토큰이 없으면 개인)");
+{
+  const { procAccount, switchTarget, SWITCH_TO, LABEL } = await import(SCRIPT);
+  ok(procAccount("claude PI_CLAUDE_ACCOUNT=personal2 CLAUDE_CODE_OAUTH_TOKEN=x HOME=/h") === "personal2", "켠 계정 표시: 추가 개인");
+  ok(procAccount("claude PI_CLAUDE_ACCOUNT=work CLAUDE_CODE_OAUTH_TOKEN=x") === "work" && procAccount("claude CLAUDE_CODE_OAUTH_TOKEN=x HOME=/h") === "work", "회사: 표시가 있거나, 표시 없이 토큰만(예전 셸 함수)");
+  ok(procAccount("claude HOME=/h") === "personal" && procAccount("claude PI_CLAUDE_ACCOUNT=personal2x CLAUDE_CODE_OAUTH_TOKEN=x") === "work", "표시·토큰이 없으면 개인, 모르는 표시는 무시(토큰만 보면 회사)");
+  ok(procAccount("claude PI_CLAUDE_ACCOUNT=personal2 HOME=/h") === "personal", "표시만 남고 토큰이 빠지면 개인(실제로 기본 로그인으로 돎)");
+  // 직접 로그인으로 켠 추가 계정(11-25): 토큰 없이 설정 폴더를 따로 준다
+  ok(procAccount("claude PI_CLAUDE_ACCOUNT=personal2 CLAUDE_CONFIG_DIR=/h/.claude-personal2 HOME=/h") === "personal2", "직접 로그인으로 켠 추가 개인: 토큰 없이 설정 폴더와 표시");
+  ok(procAccount("claude CLAUDE_CONFIG_DIR=/h/.claude-work PI_CLAUDE_ACCOUNT=work") === "work", "직접 로그인으로 켠 회사");
+  ok(procAccount("claude CLAUDE_CONFIG_DIR=/h/.other HOME=/h") === "personal", "표시 없이 설정 폴더만 따로 준 것은 개인으로(우리가 켠 것이 아님)");
+  ok(procAccount("claude XCLAUDE_CONFIG_DIR=/x PI_CLAUDE_ACCOUNT=personal2") === "personal", "이름만 비슷한 변수는 설정 폴더로 보지 않음");
+  ok(switchTarget("personal", "personal") === "personal2" && switchTarget("personal2", "personal") === "personal" && switchTarget("work", "work") === "personal" && switchTarget("personal", "work") === "work",
+    "바꿀 곳: 원래 계정이면 SWITCH_TO, 바꿔 간 계정이면 원래 계정으로");
+  ok(SWITCH_TO.personal2 === "personal" && LABEL.personal2 === "추가 개인", "추가 개인에서 바꿀 곳은 개인, 이름은 '추가 개인'");
+}
+{
+  const { totalLimit } = await import(SCRIPT);
+  const U = { anthropic: { "5h": c(0.4, fut + 9), "7d": c(0.96, fut), "7d:oi": c(1), 429: c(1) } };
+  const t = totalLimit(U, "personal", now);
+  ok(t.util === 0.96 && t.reset === fut, "전체 한도: 5시간·주간 가운데 높은 것과 초기화 시각(모델 전용·오류 표시는 뺌)");
+  ok(totalLimit(U, "work", now).util === 0 && totalLimit({ anthropic: { "7d": c(0.99, past) } }, "personal", now).util === 0, "기록 없음·지난 값은 0");
+  ok(totalLimit({ anthropic: { "7d": { util: "x" } } }, "personal", now).util === 0, "숫자가 아니면 무시");
+}
 // 그 계정의 모델 전용 한도가 풀리는 정확한 때(카드에 날짜로 적음. 11-22)
 {
   const { limitResetAt } = await import(SCRIPT);
@@ -62,25 +89,17 @@ ok(d(P, { anthropic: { "7d:oi": { at: now, ok: true } } }, { modelId: "claude-fa
   process.env.ANTHROPIC_MODEL = "claude-sonnet-5-5";
   ok(defaultModel(home) === "claude-sonnet-5-5", "환경 변수가 가장 먼저");
   if (keep === undefined) delete process.env.ANTHROPIC_MODEL; else process.env.ANTHROPIC_MODEL = keep;
-  ok(d(P, { anthropic: { "7d:oi": c(1) } }, { modelId: "fable" }) === "work", "별칭 'fable' 도 Fable 한도에 걸림");
   rmSync(home, { recursive: true, force: true });
 }
-ok(d(P, { anthropic: { 429: c(1) } }) === "work", "한도 오류 기록 → 회사");
-ok(d(P, { anthropic: { "7d": c(0.97) }, "anthropic-work": { "7d": c(0.96) } }) === "personal", "둘 다 넘음 → 기본 계정");
-ok(d(W, { "anthropic-work": { "7d": c(0.97) } }) === "personal", "회사 폴더, 회사 97% → 개인");
 ok(d(W, {}, { hasWork: false }) === "personal", "회사 토큰 없음 → 개인");
-ok(d(P, { anthropic: { "7d": c(0.97) } }, { hasWork: false }) === "personal", "개인 97% 인데 회사 토큰 없음 → 개인");
-ok(d(P, { anthropic: { "7d": { util: "x" } } }) === "personal", "값이 숫자가 아니면 무시");
 
-// 앱에서 탭에 고른 계정(pin, 사용자 결정 11-18: 고른 계정도 95% 면 자동으로 넘김)
+// 앱에서 탭에 고른 계정(pin). 고른 계정도 95% 면 묻는다(사용자 결정 11-24, 11-18 의 자동으로 넘김을 바꿈)
 ok(d(P, {}, { pin: "work" }) === "work" && d(W, {}, { pin: "personal" }) === "personal", "고른 계정이 폴더 기본보다 먼저");
 ok(d(P, {}, { pin: "" }) === "personal" && d(W, {}, { pin: "auto" }) === "work" && d(P, {}, { pin: "x" }) === "personal", "고르지 않음·모르는 값 → 폴더 기본");
-ok(d(P, { "anthropic-work": { "7d": c(0.96) } }, { pin: "work" }) === "personal", "고른 회사 계정이 96% → 개인으로 넘김");
-ok(d(W, { anthropic: { "7d": c(0.95) } }, { pin: "personal" }) === "work", "고른 개인 계정이 95%(경계) → 회사로 넘김");
-ok(d(P, { "anthropic-work": { "7d": c(0.99, past) } }, { pin: "work" }) === "work", "고른 계정의 한도가 초기화되면 고른 계정으로 돌아옴");
-ok(d(P, { anthropic: { "7d": c(0.97) }, "anthropic-work": { "7d": c(0.97) } }, { pin: "work" }) === "work", "둘 다 넘음 → 고른 계정");
+ok(d(P, { "anthropic-work": { "7d": c(0.96) } }, { pin: "work" }) === "work", "고른 회사 계정이 96% 여도 그대로");
+ok(d(P, { "anthropic-work": { "7d": c(0.96) } }, { pin: "work", away: "work" }) === "personal", "고른 회사 계정을 물어서 떠남 → 개인");
+ok(d(P, { "anthropic-work": { "7d": c(0.99, past) } }, { pin: "work", away: "work" }) === "work", "떠난 고른 계정의 한도가 초기화되면 돌아옴");
 ok(d(W, {}, { pin: "work", hasWork: false }) === "personal", "회사를 골랐는데 회사 토큰 없음 → 개인");
-ok(d(P, { anthropic: { "7d": c(0.97) } }, { pin: "personal" }) === d(P, { anthropic: { "7d": c(0.97) } }), "폴더 기본과 같은 계정을 고르면 판단도 같음");
 ok(baseAccount(P, "work") === "work" && baseAccount(W, "") === "work" && baseAccount(P, "") === "personal", "돌아올 곳: 고른 계정, 없으면 폴더 기본");
 
 // 명령줄: 공유 파일 경로를 바꿔서
@@ -88,7 +107,8 @@ const dir = mkdtempSync(join(tmpdir(), "acct-"));
 const F = join(dir, "a.json");
 const cli = (cwd, model = "") => execFileSync(process.execPath, [SCRIPT, cwd, ...(model ? [model] : [])], { env: { ...process.env, PI_ACCOUNTS_CACHE: F }, encoding: "utf8" }).trim();
 writeFileSync(F, JSON.stringify({ anthropic: { "7d": c(0.97) } }));
-ok(cli(P) === "work", "명령줄: 개인 97% → work");
+ok(cli(P) === "personal", "명령줄: 개인 97% 여도 켤 때는 폴더대로(묻기는 연결부가 함)");
+ok(cli(P, "claude-fable-5-2") === "personal", "명령줄: 예전처럼 모델 id 를 붙여도 됨");
 writeFileSync(F, JSON.stringify({ anthropic: { "7d": c(0.5) } }));
 ok(cli(P) === "personal" && cli(W) === "work", "명령줄: 개인 50% → 폴더대로");
 writeFileSync(F, "{깨짐");

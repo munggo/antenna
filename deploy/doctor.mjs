@@ -254,6 +254,7 @@ else {
       if (existsSync(sock)) rmSync(sock);
       const e = { ...process.env };
       delete e.CLAUDE_CODE_OAUTH_TOKEN;
+      delete e.PI_CLAUDE_ACCOUNT;
       spawn(bridgeNode, [join(CC, "claude-feed.mjs"), f.pane], { detached: true, stdio: "ignore", env: e }).unref();
       for (let i = 0; i < 30 && !existsSync(sock); i++) await sleep(100);
       if (existsSync(sock)) did(`칸 ${where}: 옛 연결부를 새 판으로 다시 띄움`);

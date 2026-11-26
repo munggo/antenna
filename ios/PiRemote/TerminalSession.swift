@@ -22,6 +22,8 @@ struct TmuxWindow: Identifiable, Equatable {
     var thinking: String = ""
     /// Claude Code 탭의 계정(맥 연결부가 적음, 11-18). Claude Code 탭이 아니거나 모르면 nil
     var account: TabAccount? = nil
+    /// 탭 칸 번호(%12 처럼). 폰이 탭마다 대화를 저장하는 열쇠(11-25). 예전 맥은 주지 않음("")
+    var key: String = ""
     var id: Int { index }
 
     /// '끝난 것 모두 닫기'로 닫을 탭: 결과를 보냈고, 다시 일하거나 묻지 않으며, 뒤에서 도는 일도 없음(맥 브리지 server/windows.mjs 와 같은 규칙)
@@ -55,8 +57,8 @@ struct MacBattery: Equatable {
 }
 
 /// 백그라운드 탭 정보(맥 브리지가 탭 옵션에서 읽어 탭 목록과 함께 보냄)
-/// Claude Code 탭의 계정(사용자 결정 11-18: 탭마다 고르기 · 일하는 중이면 끝나면 바꾸기 · 고른 계정도 한도 95% 면 자동으로 넘김).
-/// 값은 work | personal. 맥 브리지 server/windows.mjs 의 account 와 같은 모양
+/// Claude Code 탭의 계정(사용자 결정 11-18: 탭마다 고르기 · 일하는 중이면 끝나면 바꾸기. 11-24: 한도 95% 면 자동으로 넘기지 않고 카드로 물음).
+/// 값은 work | personal | personal2(추가 개인, 11-25). 맥 브리지 server/windows.mjs 의 account 와 같은 모양
 struct TabAccount: Equatable {
     /// 지금 이 탭의 Claude Code 가 쓰는 계정
     let now: String
@@ -67,7 +69,7 @@ struct TabAccount: Equatable {
     /// wait: 하던 일이 끝나기를 기다림 | switch: 인수인계 문서를 받고 다시 켜는 중 | ""
     let phase: String
 
-    static func name(_ a: String) -> String { a == "work" ? "회사" : "개인" }
+    static func name(_ a: String) -> String { a == "work" ? "회사" : a == "personal2" ? "추가 개인" : "개인" }
 }
 
 struct BackgroundInfo: Equatable {
@@ -209,6 +211,10 @@ final class TerminalSession: NSObject, ObservableObject {
         // 저장된 대화가 있으면 바로 채팅 화면으로 시작(터미널이 잠깐 보이는 것 방지)
         chat.loadCache()
         chatAvailable = chat.available
+        chat.onResync = { [weak self] key in
+            guard let self, self.bridgeKnowsTabs else { return }
+            self.sendControl(["type": "chat-resync", "key": key])
+        }
         chat.onToolImage = { [weak self] id, data, error in
             guard let self else { return }
             let path = "toolimg-\(id)"
@@ -288,6 +294,8 @@ final class TerminalSession: NSObject, ObservableObject {
         return w.sudo.isEmpty ? "unknown" : w.sudo
     }
     var isSecretTab: Bool { secretStage != nil }
+    /// 지금 보는 탭이 로그인 비밀번호 받기 창(🔐암호, 맥의 password-run.mjs 가 엶)인지. 가려진 칸에 아이폰 '암호' 자동 채우기를 띄운다
+    var isPasswordTab: Bool { windows.first(where: { $0.active })?.name.hasPrefix("🔐암호") ?? false }
 
     /// 관리자 권한 확인 창에 넣는 입력: 글자 그대로와 Enter 만 보낸다(말풍선·기록 없음). 빈 글이면 Enter 만
     func sendSecret(_ text: String) {
@@ -312,8 +320,103 @@ final class TerminalSession: NSObject, ObservableObject {
     }
 
     /// 상단 탭 터치 → tmux 창 전환 요청.
+    /// 탭마다 대화를 저장하는 맥이면 그 탭의 저장해 둔 대화를 바로 보여 주고, 가진 지문을 함께 보내 없는 것만 받는다(11-25)
     func selectWindow(_ index: Int) {
-        active?.send(.string("{\"type\":\"select-window\",\"index\":\(index)}")) { _ in }
+        var msg: [String: Any] = ["type": "select-window", "index": index]
+        if bridgeKnowsTabs, let w = windows.first(where: { $0.index == index }), !w.key.isEmpty, !w.active {
+            msg["key"] = w.key
+            msg["have"] = chat.tabs.have(w.key)
+            chat.showTab(key: w.key, name: w.name, working: w.status == "working", byTap: true)
+        }
+        sendControl(msg)
+    }
+
+    // MARK: - 탭마다 저장해 둔 대화·바뀐 탭 미리 받기(11-25 사용자 결정: 상태가 바뀐 탭과 앱을 열 때 모든 탭의 새 메시지만)
+
+    /// 이 연결의 맥이 탭 칸 번호를 주는지 = 새 메시지(chat-have·chat-prefetch·chat-resync)를 알아듣는지.
+    /// 예전 맥 브리지는 모르는 메시지를 터미널에 글자로 넣으므로 이때만 보낸다
+    private var bridgeKnowsTabs = false
+    /// 이 연결에서 지금 탭의 가진 지문을 알렸는지(맥은 이것을 받아야 대화 피드에 붙음)
+    private var announced = false
+    /// 칸 번호 → 지난 탭 상태(바뀌면 그 탭을 미리 받음)
+    private var lastTabStatus: [String: String] = [:]
+    private var prefetchQueue: [String] = []
+    private var prefetching: String?
+    /// 이 연결에서 모든 탭을 한 번 미리 받기 시작했는지
+    private var prefetchedAll = false
+    /// 대화 피드가 없는 탭(셸 등). 상태가 생기면(AI 를 켬) 다시 본다
+    private var noChatTabs = Set<String>()
+
+    /// 연결이 새로 열림: 이 연결의 상태를 처음으로
+    private func resetTabSync() {
+        bridgeKnowsTabs = false
+        announced = false
+        lastTabStatus = [:]
+        prefetchQueue = []
+        prefetching = nil
+        prefetchedAll = false
+    }
+
+    private func tabsUpdated(_ wins: [TmuxWindow]) {
+        bridgeKnowsTabs = wins.contains { !$0.key.isEmpty }
+        guard bridgeKnowsTabs else { return }
+        let current = wins.first(where: \.active)
+        if let a = current, !a.key.isEmpty {
+            chat.followTab(key: a.key, name: a.name, working: a.status == "working")
+        }
+        if !announced {
+            announced = true
+            let key = current?.key ?? ""
+            sendControl(["type": "chat-have", "key": key, "have": key.isEmpty ? [] : chat.tabs.have(key)])
+        }
+        for w in wins where !w.key.isEmpty {
+            if !w.status.isEmpty { noChatTabs.remove(w.key) }
+            if let old = lastTabStatus[w.key], old != w.status, !w.active { enqueuePrefetch(w.key) }
+            lastTabStatus[w.key] = w.status
+        }
+        if !prefetchedAll {
+            prefetchedAll = true
+            // 지금 탭의 대화를 먼저 받도록 조금 뒤에
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                guard let self, self.bridgeKnowsTabs else { return }
+                for w in self.windows where !w.active { self.enqueuePrefetch(w.key) }
+            }
+        }
+    }
+
+    private func enqueuePrefetch(_ key: String) {
+        guard !key.isEmpty, !noChatTabs.contains(key), !prefetchQueue.contains(key),
+              let w = windows.first(where: { $0.key == key }), !w.active, !w.name.hasPrefix("🔐") else { return }
+        prefetchQueue.append(key)
+        pumpPrefetch()
+    }
+
+    /// 한 번에 한 탭씩(지금 탭의 대화와 길을 다투지 않게)
+    private func pumpPrefetch(full: Bool = false) {
+        guard prefetching == nil, status == .connected, !prefetchQueue.isEmpty else { return }
+        let key = prefetchQueue.removeFirst()
+        prefetching = key
+        sendControl(["type": "chat-prefetch", "key": key, "have": full ? [] : chat.tabs.have(key)])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            guard let self, self.prefetching == key else { return }
+            self.prefetching = nil   // 답이 없음 → 다음 탭으로
+            self.pumpPrefetch()
+        }
+    }
+
+    /// 미리 받은 결과(메인 스레드)
+    private func receivedBackground(_ r: ChatBackground) {
+        if prefetching == r.key { prefetching = nil }
+        if r.unavailable == true {
+            noChatTabs.insert(r.key)
+        } else if let d = r.d, !chat.storeBackground(r.key, d) {
+            // 저장해 둔 것으로 잇지 못함 → 그 탭은 통째로 한 번 더
+            prefetchQueue.removeAll { $0 == r.key }
+            prefetchQueue.insert(r.key, at: 0)
+            pumpPrefetch(full: true)
+            return
+        }
+        pumpPrefetch()
     }
 
     // MARK: - 사진 첨부
@@ -625,7 +728,8 @@ final class TerminalSession: NSObject, ObservableObject {
                                       guard let now = a["now"] as? String, !now.isEmpty else { return nil }
                                       return TabAccount(now: now, pin: a["pin"] as? String ?? "", next: a["next"] as? String ?? "",
                                                         phase: a["phase"] as? String ?? "")
-                                  })
+                                  },
+                                  key: d["key"] as? String ?? "")
             }
             let battery = (obj["battery"] as? [String: Any]).flatMap { b -> MacBattery? in
                 guard let percent = b["percent"] as? Int else { return nil }
@@ -639,6 +743,7 @@ final class TerminalSession: NSObject, ObservableObject {
                 if self.macBattery != battery { self.macBattery = battery }
                 PushManager.shared.currentWindow = wins.first(where: \.active)?.index
                 self.chat.setWindow(wins.first(where: \.active)?.index)
+                self.tabsUpdated(wins)
                 self.openPendingWindow()
                 if UIApplication.shared.applicationState == .active { LiveActivities.reconcile(windows: wins) }
             }
@@ -707,8 +812,12 @@ final class TerminalSession: NSObject, ObservableObject {
             let path = obj["path"] as? String ?? ""
             let size = ThumbStore.Size(rawValue: obj["size"] as? String ?? "") ?? .small
             let data = (obj["data"] as? String).flatMap { Data(base64Encoded: $0) }
+            let why = obj["error"] as? String
             DispatchQueue.main.async {
-                if let data { self.thumbs.store(path, size, data: data) } else { self.thumbs.forget(path, size) }
+                if let data { self.thumbs.store(path, size, data: data) }
+                // 답 속 경로를 눌러 본 맥의 그림이 없거나 그림이 아니면 까닭을 보임(그 밖에는 전처럼 다음에 다시 요청)
+                else if ThumbStore.isMacFile(path) { self.thumbs.fail(path, size, why ?? "맥에서 그림을 받지 못했어요") }
+                else { self.thumbs.forget(path, size) }
             }
             return true
         }
@@ -805,6 +914,13 @@ final class TerminalSession: NSObject, ObservableObject {
                     self.receiveLoop()
                     return
                 }
+                if case .string(let s) = message, s.hasPrefix("{\"type\":\"chat-bg\"") {
+                    if let r = try? JSONDecoder().decode(ChatBackground.self, from: Data(s.utf8)) {
+                        DispatchQueue.main.async { self.receivedBackground(r) }
+                    }
+                    self.receiveLoop()
+                    return
+                }
                 DispatchQueue.main.async {
                     switch message {
                     case .data(let d): self.terminalView.feed(byteArray: ArraySlice(d))
@@ -850,6 +966,7 @@ extension TerminalSession: URLSessionWebSocketDelegate {
             UserDefaults.standard.set(self.activeHost, forKey: "pi-remote.lastHost")   // 작업 표시 토큰 등록(BridgeMessenger)용
             self.status = .connected
             self.failCount = 0
+            self.resetTabSync()
             let term = self.terminalView.getTerminal()
             self.sendResize(cols: term.cols > 0 ? term.cols : 80, rows: term.rows > 0 ? term.rows : 24)
             if self.terminalVisible { self.sendControl(["type": "view", "terminal": true]) }   // 다시 붙으면 다시 알림

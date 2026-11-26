@@ -1,6 +1,6 @@
 #!/bin/sh
 # 앱 화면 시험(시뮬레이터): 모델이 필요 없는 것들을 환경 준비부터 정리까지 한 번에 돌린다(빌드 포함 10분쯤).
-#   LL 첫 화면에서 QR 링크로 연결 · PP 맥 주소와 확인 창 · QQ 관리자 권한 창(버튼 카드·가려진 입력란) ·
+#   LL 첫 화면에서 QR 링크로 연결 · PP 맥 주소와 확인 창 · QQ 관리자 권한 창(버튼 카드·가려진 입력란)·로그인 비밀번호 창(바로 가려진 칸, '암호' 안내) ·
 #   RR 한 번 쓰는 코드로 짝짓고 암호화 연결로 붙기 · SS 서랍의 백그라운드 칸(끝난 것 모두 닫기, 뒤에서 도는 작업 목록·종료) ·
 #   TT 사진 보관함에서 두 장 고르기(입력창 칸·그림·맥에 올리기, 걸린 시간은 기록에 '[TT]') · B 붙인 사진을 x 로 빼기 ·
 #   UU 맥북 배터리('연결됨' 옆 잔량, 충전기·낮음, 배터리 없는 맥) ·
@@ -18,7 +18,11 @@
 #   AAB '작업 중' 줄의 점 세 개가 그 줄 안에서 깜빡이기만 하는지(작업 중인 탭을 열 때, 열어 둔 채 작업이 시작될 때,
 #       긴 답을 펼친 뒤. 화면 사진을 여러 장 찍어 점이 줄 밖에 찍히는지 봄. '작업 중'은 /tmp/ptest/fold-busy 로 만듦) ·
 #   AAC Claude Code 탭의 계정 칩(지금 계정, 고르면 확인 창 → 맥에 set-account, '개인→회사' 진행 표시 → 회사·고정 표시,
-#       취소하면 보내지 않음, pi 탭에는 칩 없음. 맥 쪽은 test/fake-feed.mjs --account 가 흉내)
+#       취소하면 보내지 않음, pi 탭에는 칩 없음. 맥 쪽은 test/fake-feed.mjs --account 가 흉내) ·
+#   AAD 답 속 맥의 그림 경로(코드 글자로 쓴 경로가 링크로 보이고, 누르면 시험 브리지가 그 그림을 줘 전체 화면에 뜸, 없는 그림은 까닭.
+#       대화는 test/fake-feed.mjs --image 가 줌) ·
+#   AAE 탭마다 저장해 둔 대화(긴 대화는 최근 것부터 그리고 '이전 대화 더 보기', 맥이 늦게 줘도 저장해 둔 대화가 바로 보이고 '받는 중' 표시,
+#       다른 탭을 보는 사이 끝난 탭은 미리 받아 둠. 대화는 test/fake-feed.mjs --tabcache 가 줌)
 # 쓰기: sh test/app.sh [시험 이름 일부…]   예) sh test/app.sh QQ     (sh test.sh --app 으로도 부름)
 # 하는 일: 시험용 tmux 세션과 시험 브리지(이 맥 안에서만 닿는 127.0.0.1)를 띄우고, 시뮬레이터를 켜서 시험한 뒤 모두 치운다.
 #          쓰는 tmux 세션(antenna)·쓰는 브리지·켜져 있는 다른 시뮬레이터는 건드리지 않는다.
@@ -56,13 +60,21 @@ cleanup() {
   [ -f "$D/fold.sock" ] && rm -f "$(cat "$D/fold.sock")"
   [ -f "$D/acct.pid" ] && kill "$(cat "$D/acct.pid")" 2>/dev/null                    # AAC 의 계정 시험 가짜 피드
   [ -f "$D/acct.sock" ] && rm -f "$(cat "$D/acct.sock")"
+  [ -f "$D/img.pid" ] && kill "$(cat "$D/img.pid")" 2>/dev/null                      # AAD 의 그림 시험 가짜 피드
+  [ -f "$D/img.sock" ] && rm -f "$(cat "$D/img.sock")"
+  rm -f "$W/img-win" "$W/맥 그림 01.png"
+  for k in 1 2; do                                                                    # AAE 의 탭 저장 시험 가짜 피드
+    [ -f "$D/cache$k.pid" ] && kill "$(cat "$D/cache$k.pid")" 2>/dev/null
+    [ -f "$D/cache$k.sock" ] && rm -f "$(cat "$D/cache$k.sock")"
+  done
+  rm -f "$W/cache-wins" "$W/cache1-slow" "$W/cache1-add" "$W/cache2-slow" "$W/cache2-add"
   [ -f "$D/pb.pid" ] && kill "$(cat "$D/pb.pid")" 2>/dev/null                        # 복사한 글을 떠 주는 도우미
   tmux kill-session -t "=$B" 2>/dev/null
   tmux kill-session -t "=$S" 2>/dev/null
   xcrun simctl terminate "$SIM" "$ID" >/dev/null 2>&1
   xcrun simctl uninstall "$SIM" "$ID" >/dev/null 2>&1   # 시험이 깐 앱은 남기지 않는다
   [ "$WAS_BOOTED" = 0 ] && xcrun simctl shutdown "$SIM" 2>/dev/null
-  rm -rf "$D" "$W/secret-win" "$W/secret-win2" "$W/secret-cancel-flag" "$W/secret-got" "$W/pair-hosts-ok" "$W/pair-code-link" "$W/bg-wins" "$W/battery" "$W/shortcut-ok" \
+  rm -rf "$D" "$W/secret-win" "$W/secret-win2" "$W/secret-cancel-flag" "$W/secret-got" "$W/password-win" "$W/password-got" "$W/pair-hosts-ok" "$W/pair-code-link" "$W/bg-wins" "$W/battery" "$W/shortcut-ok" \
     "$W/fold-win" "$W/fold-arrive" "$W/fold-link" "$W/fold-grow" "$W/fold-busy" "$W/acct-win" "$W/acct-cmds" "$W/pb-ask" "$W/pb-out" "$W/pb-out.tmp" "$W/usage.json" "$W/accounts.json"
   rm -f "$HOME/.cache/pi-remote/notify-$S.sock"
 }
@@ -107,6 +119,12 @@ for n in 1 2; do
   tmux set-option -w -t "$S:$N" cursor-style block
   if [ $n = 1 ]; then echo "$N" > "$W/secret-win"; else echo "$N" > "$W/secret-win2"; echo "$J/cancelled" > "$W/secret-cancel-flag"; fi
 done
+# QQ: 로그인 비밀번호 받기 창(🔐암호). 진짜 탭(password-tab.sh)은 맥 클립보드에 넣으므로, 받은 글을 파일에 적는 창으로 흉내 낸다
+#     (단계는 그 탭처럼 running. 맥 쪽 동작은 claude-remote/test/password-run-e2e.mjs 가 따로 시험)
+N=$(tmux new-window -d -P -F '#{window_index}' -t "$S:" -n '🔐암호' "IFS= read -rs p; printf '%s' \"\$p\" > $W/password-got; sleep 60")
+tmux set-option -w -t "$S:$N" @sudo_stage running
+tmux set-option -w -t "$S:$N" cursor-style block
+echo "$N" > "$W/password-win"
 # SS: 서랍의 백그라운드 칸. 시킨 탭 하나와 백그라운드 탭 셋(일하는 중·끝남·끝났지만 뒤에서 셸이 돎), 뒤에서 셸이 도는 보통 탭.
 #     연결부·실행기가 적는 탭 옵션을 직접 적고, 창 번호를 '일하는중 끝남 끝났지만셸 보통탭' 순서로 /tmp/ptest/bg-wins 에 적는다
 NOW=$(date +%s)
@@ -148,6 +166,24 @@ echo "$HOME/.cache/pi-remote/feed/$(printf '%s' "$ACCT_PANE" | tr -d '%').sock" 
 "$NODE" "$REPO/test/fake-feed.mjs" "$ACCT_PANE" "$W" --account > "$D/acct.log" 2>&1 &
 echo $! > "$D/acct.pid"
 echo "$ACCT" > "$W/acct-win"
+# AAD: 답 속 맥의 그림 경로. 가짜 피드가 그림 파일(/tmp/ptest/맥 그림 01.png)을 만들고 그 경로를 쓴 답을 줌. 창 번호는 /tmp/ptest/img-win 에
+IMGT=$(bgwin '그림시험')
+IMGT_PANE=$(tmux display -p -t "$S:$IMGT" '#{pane_id}')
+echo "$HOME/.cache/pi-remote/feed/$(printf '%s' "$IMGT_PANE" | tr -d '%').sock" > "$D/img.sock"
+"$NODE" "$REPO/test/fake-feed.mjs" "$IMGT_PANE" "$W" --image > "$D/img.log" 2>&1 &
+echo $! > "$D/img.pid"
+echo "$IMGT" > "$W/img-win"
+# AAE: 탭마다 저장해 둔 대화. 가짜 피드 둘(cache1 은 메시지 70개). 신호 파일로 대화를 늦게 주거나 새 답을 더함. 창 번호는 /tmp/ptest/cache-wins 에
+CWINS=""
+for k in 1 2; do
+  CW=$(bgwin "캐시시험$k")
+  CW_PANE=$(tmux display -p -t "$S:$CW" '#{pane_id}')
+  echo "$HOME/.cache/pi-remote/feed/$(printf '%s' "$CW_PANE" | tr -d '%').sock" > "$D/cache$k.sock"
+  "$NODE" "$REPO/test/fake-feed.mjs" "$CW_PANE" "$W" --tabcache "cache$k" > "$D/cache$k.log" 2>&1 &
+  echo $! > "$D/cache$k.pid"
+  CWINS="$CWINS $CW"
+done
+echo "$CWINS" > "$W/cache-wins"
 touch "$W/pair-hosts-ok"   # PP: 시험 브리지가 127.0.0.1 에만 열려 있다는 표시
 touch "$W/shortcut-ok"     # WW: 시험 브리지가 새 탭에서 진짜 도구를 켜지 않는다는 표시(이 준비 없이 돌리면 건너뜀)
 # RR: 짝짓기 링크(한 번 쓰는 코드 + 시험 브리지 인증서의 지문). 맥의 짝짓기 명령이 QR 에 담는 것과 같은 모양
@@ -175,7 +211,7 @@ xcrun simctl keychain "$SIM" reset
 echo $! > "$D/pb.pid"
 
 ONLY=""
-for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testWW_ShortcutTask testXX_ClaudeContext testYY_FoldLongMessages testZZ_NewTabTool testAAA_UsageRings testAAB_WorkingDotsStay testAAC_AccountChip testB_RemoveAttachment; do
+for t in testLL_TokenScreenQR testPP_PairLinkHosts testQQ_SecretInput testQQ_PasswordTab testRR_PairCode testSS_BackgroundDrawer testTT_PhotoPicker testUU_MacBattery testVV_UpdatesAndTildes testWW_ShortcutTask testXX_ClaudeContext testYY_FoldLongMessages testZZ_NewTabTool testAAA_UsageRings testAAB_WorkingDotsStay testAAC_AccountChip testAAD_MacImagePath testAAE_TabCache testB_RemoveAttachment; do
   if [ $# -eq 0 ]; then ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t"; continue; fi
   for want in "$@"; do case "$t" in *"$want"*) ONLY="$ONLY -only-testing:PiRemoteUITests/PiRemoteUITests/$t" ;; esac; done
 done
@@ -201,6 +237,14 @@ case "$ONLY" in *testRR_PairCode*)
       grep -E '짝짓기|접속:|인증 실패' "$D/bridge.log" | tail -6 | sed -E 's/^/        /'
       RC=1
     fi
+  fi ;;
+esac
+# AAE 가 돌았으면 맥 쪽도 확인: 앱이 저장해 둔 것으로 대화를 잇지 못해 통째로 다시 청한 적이 없는지(이어 붙이기가 맞았는지)
+case "$ONLY" in *testAAE_TabCache*)
+  if [ $RC -eq 0 ]; then
+    n=$(grep -c '대화를 통째로 다시 청함' "$D/bridge.log")
+    if [ "$n" = 0 ]; then echo "통과  맥 쪽: 앱이 받은 대화를 저장해 둔 것과 모두 이어 붙임(통째로 다시 청한 적 없음)"
+    else echo "실패  맥 쪽: 앱이 대화를 통째로 다시 청함 ${n}번"; RC=1; fi
   fi ;;
 esac
 # SS 가 돌았으면 맥 쪽도 확인: 끝나고 쉬는 백그라운드 탭(BG2)만 실제로 닫혔는지

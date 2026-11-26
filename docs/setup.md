@@ -199,7 +199,7 @@ You are also notified when a macOS privacy prompt ("… would like to access …
 
 The usage screen shows your Claude subscription limits. The bridge reads them with pi's login (`~/.pi/agent/auth.json`). When that login is about to expire the bridge refreshes it the same way pi does, so the lookup keeps working even if you have not used pi for a while. Per-model limits (e.g. Fable) are only available from this lookup; when there is one, the ring in the drawer becomes a double ring. Without pi's login the bridge falls back to the values recorded in `~/.cache/pi-remote/claude-accounts.json`, which the pi extension `claude-accounts` writes.
 
-If you use two accounts (see "Two Claude accounts" below) and the second one runs on a token from `claude setup-token`, that token cannot look up usage. To see the second account's limits too, store a lookup-only login once: `node deploy/usage-login.mjs work` (open the printed address, approve with the second account and paste the code; it is saved to `~/.config/pi-remote/usage-auth.json`, readable by you only; `status` and `logout` are also available).
+If you use two accounts (see "Two Claude accounts" below) and the second one runs on a token from `claude setup-token`, that token cannot look up usage. To see the second account's limits too, store a lookup-only login once: `node deploy/usage-login.mjs work` (open the printed address, approve with the second account and paste the code; it is saved to `~/.config/pi-remote/usage-auth.json`, readable by you only; `status` and `logout` are also available). Do the same for the extra personal account with `node deploy/usage-login.mjs personal2` to see its Fable limit apart from all models (`status personal2`, `logout personal2`). Approving with a different account (the first personal or the work account) is not saved.
 
 If you use only Claude Code, nothing records those values yet, so the screen says there is no data. A small status line helper for this is not included in this repository yet.
 
@@ -264,7 +264,8 @@ If you have two Claude subscriptions (say personal and work), Antenna can pick o
   security add-generic-password -s pi-anthropic-work -a "$USER" -T /usr/bin/security -w
   ```
 
-- For Claude Code, `~/.claude/pi-remote/claude-account <folder>` prints the account to use in that folder (`work` or `personal`), and `~/.claude/pi-remote/claude-as.sh <account>` starts Claude Code with that account (for `work` it passes the keychain token as `CLAUDE_CODE_OAUTH_TOKEN`). Put a function in your shell settings (`~/.zshrc`) so every start uses the right account:
+- If you use one more personal account (extra personal), store its token in the `pi-anthropic-personal2` item the same way. In personal folders the account to switch to when the first account passes 95% then becomes the extra personal account (in work folders it is the first account). Artifacts still go to the first account when you work on the extra one. For pi, add `"anthropic-personal2": {"type": "api_key", "key": "!security find-generic-password -ws pi-anthropic-personal2"}` to `~/.pi/agent/auth.json`.
+- For Claude Code, `~/.claude/pi-remote/claude-account <folder>` prints the account to use in that folder (`work` or `personal`), and `~/.claude/pi-remote/claude-as.sh <account>` starts Claude Code with that account (for `work` and `personal2` it passes the keychain token as `CLAUDE_CODE_OAUTH_TOKEN` and records the account in `PI_CLAUDE_ACCOUNT`). Put a function in your shell settings (`~/.zshrc`) so every start uses the right account:
 
   ```sh
   claude() {
@@ -272,17 +273,29 @@ If you have two Claude subscriptions (say personal and work), Antenna can pick o
   }
   ```
 
-  When a limit makes it switch accounts, it does not resume the same conversation under the other account (that causes problems). The feed switches in this order:
-  1. When the default account passes 95%, it stops the current work with Esc even mid-task (the remaining usage is needed to write the handoff). It looks at the 5-hour and weekly limits and at the limit for the model the tab uses (for example the Fable limit). Switching back to the default account waits until the session is idle. Either way it waits while a permission prompt, question, running command, background job or text in the input box is present.
+  A limit never switches accounts on its own. When the current account's overall limit (5-hour or weekly, all models) passes 95%, the feed stops a working tab with Esc and asks on the phone with a card (keep this account / switch to the other one). An idle tab is asked when you next send it a message. If you keep the account, it asks again when the limit is fully used and work stops; if you switch, the tab comes back on its own, when idle, after the original account's limit resets. A model-only limit (for example the Fable limit) asks separately whether to switch models. A switch never resumes the same conversation under the other account (that causes problems). The feed switches in this order:
+  1. Choosing switch starts right away (the remaining usage is needed to write the handoff). Switching back to the original account waits until the session is idle. Either way it waits while a permission prompt, question, running command, background job or text in the input box is present.
   2. It asks the current session for a handoff document as its answer and saves it to `<working folder>/.work/handoff/<time>.md` (with a `.gitignore` in that folder so git ignores it). If the current account has already hit its limit and Claude Code shows a limit error or its "What do you want to do?" prompt instead of an answer, it closes that prompt right away and goes on without a document. It also goes on without one if no document arrives within 10 minutes.
   3. `/clear` → `/exit` → starts a new conversation with `claude-as.sh`.
   4. It tells the new session to read the handoff document (or, without one, the previous transcript file) and carry on.
 
   Messages sent from the phone during the switch are not typed in; the phone gets a notice instead. The right account is used even in a shell opened before you changed the shell function. If the account is still unchanged after the restart, it stops switching for 6 hours and notifies your phone.
 
-  You can also pick the account per tab in the app. Tap the account chip in a Claude Code tab's input bar (it shows the current account) and choose auto, personal or work. The tab is then restarted on that account in the same way; if it is working, the switch waits until the current task is done (meanwhile the chip shows, for example, "개인→회사", personal to work). The picked account becomes that tab's default: when it passes 95% the tab moves to the other account (with a phone notification) and comes back when the limit resets. Choosing auto goes back to picking by folder and limits. The choice stays with that tab (tmux window); tabs restored after a reboot start on auto.
+  You can also pick the account per tab in the app. Tap the account chip in a Claude Code tab's input bar (it shows the current account) and choose auto, personal or work. The tab is then restarted on that account in the same way; if it is working, the switch waits until the current task is done (meanwhile the chip shows, for example, "개인→회사", personal to work). The picked account becomes that tab's default (past 95% it asks as above). Choosing auto goes back to picking by folder. The choice stays with that tab (tmux window); tabs restored after a reboot start on auto.
+
+  claude.ai artifacts always go to the folder's default account, whatever account the tab is running on. The artifact hook the installer adds (`~/.claude/pi-remote/artifact-relay.mjs`) runs the call through a non-interactive Claude Code on the folder's account when the current account differs, and hands back its result. If the folder's account is out of usage or unreachable, a publish is queued and retried every few minutes, with a phone notification once it is up (the URL is also written to `<working folder>/.work/artifact-relay/`).
+
+- To use Claude in Chrome or Remote Control on the second or extra account, start it with a real login instead of a token. A session started with a long-lived token keeps those features off even when the account is the same (see the Chrome prerequisites in the Claude Code docs). Each account gets its own configuration directory (`~/.claude-personal2`, `~/.claude-work`). Instructions, settings, hooks, and conversation history are shared with `~/.claude` through symlinks; only the login is separate.
+
+  ```sh
+  ~/.claude/pi-remote/login-dir personal2 prepare          # create the directory and the symlinks
+  env CLAUDE_CONFIG_DIR="$HOME/.claude-personal2" claude    # start it, run /login with that account, then /exit (env skips the shell function)
+  ~/.claude/pi-remote/login-dir personal2 ready            # check the login and leave a marker; claude-as.sh now starts this account from that directory
+  ```
+
+  `ready` leaves no marker if you logged in with the same account as the main one. To go back, run `login-dir personal2 off` (token start again; the directory and the login stay). Keep the keychain token (usage lookup and fallback). The Chrome extension only connects while a window of the Chrome profile signed in to that account is open.
 - For pi, install the extension: `sh pi-extension/install.sh --with claude-accounts`.
-- Switching by limit needs each account's usage, and for now only the pi extension `claude-accounts` records it (`~/.cache/pi-remote/claude-accounts.json`). On a Mac with Claude Code only, choosing by folder is all that works. If you store a lookup-only login for the second account (see "Usage" above), the bridge records that account's values in this file.
+- Asking by limit needs each account's usage, and for now only the pi extension `claude-accounts` records it (`~/.cache/pi-remote/claude-accounts.json`). On a Mac with Claude Code only, choosing by folder is all that works. If you store a lookup-only login for the second account (see "Usage" above), the bridge records that account's values in this file.
 
 ### Keeping the Mac on an OpenVPN server
 

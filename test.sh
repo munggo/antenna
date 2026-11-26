@@ -85,13 +85,23 @@ sudo_tab() {
   tmux kill-session -t "$S" 2>/dev/null
   return $rc
 }
+# 로그인 비밀번호 받기 창 시험도 같은 방식(맥 클립보드를 잠깐 쓰고, 시험 전 글로 되돌림)
+password_tab() {
+  S=antennatest
+  tmux kill-session -t "$S" 2>/dev/null
+  tmux new-session -d -s "$S" -x 120 -y 40 -c /tmp || return 1
+  "$NODE" claude-remote/test/password-run-e2e.mjs "$S"
+  rc=$?
+  tmux kill-session -t "$S" 2>/dev/null
+  return $rc
+}
 
 [ -n "$LIST" ] && echo "빠른 시험 묶음(모델을 부르지 않음):"
 
 # ── 판정 시험(다른 프로그램이 필요 없음) ──
 run usage "사용량 기록·공유 값" "$NODE" server/test/usage-history.test.mjs
 run usage-auth "사용량 조회용 로그인: 만료가 가까우면 pi 의 방식으로 갱신(한 번만), 실패해도 로그인 파일은 그대로" "$NODE" server/test/usage-auth.test.mjs
-run usage-login "회사 계정 조회용 로그인 명령: 회사 계정만 저장(개인 계정으로 승인하면 저장 안 함), 토큰을 찍지 않음" "$NODE" server/test/usage-login.test.mjs
+run usage-login "회사·추가 개인 계정 조회용 로그인 명령: 그 계정만 저장(다른 계정으로 승인하면 저장 안 함), 토큰을 찍지 않음" "$NODE" server/test/usage-login.test.mjs
 run status-line "맥 화면 상태 줄에서 모델·생각 깊이 읽기, 입력창이 비었는지" "$NODE" server/test/status-line.test.mjs
 run live-activity "작업 표시(잠금 화면)" "$NODE" server/test/live-activity.test.mjs
 run relay "알림 중계: 본문은 폰만 풀게 잠그고, 중계가 알림 모양을 직접 만들고(받은 글은 싣지 않음), 작업 표시는 상태만" "$NODE" server/test/relay.test.mjs
@@ -103,14 +113,16 @@ run deps "브리지 모듈 폴더 지키기: 지워진 것 알아채기·다시 
 run tls "연결 암호화(인증서·지문, 포트 하나에서 가려 받기)" "$NODE" server/test/tls.test.mjs
 run convert "Claude Code 대화 기록 → 폰 메시지" "$NODE" claude-remote/test/convert-cases.mjs
 run context "Claude Code 탭의 컨텍스트 사용량: 기억 용량·자동 압축 지점·대화 기록에서 따라가기" "$NODE" claude-remote/test/context-cases.mjs
-run account "개인·회사 계정 고르기" "$NODE" claude-remote/test/account-cases.mjs
+run account "개인·회사 계정 고르기(95%를 넘어도 저절로 바꾸지 않음, 물어서 떠난 계정은 한도가 풀리면 돌아옴)" "$NODE" claude-remote/test/account-cases.mjs
+run login-dir "추가 계정을 직접 로그인으로: 설정 폴더 바로가기·계정에 묶인 것은 따로·로그인 확인 표식·켜는 스크립트의 분기" "$NODE" claude-remote/test/login-dir-cases.mjs
+run artifact-relay "아티팩트는 폴더 기준 계정에: 지금 계정이 다르면 대신 올리기·같은 주소·대기열" "$NODE" claude-remote/test/artifact-relay-cases.mjs
 run screen-busy "Claude Code 화면이 일하는 중인지·압축하는 중인지·뒤에서 도는 일" "$NODE" claude-remote/test/screen-busy-cases.mjs
-run screen-dialog "훅 없이 묻는 Claude Code 창(피드백 초안·명령 창) → 폰 카드" "$NODE" claude-remote/test/screen-dialog-cases.mjs
+run screen-dialog "훅 없이 묻는 Claude Code 창(피드백 초안·명령 창·번호 없는 No/Yes 확인) → 폰 카드" "$NODE" claude-remote/test/screen-dialog-cases.mjs
 run bg-line "백그라운드 일의 모델·생각 깊이(맥 화면 한 줄·하위 에이전트 깊이)" "$NODE" claude-remote/test/bg-line-cases.mjs
 run windows "탭 목록: 백그라운드 탭·뒤에서 도는 일·끝난 것 고르기" "$NODE" server/test/windows.test.mjs
 run seen-hook "탭을 고르면 '끝났어요'가 지워지는지(pi 없이도, 따로 띄운 tmux 서버에서)" "$NODE" server/test/seen-hook.test.mjs
 run tmux-env "브리지가 띄운 tmux 서버에 브리지 설정(PORT·암호화만·알림 키 등)이 새지 않는지(따로 띄운 tmux 서버에서)" "$NODE" server/test/tmux-env.test.mjs
-run switch "계정 전환 때 다시 켤 옵션" "$NODE" claude-remote/test/switch-cases.mjs
+run switch "계정 전환 때 다시 켤 옵션·95%를 넘어 묻는 카드 문구" "$NODE" claude-remote/test/switch-cases.mjs
 run vpn-guard "VPN 지킴이(선택 기능): 설정 읽기·터널 지키기" "$NODE" test/vpn-guard.test.mjs
 run qr "짝짓기 QR: 그리기·짝짓기 명령·다시 읽기" "$NODE" test/qr.test.mjs
 run bridge-stale "새 판을 받은 뒤 브리지를 다시 시작해야 하는지(브리지가 뜬 뒤 코드가 바뀌었는지)" "$NODE" test/bridge-stale.test.mjs
@@ -123,16 +135,22 @@ fi
 inline_markdown() {
   xcrun swiftc -parse-as-library ios/PiRemote/InlineMarkdown.swift ios/test/inline-markdown.swift -o "$OUT/inline-markdown" && "$OUT/inline-markdown"
 }
+# 맥이 폰에 없는 메시지만 보낸 대화를 앱이 저장해 둔 것과 이어 붙이는 계산(화면 프레임워크를 쓰지 않는 파일)
+chat_delta_app() {
+  xcrun swiftc -parse-as-library ios/PiRemote/ChatDelta.swift ios/test/chat-delta.swift -o "$OUT/chat-delta" && "$OUT/chat-delta"
+}
 # 알림 본문 잠금(브리지)·풀기(앱 CryptoKit)가 서로 맞는지: 앱의 풀기 파일을 맥에서 컴파일해 브리지가 잠근 것을 풀어 봄
 push_crypto() {
   xcrun swiftc -parse-as-library ios/Shared/PushCrypto.swift ios/test/push-crypto.swift -o "$OUT/push-crypto" && "$NODE" server/test/push-crypto.test.mjs "$OUT/push-crypto"
 }
 if xcrun -f swiftc >/dev/null 2>&1; then
-  run inline-markdown "앱의 글 꾸밈: 물결표 하나짜리(7~12개월)는 취소선이 아님, 코드·링크는 그대로" inline_markdown
+  run inline-markdown "앱의 글 꾸밈: 물결표 하나짜리(7~12개월)는 취소선이 아님, 코드·링크는 그대로, 맥의 그림 경로는 누르면 보는 링크" inline_markdown
   run push-crypto "알림 본문: 브리지가 잠근 것을 앱(CryptoKit)이 풂, 다른 폰 키·건드린 암호문은 안 풀림" push_crypto
+  run chat-delta-app "앱이 받은 대화를 저장해 둔 것과 지문 순서대로 이어 붙임, 맞지 않으면 통째로 다시" chat_delta_app
 else
   skip inline-markdown "swift(Xcode 명령줄 도구)가 없음"
   skip push-crypto "swift(Xcode 명령줄 도구)가 없음"
+  skip chat-delta-app "swift(Xcode 명령줄 도구)가 없음"
 fi
 # 이 저장소에만 있는 내 시험이 있으면 함께 돌린다(test.local.sh 안에서 run 으로 더함)
 if [ -f test.local.sh ]; then
@@ -147,9 +165,12 @@ fi
 # ── 시험용 tmux 세션·시험 브리지를 띄우는 시험(끝나면 지움) ──
 if command -v tmux >/dev/null 2>&1; then
   run sudo-tab "관리자 권한 창(열기·실행·취소·가리기·단계)" sudo_tab
+  run password-tab "로그인 비밀번호 받기 창(폰 알림·클립보드에만·저절로 지우기·취소·닫힘·시간 초과)" password_tab
   run rev-handover "연결부가 새 판으로 스스로 바뀌는지" "$NODE" claude-remote/test/rev-handover-e2e.mjs
+  run account-rev-guard "새 판이 깔린 뒤의 옛 연결부는 계정을 바꾸지 않고 새 판에 맡기는지(판이 같으면 평소처럼 바꿈)" "$NODE" claude-remote/test/account-rev-guard-e2e.mjs
   run stuck-screen "'작업 중' 바로잡기·훅 유실 막기·대화 기록으로 켜기·질문 카드" "$NODE" claude-remote/test/stuck-screen.test.mjs
   run bg-jobs "뒤에서 도는 작업 목록·종료(셸은 바로, 에이전트는 Claude 에게 부탁)" "$NODE" claude-remote/test/bg-jobs.test.mjs
+  run screen-picker "번호 없는 고르기 창(❯ No / Yes)을 폰 카드로 묻고 고른 대로 ↑/↓·Enter" "$NODE" claude-remote/test/screen-picker.test.mjs
   run context-feed "Claude Code 탭의 컨텍스트 사용량이 앱까지 가는지(새 응답·압축·설정·새 대화)" "$NODE" claude-remote/test/context-feed.test.mjs
   run compacting "Claude Code 탭의 '압축하는 중'이 앱까지 가는지(시작·끝·취소·도중에 붙기·새 판 미루기)" "$NODE" claude-remote/test/compacting.test.mjs
   run notify-hold "맥을 쓰는 중이면 폰 알림을 미루는지" "$NODE" server/test/notify-hold-e2e.mjs
@@ -162,13 +183,17 @@ if command -v tmux >/dev/null 2>&1; then
   run battery-bridge "맥북 배터리를 앱에 보내고, 낮으면 폰에 한 번 알림" "$NODE" server/test/battery-bridge.test.mjs
   run new-tab "새 탭에서 고른 도구(Claude Code·pi·Codex·Gemini CLI)를 보던 탭의 폴더에서 켬, 예전 앱은 전처럼, 모르는 값은 무시" "$NODE" server/test/new-tab.test.mjs
   run folder-trust "연결부가 새로 켠 Claude Code 탭(앱의 새 탭·단축어)의 '이 폴더를 믿나요' 창에서 '예'를 누름, pi 는 그대로" "$NODE" server/test/folder-trust.test.mjs
-  run usage-limits "사용량 한도를 계정별로, 모든 모델과 모델별(예: Fable)을 나눠 앱에 보냄(앱의 두 겹 고리가 기대는 구분)" "$NODE" server/test/usage-limits.test.mjs
+  run usage-limits "사용량 한도를 계정별로, 모든 모델과 모델별(예: Fable)을 나눠 앱에 보냄(앱의 두 겹 고리가 기대는 구분, 회사·추가 개인 조회 포함)" "$NODE" server/test/usage-limits.test.mjs
+  run mac-image "답 속 맥의 그림 경로를 폰에서 누르면 브리지가 그 그림을 줌(크기별로 줄임·투명은 PNG, 그림이 아닌 파일은 안 줌)" "$NODE" server/test/mac-image.test.mjs
+  run chat-delta "탭을 바꿀 때 폰에 있는 메시지는 다시 보내지 않음·다른 탭 미리 받기·예전 앱은 전처럼·연결부 기다림 없이 바로" "$NODE" server/test/chat-delta.test.mjs
   run install "설치 명령: 새 맥(가짜 홈)에서 설치·브리지·점검·짝짓기, 새 판을 받은 뒤 다시 돌리면 브리지 다시 시작" "$NODE" test/install.test.mjs
 else
   skip sudo-tab "tmux 가 없음"
   skip rev-handover "tmux 가 없음"
+  skip account-rev-guard "tmux 가 없음"
   skip stuck-screen "tmux 가 없음"
   skip bg-jobs "tmux 가 없음"
+  skip screen-picker "tmux 가 없음"
   skip context-feed "tmux 가 없음"
   skip compacting "tmux 가 없음"
   skip notify-hold "tmux 가 없음"
@@ -182,6 +207,8 @@ else
   skip new-tab "tmux 가 없음"
   run folder-trust "'이 폴더를 믿나요' 창 판정(판정만)" "$NODE" server/test/folder-trust.test.mjs
   skip usage-limits "tmux 가 없음"
+  skip mac-image "tmux 가 없음"
+  skip chat-delta "tmux 가 없음"
   skip install "tmux 가 없음"
 fi
 

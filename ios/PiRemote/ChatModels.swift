@@ -130,10 +130,23 @@ struct ChatEvent: Decodable {
     let notice: String?         // t == snapshot(재시작 직후 안내)
     let jobs: [BgJob]?          // t == bg-jobs: 뒤에서 도는 작업 목록
     let window: Int?            // t == bg-jobs: 어느 탭(창 번호)의 목록인지
+    // t == snapshot, 탭마다 대화를 저장하는 맥 브리지(11-25, ChatDelta·TabChats)
+    let key: String?            // 이 대화의 탭(칸 번호)
+    let hashes: [String]?       // 메시지마다 내용 지문(전체, 순서대로)
+    let delta: Bool?            // 폰에 있는 것은 빼고 보냄
+    let fresh: [Int]?           // delta 일 때 보낸 메시지의 자리(hashes 의 몇 번째인지)
 }
 
 struct ChatEnvelope: Decodable {
     let d: ChatEvent
+}
+
+/// 다른 탭을 미리 받은 결과(맥 브리지의 {type:"chat-bg"}). d: 그 탭의 처음 대화 · unavailable: 대화 피드가 없는 탭 · error: 못 받음
+struct ChatBackground: Decodable {
+    let key: String
+    let d: ChatEvent?
+    let unavailable: Bool?
+    let error: String?
 }
 
 /// 보내자마자 화면에 먼저 띄우는 내 메시지. pi 가 실제로 대화에 넣으면 사라지고 진짜 말풍선으로 바뀐다.
@@ -240,12 +253,147 @@ final class ChatStore: ObservableObject {
     /// 도구가 읽은 사진을 받았을 때(세션이 썸네일 저장소에 넣는다)
     var onToolImage: ((_ id: String, _ data: Data?, _ error: String?) -> Void)?
 
+    // MARK: - 탭마다 저장해 둔 대화(11-25 사용자 요청: 탭을 바꾸면 바로 보이게. TabChats·ChatDelta)
+
+    let tabs = TabChats()
+    /// 지금 화면의 대화가 어느 탭(칸 번호) 것인지. 예전 맥(칸 번호를 주지 않음)이면 nil
+    private(set) var currentKey: String?
+    /// 지금 대화의 메시지 id → 맥이 준 지문(그 뒤 바뀐 메시지는 빠짐)
+    private var msgHash: [String: String] = [:]
+    /// 저장해 둔 대화를 보여 주며 맥의 최신 대화를 기다리는 중
+    @Published private(set) var refreshing = false
+    /// 사용자가 고른 탭과 그 시각. 그 사이 늦게 온 다른 탭의 대화는 화면에 보이지 않고 저장만 한다
+    private var tapKey: String?
+    private var tapAt: Date?
+    /// 칸 번호 → 탭 이름(저장할 때 함께 적어, 칸 번호가 다른 탭에 다시 쓰였을 때 엉뚱한 대화를 보이지 않게)
+    private var tabNames: [String: String] = [:]
+    /// 저장해 둔 것으로 대화를 잇지 못함 → 맥에 그 탭을 통째로 다시 청함
+    var onResync: ((String) -> Void)?
+    /// 화면에 그리기 시작하는 항목 자리. 긴 대화는 최근 것부터 그리고, 맨 위 '이전 대화 더 보기'로 더 그린다
+    /// (탭을 바꿀 때마다 300개를 한꺼번에 그리느라 느렸음)
+    @Published private(set) var firstShown = 0
+    private var resetShown = false
+    /// 대화를 새로 보일 때 처음 그리는 항목 수와 '더 보기'로 더 그리는 수
+    static let firstDraw = 40
+    static let moreDraw = 60
+
+    /// 다른 탭으로 감: 지금 대화를 저장하고, 그 탭의 저장해 둔 대화를 바로 보여 준 뒤 맥의 최신 대화를 기다린다.
+    /// byTap: 사용자가 앱에서 고름(그렇지 않으면 맥에서 바꿨거나 앱을 막 열어 탭 목록을 받은 것)
+    func showTab(key: String, name: String, working: Bool, byTap: Bool) {
+        if byTap {
+            tapKey = key
+            tapAt = Date()
+        }
+        tabNames[key] = name
+        guard key != currentKey else { return }
+        stash()
+        currentKey = key
+        TabChats.lastKey = key
+        // 다른 탭의 질문·승인 카드와 대기열은 치운다(새 탭의 것은 곧 받음)
+        if !meta.approvals.isEmpty { meta.approvals = [] }
+        if !meta.questions.isEmpty { meta.questions = [] }
+        queue = []
+        toolStates = [:]
+        if let s = tabs.get(key), s.name == name {
+            messages = s.messages
+            msgHash = s.hashes
+            truncated = s.truncated
+            meta.agentName = s.agent == "claude" ? "Claude" : "pi"
+            if let n = tabs.takeNotice(key) { showNotice(n) }
+            setState(available: true, working: working)
+        } else {
+            messages = []
+            msgHash = [:]
+            truncated = 0
+            setState(available: available, working: working)
+        }
+        refreshing = true
+        resetShown = true
+        snapshotCount &+= 1
+        rebuild()
+    }
+
+    /// 맥의 탭 목록에서 지금 탭이 바뀜(맥에서 바꿨거나 앱을 막 열었음) → 그 탭의 저장해 둔 대화로.
+    /// 앱에서 방금 고른 탭으로 아직 바뀌기 전(3초 안)의 목록은 따르지 않는다
+    func followTab(key: String, name: String, working: Bool) {
+        tabNames[key] = name
+        if let t = tapAt, Date().timeIntervalSince(t) < 3, tapKey != key { return }
+        if key != currentKey { showTab(key: key, name: name, working: working, byTap: false) }
+    }
+
+    /// 지금 탭의 대화를 저장(다른 탭으로 갈 때·대화를 새로 받을 때·앱이 뒤로 갈 때)
+    private func stash() {
+        guard let key = currentKey, available, !messages.isEmpty else { return }
+        let ids = Set(messages.map(\.id))
+        tabs.put(key, .init(name: tabNames[key] ?? tabs.get(key)?.name ?? "", messages: messages, hashes: msgHash.filter { ids.contains($0.key) },
+                            truncated: truncated, agent: meta.agentName == "Claude" ? "claude" : nil, notice: nil))
+    }
+
+    /// 맥이 준 처음 대화를 메시지 목록으로(폰에 있는 것을 빼고 보냈으면 저장해 둔 것과 이어 붙임). 잇지 못하면 nil
+    private func assemble(_ key: String, _ e: ChatEvent) -> [ChatMessage]? {
+        guard let hashes = e.hashes else { return e.messages ?? [] }
+        return ChatDelta.assemble(hashes: hashes, fresh: e.delta == true ? (e.fresh ?? []) : nil, sent: e.messages ?? [], pool: tabs.pool(key))
+    }
+
+    private static func hashMap(_ list: [ChatMessage], _ hashes: [String]?) -> [String: String] {
+        guard let hashes, hashes.count == list.count else { return [:] }
+        return Dictionary(zip(list.map(\.id), hashes), uniquingKeysWith: { _, b in b })
+    }
+
+    /// 다른 탭의 대화를 받아 저장만 한다(미리 받기·늦게 온 것). 잇지 못하면 false(통째로 다시 받아야 함)
+    @discardableResult
+    func storeBackground(_ key: String, _ e: ChatEvent) -> Bool {
+        guard e.t == "snapshot", let list = assemble(key, e) else { return false }
+        let hashes = Self.hashMap(list, e.hashes)
+        if key == currentKey {
+            tabs.addPool(key, list, hashes)   // 지금 보는 탭이면 화면은 맥의 대화 피드가 맞춘다(다음에 이어 붙일 때만 씀)
+            return true
+        }
+        let old = tabs.get(key)
+        let note = (e.notice ?? "").isEmpty ? old?.notice : e.notice
+        tabs.put(key, .init(name: tabNames[key] ?? old?.name ?? "", messages: list, hashes: hashes,
+                            truncated: e.truncated ?? 0, agent: e.agent, notice: note))
+        return true
+    }
+
+    /// '이전 대화 더 보기'
+    func showMore() {
+        firstShown = max(0, firstShown - Self.moreDraw)
+    }
+
     func apply(_ e: ChatEvent) {
         switch e.t {
         case "snapshot":
+            if let key = e.key, e.hashes != nil {
+                if key != currentKey {
+                    // 사용자가 다른 탭을 고른 사이 늦게 온 대화: 화면에 보이지 않고 저장만
+                    if let t = tapAt, Date().timeIntervalSince(t) < 5, let want = tapKey, want != key {
+                        storeBackground(key, e)
+                        return
+                    }
+                    stash()
+                    currentKey = key
+                    TabChats.lastKey = key
+                }
+                guard let list = assemble(key, e) else {
+                    onResync?(key)   // 저장해 둔 것에 없는 메시지가 있음 → 통째로 다시(그동안 지금 화면은 그대로)
+                    return
+                }
+                messages = list
+                msgHash = Self.hashMap(list, e.hashes)
+                tabs.addPool(key, list, msgHash)
+                if key == tapKey {
+                    tapKey = nil
+                    tapAt = nil
+                }
+            } else {
+                messages = e.messages ?? []
+                msgHash = [:]
+            }
+            refreshing = false
+            resetShown = true
             meta.agentName = e.agent == "claude" ? "Claude" : "pi"
             meta.modelChoices = e.modelChoices ?? []
-            messages = e.messages ?? []
             truncated = e.truncated ?? 0
             toolStates = [:]
             queue = e.queue ?? []
@@ -272,6 +420,7 @@ final class ChatStore: ObservableObject {
             saveCache()
         case "upsert":
             guard let m = e.message else { return }
+            msgHash[m.id] = nil   // 맥이 준 지문과 내용이 달라짐
             if let i = messages.lastIndex(where: { $0.id == m.id }) {
                 messages[i] = m
             } else {
@@ -363,6 +512,7 @@ final class ChatStore: ObservableObject {
             setState(available: available, working: w, since: e.since)
             if !w { clearLeftoverPending(after: 2) }
         case "unavailable":
+            refreshing = false
             setState(available: false, working: false)
             meta.context = nil   // pi 가 없는 창이면 게이지도 숨김
             meta.outdated = false
@@ -452,6 +602,10 @@ final class ChatStore: ObservableObject {
 
     private func rebuild() {
         items = ChatItemBuilder.build(self)
+        if resetShown {
+            resetShown = false
+            firstShown = max(0, items.count - Self.firstDraw)
+        }
         imagePaths = Self.collectImages(messages)
         version &+= 1
     }
@@ -486,36 +640,27 @@ final class ChatStore: ObservableObject {
         setState(available: available, working: false)
     }
 
-    // MARK: - 기기 저장(앱을 다시 열면 마지막 대화를 바로 보여주기)
+    // MARK: - 기기 저장(앱을 다시 열면 마지막으로 본 탭의 대화를 바로 보여주기)
 
-    private struct Cache: Codable {
-        let messages: [ChatMessage]
-        let truncated: Int
-    }
-
-    private static var cacheURL: URL? {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("chat-cache.json")
-    }
-
-    /// 저장된 대화를 불러온다. 있으면 채팅 화면을 바로 보여줄 수 있게 사용 가능 상태로 둔다.
+    /// 마지막으로 본 탭의 저장해 둔 대화를 불러온다. 있으면 채팅 화면을 바로 보여줄 수 있게 사용 가능 상태로 둔다.
     func loadCache() {
-        guard let url = Self.cacheURL, let data = try? Data(contentsOf: url),
-              let c = try? JSONDecoder().decode(Cache.self, from: data) else { return }
-        messages = c.messages
-        truncated = c.truncated
+        guard let key = TabChats.lastKey, let s = tabs.get(key) else { return }
+        currentKey = key
+        tabNames[key] = s.name
+        messages = s.messages
+        msgHash = s.hashes
+        truncated = s.truncated
+        meta.agentName = s.agent == "claude" ? "Claude" : "pi"
         available = true
+        refreshing = true
+        resetShown = true
         snapshotCount &+= 1
         rebuild()
     }
 
-    /// 현재 대화를 저장(사용 가능할 때만). 백그라운드로 갈 때·대화 전체를 받을 때 호출.
+    /// 지금 대화를 저장(사용 가능할 때만). 백그라운드로 갈 때·대화 전체를 받을 때 호출.
     func saveCache() {
-        guard available, !messages.isEmpty, let url = Self.cacheURL else { return }
-        let c = Cache(messages: messages, truncated: truncated)
-        DispatchQueue.global(qos: .utility).async {
-            if let data = try? JSONEncoder().encode(c) { try? data.write(to: url, options: .atomic) }
-        }
+        stash()
     }
 
     /// since: 맥 pi 가 이번 작업을 시작한 시각(ms). 있으면 그 시각부터 센다(앱을 늦게 열어도 실제 경과 시간).

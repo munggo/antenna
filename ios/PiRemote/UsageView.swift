@@ -41,7 +41,7 @@ struct AccountUsage: Decodable, Equatable, Identifiable {
     let daily: [DailyUsage]?
     let updatedAt: Double?   // 회사: 마지막으로 갱신된 시각(ms)
     var id: String { key }
-    var color: Color { key == "work" ? Theme.teal : Theme.accent }
+    var color: Color { key == "work" ? Theme.teal : key == "personal2" ? Theme.green : Theme.accent }   // 추가 개인(11-25)은 초록
     var weekLimit: UsageInfo.Limit? { limits?.first { $0.key == "week" || $0.key == "work:7d" } ?? limits?.first { !$0.session } }
     /// 모델별 주간 한도(예: Fable) 가운데 가장 많이 쓴 것. 없으면 nil
     var modelWeekLimit: UsageInfo.Limit? { UsageInfo.modelWeek(limits, outer: weekLimit) }
@@ -155,7 +155,7 @@ struct UsageSheet: View {
             }
             let limits = a.limits ?? []
             if limits.isEmpty {
-                Text(a.key == "work" ? "회사 계정을 쓰면 사용량이 보여요" : "표시할 한도가 없어요")
+                Text(a.key == "work" ? "회사 계정을 쓰면 사용량이 보여요" : a.key == "personal2" ? "추가 개인 계정을 쓰면 사용량이 보여요" : "표시할 한도가 없어요")
                     .font(.system(size: 15)).foregroundColor(Theme.muted)
             }
             ForEach(Array(limits.enumerated()), id: \.offset) { _, l in

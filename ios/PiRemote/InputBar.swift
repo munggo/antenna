@@ -27,7 +27,7 @@ struct InputBar: View {
     @State private var picked: Set<Int> = []
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showPhotos = false
-    /// 확인 창을 띄운 계정 고르기(auto | personal | work). nil 이면 창 없음
+    /// 확인 창을 띄운 계정 고르기(auto | personal | personal2 | work). nil 이면 창 없음
     @State private var accountAsk: String? = nil
     /// 클립보드에 새로 복사된 사진이 있으면 "복사한 사진 붙이기" 제안(같은 클립보드는 한 번만)
     @State private var clipHasNewImage = false
@@ -167,7 +167,11 @@ struct InputBar: View {
 
     /// 관리자 권한 확인 창(🔐 탭)의 입력: 가려진 칸. 화면에 글자가 보이지 않고, 쓰던 글 저장·자동 고침·낱말 추천에도 남지 않는다
     private var secretField: some View {
-        SecureField("", text: $secret, prompt: Text(session.status != .connected ? "연결 중…" : "비밀번호를 물으면 여기에(가려서 보내요)").foregroundColor(Theme.muted))
+        SecureField("", text: $secret, prompt: Text(session.status != .connected ? "연결 중…"
+                                                    : session.isPasswordTab ? "눌러서 키보드 위 '암호'에서 고르기"
+                                                    : "비밀번호를 물으면 여기에(가려서 보내요)").foregroundColor(Theme.muted))
+            // 로그인 비밀번호 받기 탭: 비밀번호 칸이라고 알려 키보드 위에 아이폰 '암호'(Face ID) 단추가 뜨게 한다
+            .textContentType(session.isPasswordTab ? .password : nil)
             .focused($focused)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
@@ -486,7 +490,7 @@ struct InputBar: View {
     }
     /// Claude 묶음(자동·개인·회사) 말고 로그인된 다른 회사
     private var otherProviders: [String] {
-        providers.filter { !["claude", "anthropic", "anthropic-work"].contains($0) }
+        providers.filter { !["claude", "anthropic", "anthropic-work", "anthropic-personal2"].contains($0) }
     }
     /// 'claude/claude-opus-5-5' → 'Opus 5.5'(맥 하단 줄·칩과 같은 이름)
     static func modelName(_ id: String) -> String {
@@ -604,7 +608,8 @@ struct InputBar: View {
             let moving = !a.next.isEmpty && a.next != a.now
             Menu {
                 Section("이 탭의 계정 · 지금 \(TabAccount.name(a.now))") {
-                    ForEach([("auto", "자동 — 폴더·한도 기준"), ("personal", "개인"), ("work", "회사")], id: \.0) { key, title in
+                    // 추가 개인(personal2): 메인 개인이 한도에 가까울 때 쓰는 둘째 개인 계정(사용자 결정 11-25)
+                    ForEach([("auto", "자동 — 폴더 기준"), ("personal", "개인"), ("personal2", "추가 개인"), ("work", "회사")], id: \.0) { key, title in
                         let picked = (key == "auto" ? "" : key) == a.pin
                         Button {
                             pickAccount(key, current: a)
@@ -614,7 +619,7 @@ struct InputBar: View {
                         .accessibilityIdentifier("account-\(key)")
                     }
                 }
-                Text("바꾸면 지금 대화에 인수인계 문서를 쓰게 한 뒤 새로 켜요. 일하는 중이면 끝난 뒤에 바꿔요. 고른 계정도 한도가 95%를 넘으면 다른 계정으로 넘어가요")
+                Text("바꾸면 지금 대화에 인수인계 문서를 쓰게 한 뒤 새로 켜요. 일하는 중이면 끝난 뒤에 바꿔요. 한도가 95%를 넘으면 그대로 쓸지 바꿀지 물어봐요")
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: moving ? (a.phase == "switch" ? "arrow.triangle.2.circlepath" : "clock") : "person.crop.circle")
