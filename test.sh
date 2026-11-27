@@ -179,6 +179,7 @@ if command -v tmux >/dev/null 2>&1; then
   run screen-login "로그인 같은 맥 화면 창: 접힌 주소를 한 줄로, 폰에서 보낸 코드를 맥 칸에 넣고 Enter, 그사이 창이 바뀌면 넣지 않음" "$NODE" claude-remote/test/screen-login.test.mjs
   run context-feed "Claude Code 탭의 컨텍스트 사용량이 앱까지 가는지(새 응답·압축·설정·새 대화)" "$NODE" claude-remote/test/context-feed.test.mjs
   run compacting "Claude Code 탭의 '압축하는 중'이 앱까지 가는지(시작·끝·취소·도중에 붙기·새 판 미루기)" "$NODE" claude-remote/test/compacting.test.mjs
+  run feed-alive "쉬는 Claude Code 탭의 연결부: 그 탭이 낳은 별도 실행의 훅은 넘기지 않음, 꺼지면 폰이 볼 때 브리지가 다시 띄움(비밀값은 안 넘김), 끝날 때 까닭을 남김" "$NODE" claude-remote/test/feed-alive.test.mjs
   run notify-hold "맥을 쓰는 중이면 폰 알림을 미루는지" "$NODE" server/test/notify-hold-e2e.mjs
   run no-pi "pi 가 없는 맥에서도 브리지가 되는지" "$NODE" server/test/no-pi.test.mjs
   run reach "재부팅 알림: 밖에서 붙을 주소가 올라와 있는지" "$NODE" server/test/reach.test.mjs
@@ -202,6 +203,7 @@ else
   skip screen-picker "tmux 가 없음"
   skip context-feed "tmux 가 없음"
   skip compacting "tmux 가 없음"
+  skip feed-alive "tmux 가 없음"
   skip notify-hold "tmux 가 없음"
   skip no-pi "tmux 가 없음"
   run reach "재부팅 알림: 밖에서 붙을 주소가 올라와 있는지(판정만)" "$NODE" server/test/reach.test.mjs

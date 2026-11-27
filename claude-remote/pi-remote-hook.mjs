@@ -67,6 +67,25 @@ const notClaude = () => {
     return `칸을 읽지 못함(${e?.code ?? e?.signal ?? "오류"})`;
   }
 };
+/** 이 훅을 부른 Claude Code 가 그 칸 Claude Code 가 낳은 별도 실행(그 탭 대화가 돌린 'claude -p' 등)인지: 위로 Claude Code 가 둘 이상.
+ *  그런 실행은 탭 번호(TMUX_PANE)를 물려받아 이 칸으로 오는데, 넘기면 연결부가 그 대화로 화면을 바꾸고 그 끝 신호에 꺼졌다(11-27).
+ *  프로세스 목록을 읽지 못하면 예전처럼 넘긴다. 이름은 대소문자를 가림(Claude 데스크톱 앱 'Claude' 는 아님) */
+const childClaude = () => {
+  const procs = new Map();
+  try {
+    for (const l of execFileSync("ps", ["-axo", "pid=,ppid=,comm="], { encoding: "utf8", timeout: 2000 }).split("\n")) {
+      const m = l.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+      if (m) procs.set(Number(m[1]), { ppid: Number(m[2]), name: m[3].trim().split("/").pop() });
+    }
+  } catch {
+    return false;
+  }
+  let found = 0;
+  for (let p = process.ppid, n = 0; p > 1 && procs.has(p) && n < 64; p = procs.get(p).ppid, n++) {
+    if (/^claude(\.exe)?$|^\d+\.\d+\.\d+$/.test(procs.get(p).name) && ++found >= 2) return true;
+  }
+  return false;
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** 연결부에 한 줄을 넘긴다. 보내고 바로 닫지 않고 연결부가 무엇이든 한 줄 답할 때까지(새 판은 '받았음', 옛 판은 대화 전체) 최대 1.5초 기다린다.
  *  바쁜 연결부가 연결을 늦게 받으면 닫힌 소켓에 쓰다 오류가 나 이 줄까지 버렸다(11-14). 연결이 열려 있으면 그런 일이 없다 */
@@ -150,6 +169,11 @@ process.stdin.on("end", async () => {
       } catch {
         /* 판정을 못 하면 원래 흐름대로 */
       }
+    }
+    // 그 칸 Claude Code 가 낳은 별도 실행의 훅은 그 칸 대화가 아니므로 연결부에 넘기지 않음(위 sudo 바꾸기는 그대로)
+    if (childClaude()) {
+      if (/^Session(Start|End)$/.test(ev.hook_event_name)) miss(ev.hook_event_name, `그 칸 Claude Code 가 낳은 별도 실행(${String(ev.session_id ?? "").slice(0, 8)})이라 넘기지 않음`);
+      return process.exit(0);
     }
     const line = `${JSON.stringify({ cmd: "hook", once: true, event: ev })}\n`;   // once: 보내고 닫는 연결(연결부가 대화를 보내지 않고 '받았음'만 답함)
     if (await send(line)) return process.exit(0);

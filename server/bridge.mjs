@@ -32,6 +32,7 @@ import { createSession, loadSnapshot, saveSnapshot, snapshotTabs } from "./tabs-
 import { editorEmpty, LEVELS, parseStatusLine } from "./status-line.mjs";
 import { finishedBackgroundIds, forApp, parseWindows, SEEN_HOOK, SEEN_HOOK_CMD, WINDOW_FORMAT } from "./windows.mjs";
 import { parseHave, snapshotForApp } from "./chat-delta.mjs";
+import { createFeedReviver } from "./feed-revive.mjs";
 import { accountsState, claimsFromUsage, dailyUsage, MIXED_TEXT, mixedDirection, readUsageHistory, recordSharedClaims, recordUsage, recordWorkUsage, sharedLimits, usageHistoryForApp, workUsageForApp } from "./usage-history.mjs";
 import { loadPiAuth, PI_AUTH_FILE, USAGE_AUTH_FILE, usageToken } from "./usage-auth.mjs";
 import { acceptFolderTrust } from "./folder-trust.mjs";
@@ -518,6 +519,14 @@ setInterval(usageTick, 10 * 60_000);
 const FEED_DIR = `${process.env.HOME}/.cache/pi-remote/feed`;
 // 피드가 잠깐 끊겼을 때 채팅 화면을 유지하는 시간(측정: 다시 불러오기 0.3초, 긴 대화 pi 재시작 3.1초 → 여유 두고 8초)
 const FEED_GRACE_MS = 8000;
+// 보는 Claude Code 탭에 연결부가 없으면 띄움(feed-revive.mjs: 쉬는 탭은 띄워 줄 훅이 오지 않아 폰에 터미널만 보였다, 11-27).
+// 연결부는 Claude Code 연결 설치본(~/.claude/pi-remote, claude-remote/install.sh)
+const reviveFeed = createFeedReviver({
+  tmuxBin: TMUX_BIN,
+  feedScript: `${process.env.HOME}/.claude/pi-remote/claude-feed.mjs`,
+  node: existsSync(`${NODE_DIR}/node`) ? `${NODE_DIR}/node` : process.execPath,
+  log: (m) => console.log(`[pi-remote] ${m}`),
+});
 function activePaneId() {
   try {
     return execSync(`${TMUX_BIN} display -p -t ${SESSION} '#{pane_id}'`, { encoding: "utf8" }).trim();
@@ -1093,6 +1102,7 @@ wss.on("connection", (ws, req) => {
         feedGraceUntil = 0;
         markFeed(false);
       }
+      if (!gotData) reviveFeed(pane);   // Claude Code 탭인데 연결부가 꺼져 있으면 띄움(다음 재시도 때 붙음)
       // pi 가 다시 뜨거나 /reload 하면 소켓이 생기므로 주기적으로 재시도
       feedRetry = setTimeout(() => {
         if (ws.readyState === ws.OPEN && feedPane === pane) connectFeed(pane);

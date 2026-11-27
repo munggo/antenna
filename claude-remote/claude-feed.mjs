@@ -1854,7 +1854,7 @@ export function runFeed(pane) {
       }
       workSince = null;
     } else if (name === "SessionEnd") {
-      if (!switching) finish();   // 계정을 바꾸려고 끈 것이면 이 연결부가 다시 켜서 이어 씀
+      if (!switching) finish(`Claude Code 대화가 끝남(${String(ev.session_id ?? "").slice(0, 8)} ${ev.reason ?? ""})`);   // 계정을 바꾸려고 끈 것이면 이 연결부가 다시 켜서 이어 씀
     }
   };
 
@@ -2280,7 +2280,9 @@ export function runFeed(pane) {
   };
 
   let server = null;
-  const finish = () => {
+  // why: 끝내는 까닭을 이 칸 기록에 남김(11-27 쉬던 탭 연결부들이 흔적 없이 꺼져 까닭을 찾지 못했다)
+  const finish = (why) => {
+    if (why) logHook(`연결부를 끝냄: ${why}`);
     screenAskDone();   // 종료 안내 창에서 끈 것이면 폰 카드도 닫음
     setStatus("");
     tmux("set-option", "-w", "-u", "-t", pane, "@ai_model");
@@ -2365,6 +2367,7 @@ export function runFeed(pane) {
   });
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
     process.on(sig, () => {
+      logHook(`연결부를 끝냄: ${sig} 신호(새 판·다른 연결부가 끄거나 점검 도구가 다시 띄움)`);
       try {
         unlinkSync(sockPath);
       } catch {
@@ -3168,7 +3171,7 @@ export function runFeed(pane) {
     const cmd = tmux("display", "-p", "-t", pane, "#{pane_current_command}");
     gone = switching || (cmd && /^(\S*\/)?claude(\.exe)?$|^\d+\.\d+\.\d+$/i.test(cmd)) ? 0 : gone + 1;
     if (!gone) tidyName();
-    if (gone >= 3) finish();
+    if (gone >= 3) finish(`칸에 Claude Code 가 없음(앞자리 '${cmd ?? "읽지 못함"}')`);
   }, 10_000);
   return { onCommand, snapshot };
 }
